@@ -1,0 +1,16 @@
+# IntelliJ project files
+.idea
+*.iml
+out
+gen
+
+# Build directories
+/target
+
+# Environment files
+.env
+.envrc
+.mise.toml
+
+# Logs
+*.log
