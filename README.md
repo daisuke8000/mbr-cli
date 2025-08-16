@@ -1,4 +1,4 @@
-# rmb-cli
+# mbr-cli
 
 ## Features
 

@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "rmb-cli")]
+#[command(name = "mbr-cli")]
 #[command(about = "Command line interface tool for interacting with Metabase APIs")]
 #[command(version)]
 pub struct Cli {
@@ -14,7 +14,7 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub config_dir: Option<String>,
 
-    #[arg(long, global = true, env = "RMB_API_KEY")]
+    #[arg(long, global = true, env = "MBR_API_KEY")]
     pub api_key: Option<String>,
 
     #[command(subcommand)]

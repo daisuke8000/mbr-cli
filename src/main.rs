@@ -1,5 +1,5 @@
 use clap::Parser;
-use rmb_cli::cli::main_types::Cli;
+use mbr_cli::cli::main_types::Cli;
 
 
 #[tokio::main]
@@ -23,13 +23,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     match &cli.command {
-        rmb_cli::cli::main_types::Commands::Auth { command } => {
+        mbr_cli::cli::main_types::Commands::Auth { command } => {
             println!("Auth command: {:?}", command);
         }
-        rmb_cli::cli::main_types::Commands::Config { command } => {
+        mbr_cli::cli::main_types::Commands::Config { command } => {
             println!("Config command: {:?}", command);
         }
-        rmb_cli::cli::main_types::Commands::Question { command } => {
+        mbr_cli::cli::main_types::Commands::Question { command } => {
             println!("Question command: {:?}", command);
         }
     }
