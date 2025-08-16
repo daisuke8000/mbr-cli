@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 # CLI framework
-clap = { version = "4.0", features = ["derive"] }
+clap = { version = "4.0", features = ["derive", "env"] }
 
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }
