@@ -22,7 +22,8 @@ async-trait = "0.1"
 crossterm = "0.29"
 
 [dev-dependencies]
-# Testing
 tokio-test = "0.4"
 assert_cmd = "2.0"
 predicates = "3.0"
+wiremock = "0.6"
+tempfile = "3.0"
