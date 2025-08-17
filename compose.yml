@@ -1,0 +1,32 @@
+# Docker Compose for mbr-cli API Testing
+# Simple Metabase instance for testing API functionality
+
+services:
+  metabase:
+    image: metabase/metabase:latest
+    container_name: metabase-local
+    ports:
+      - "3000:3000"
+    environment:
+      - JAVA_OPTS=-Xmx1G -Xms256M
+      # Metabase basic configuration
+      - MB_LOG_LEVEL=INFO
+      - MB_TIMEZONE=Asia/Tokyo
+      # H2 database (embedded, no external DB needed)
+      - MB_DB_TYPE=h2
+      - MB_DB_FILE=/metabase-data/metabase
+      # Development settings for easy testing
+      - MB_LOAD_SAMPLE_DATA=true
+      - MB_SITE_NAME=MBR-CLI Development
+    volumes:
+      - metabase-local-data:/metabase-data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    restart: unless-stopped
+
+volumes:
+  metabase-local-data:
