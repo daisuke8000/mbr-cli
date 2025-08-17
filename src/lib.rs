@@ -1,2 +1,2 @@
-mod error;
 pub mod cli;
+mod error;

@@ -1,7 +1,6 @@
 use clap::Parser;
 use mbr_cli::cli::main_types::Cli;
 
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
