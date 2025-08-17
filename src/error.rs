@@ -8,6 +8,14 @@ pub enum AppError {
     Api(#[from] ApiError),
     #[error("ConfigError: {0}")]
     Config(#[from] ConfigError),
+    #[error("AuthError: {0}")]
+    Auth(#[from] AuthError),
+    #[error("StorageError: {0}")]
+    Storage(#[from] StorageError),
+    #[error("DisplayError: {0}")]
+    Display(#[from] DisplayError),
+    #[error("QuestionError: {0}")]
+    Question(#[from] QuestionError),
 }
 
 #[derive(Error, Debug)]
@@ -26,14 +34,12 @@ pub enum CliError {
 pub enum ApiError {
     #[error("Request timed out after {timeout_secs}s")]
     Timeout { timeout_secs: u64, endpoint: String },
-
     #[error("HTTP error: {status} {message}")]
     Http {
         status: u16,
         endpoint: String,
         message: String,
     },
-
     #[error("Authentication failed")]
     Unauthorized {
         status: u16,
@@ -43,19 +49,136 @@ pub enum ApiError {
 }
 
 #[derive(Error, Debug)]
+pub enum AuthError {
+    #[error("Login failed: Invalid credentials")]
+    InvalidCredentials,
+    #[error("Session expired or invalid")]
+    SessionInvalid,
+    #[error("Login failed")]
+    LoginFailed,
+    #[error("API key authentication failed")]
+    ApiKeyInvalid,
+}
+
+#[derive(Error, Debug)]
+pub enum StorageError {
+    #[error("Keyring error: {0}")]
+    KeyringError(String),
+    #[error("File I/O error at {path}: {source}")]
+    FileIo {
+        path: String,
+        source: std::io::Error,
+    },
+    #[error("Session storage failed")]
+    SessionStorageFailed,
+    #[error("Configuration save failed")]
+    ConfigSaveFailed,
+}
+
+#[derive(Error, Debug)]
+pub enum DisplayError {
+    #[error("Table formatting failed: {0}")]
+    TableFormat(String),
+    #[error("Terminal output error: {0}")]
+    TerminalOutput(String),
+    #[error("Pagination error: {0}")]
+    Pagination(String),
+}
+
+#[derive(Error, Debug)]
+pub enum QuestionError {
+    #[error("Question {id} not found")]
+    NotFound { id: u32 },
+    #[error("Question execution failed for ID {id}: {reason}")]
+    ExecutionFailed { id: u32, reason: String },
+    #[error("Invalid parameter {parameter}")]
+    InvalidParameter { parameter: String },
+    #[error("Question list retrieval failed with status {status_code}")]
+    ListFailed { status_code: u16 },
+}
+
+#[derive(Error, Debug)]
 pub enum ConfigError {
     #[error("Configuration file not found: {path}")]
     FileNotFound { path: String, hint: String },
-
     #[error("Configuration field '{field}' is missing")]
     MissingField { field: String, field_type: String },
-
     #[error("Invalid configuration value for '{field}': {value}")]
     InvalidValue {
         field: String,
         value: String,
         reason: String,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ErrorSeverity {
+    Critical,
+    High,
+    Medium,
+    Low,
+}
+
+impl ErrorSeverity {
+    pub fn emoji(&self) -> &'static str {
+        match self {
+            ErrorSeverity::Critical => "🚨",
+            ErrorSeverity::High => "❌",
+            ErrorSeverity::Medium => "⚠️",
+            ErrorSeverity::Low => "ℹ️",
+        }
+    }
+}
+
+impl AppError {
+    pub fn severity(&self) -> ErrorSeverity {
+        match self {
+            AppError::Cli(_) => ErrorSeverity::Medium,
+            AppError::Api(api_error) => match api_error {
+                ApiError::Unauthorized { .. } => ErrorSeverity::High,
+                ApiError::Timeout { .. } => ErrorSeverity::Medium,
+                ApiError::Http { status, .. } if *status >= 500 => ErrorSeverity::High,
+                _ => ErrorSeverity::Medium,
+            },
+            AppError::Config(_) => ErrorSeverity::High,
+            AppError::Auth(_) => ErrorSeverity::High,
+            AppError::Storage(_) => ErrorSeverity::Medium,
+            AppError::Display(_) => ErrorSeverity::Low,
+            AppError::Question(_) => ErrorSeverity::Medium,
+        }
+    }
+
+    pub fn display_friendly(&self) -> String {
+        match self {
+            AppError::Auth(AuthError::InvalidCredentials) => "Invalid credentials".to_string(),
+            AppError::Auth(AuthError::SessionInvalid) => "Session expired or invalid".to_string(),
+            AppError::Config(ConfigError::FileNotFound { .. }) => {
+                "configuration file not found: ".to_string()
+            }
+            AppError::Question(QuestionError::NotFound { id }) => {
+                format!("Question {} not found", id)
+            }
+            _ => format!("{}", self),
+        }
+    }
+
+    pub fn troubleshooting_hint(&self) -> Option<String> {
+        match self {
+            AppError::Auth(AuthError::InvalidCredentials | AuthError::SessionInvalid) => {
+                Some("'mbr-cli auth login' try again".to_string())
+            }
+            AppError::Config(ConfigError::FileNotFound { .. }) => {
+                Some("config set <field> <value> to set a configuration value".to_string())
+            }
+            AppError::Api(ApiError::Timeout { .. }) => {
+                Some("Check your internet or Metabase connection and try again".to_string())
+            }
+            AppError::Question(QuestionError::NotFound { .. }) => {
+                Some("'mbr-cli question list' to see a list of available questions".to_string())
+            }
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
