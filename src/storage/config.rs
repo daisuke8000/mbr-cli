@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Config {
     pub default_profile: Option<String>,
     pub profiles: HashMap<String, Profile>,
@@ -20,13 +20,6 @@ pub struct Profile {
 }
 
 impl Config {
-    pub fn default() -> Self {
-        Self {
-            default_profile: None,
-            profiles: HashMap::new(),
-        }
-    }
-
     pub fn load(path: Option<PathBuf>) -> Result<Self> {
         let config_path = match path {
             Some(p) => p,
@@ -34,7 +27,7 @@ impl Config {
         };
 
         if !config_path.exists() {
-            return Ok(Self::default());
+            return Ok(Config::default());
         }
 
         let content = fs::read_to_string(&config_path).map_err(|source| StorageError::FileIo {
@@ -130,8 +123,10 @@ mod tests {
         let config_path = temp_dir.path().join("config.toml");
 
         // Create a sample config
-        let mut config = Config::default();
-        config.default_profile = Some("test".to_string());
+        let mut config = Config {
+            default_profile: Some("test".to_string()),
+            ..Default::default()
+        };
         config.profiles.insert(
             "test".to_string(),
             Profile {
