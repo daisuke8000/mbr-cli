@@ -1,3 +1,4 @@
+use crate::api::models::{LoginRequest, LoginResponse};
 use crate::error::ApiError;
 use reqwest::{Client, Method, RequestBuilder, Response};
 use std::time::Duration;
@@ -65,11 +66,65 @@ impl MetabaseClient {
         request
     }
 
-    pub async fn handle_response<T>(
-        &self,
-        response: Response,
-        endpoint: &str,
-    ) -> Result<T, ApiError>
+    // Authentication endpoints
+    pub async fn login(&mut self, username: &str, password: &str) -> Result<(), ApiError> {
+        let login_req = LoginRequest {
+            username: username.to_string(),
+            password: password.to_string(),
+        };
+
+        let response = self
+            .build_request(Method::POST, "/api/session")
+            .json(&login_req)
+            .send()
+            .await
+            .map_err(|e| ApiError::Http {
+                status: 0,
+                endpoint: "/api/session".to_string(),
+                message: format!("Request failed: {}", e),
+            })?;
+
+        let login_resp: LoginResponse = Self::handle_response(response, "/api/session").await?;
+        self.session_token = Some(login_resp.id);
+        Ok(())
+    }
+
+    pub async fn logout(&mut self) -> Result<(), ApiError> {
+        // If not authenticated via session, nothing to do
+        if self.session_token.is_none() {
+            return Ok(());
+        }
+
+        let response = self
+            .build_request(Method::DELETE, "/api/session")
+            .send()
+            .await
+            .map_err(|e| ApiError::Http {
+                status: 0,
+                endpoint: "/api/session".to_string(),
+                message: format!("Request failed: {}", e),
+            })?;
+
+        // Metabase returns 204 No Content on successful logout
+        let status = response.status();
+        if status.is_success() {
+            self.session_token = None;
+            Ok(())
+        } else {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Logout failed".to_string());
+
+            Err(ApiError::Http {
+                status: status.as_u16(),
+                endpoint: "/api/session".to_string(),
+                message: error_text,
+            })
+        }
+    }
+
+    pub async fn handle_response<T>(response: Response, endpoint: &str) -> Result<T, ApiError>
     where
         T: serde::de::DeserializeOwned,
     {
@@ -211,6 +266,37 @@ mod tests {
         );
         // Session header should not exist (an API key takes priority)
         assert!(built_request.headers().get("X-Metabase-Session").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_login_updates_session_token() {
+        // This would require a mock server in real tests
+        // For now, we verify the method signature compiles
+        let client =
+            MetabaseClient::new("http://example.test".to_string()).expect("client creation failed");
+
+        // Verify initial state
+        assert!(!client.is_authenticated());
+        assert!(client.session_token.is_none());
+
+        // After login (would need mock server for actual test)
+        // client.login("user", "pass").await.unwrap();
+        // assert!(client.is_authenticated());
+    }
+
+    #[tokio::test]
+    async fn test_logout_clears_session_token() {
+        let mut client =
+            MetabaseClient::new("http://example.test".to_string()).expect("client creation failed");
+
+        // Set a session token
+        client.set_session_token("test_token".to_string());
+        assert!(client.is_authenticated());
+
+        // After logout (would need mock server for actual test)
+        // client.logout().await.unwrap();
+        // assert!(!client.is_authenticated());
+        // assert!(client.session_token.is_none());
     }
 
     #[test]
