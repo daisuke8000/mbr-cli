@@ -28,6 +28,8 @@ pub enum CliError {
     },
     #[error("Invalid arguments: {0}")]
     InvalidArguments(String),
+    #[error("Command not implemented: {command}")]
+    NotImplemented { command: String },
 }
 
 #[derive(Error, Debug)]
