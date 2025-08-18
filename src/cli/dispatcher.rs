@@ -3,11 +3,8 @@ use crate::error::{AppError, CliError};
 use crate::storage::config::Config;
 use crate::storage::credentials::Credentials;
 
-// TODO: after refactoring, this should be used to access config values
 pub struct Dispatcher {
-    #[allow(dead_code)]
     config: Config,
-    #[allow(dead_code)]
     credentials: Credentials,
     verbose: bool,
 }
@@ -51,9 +48,43 @@ impl Dispatcher {
                 if self.verbose {
                     println!("Verbose: Attempting auth status command");
                 }
-                Err(AppError::Cli(CliError::NotImplemented {
-                    command: "auth status".to_string(),
-                }))
+
+                // Show authentication status
+                println!("Authentication Status:");
+                println!("=====================");
+
+                let auth_mode = self.credentials.get_auth_mode();
+                match auth_mode {
+                    crate::storage::credentials::AuthMode::APIKey => {
+                        println!("Authentication Mode: API Key");
+                        // API key is set via environment variable
+                        if let Ok(key) = std::env::var("MBR_API_KEY") {
+                            // Mask the API key for security
+                            let masked = if key.len() > 8 {
+                                format!("{}...{}", &key[..4], &key[key.len() - 4..])
+                            } else {
+                                "*****".to_string()
+                            };
+                            println!("API Key: {}", masked);
+                        } else {
+                            println!("API Key: (not set)");
+                        }
+                    }
+                    crate::storage::credentials::AuthMode::Session => {
+                        println!("Authentication Mode: Session");
+                        // Session token would be stored in the keyring
+                        println!("Session: Check using 'auth login' to authenticate");
+                    }
+                }
+
+                // Profile is determined by the current config
+                if let Some(profile) = &self.config.default_profile {
+                    println!("\nActive Profile: {}", profile);
+                } else {
+                    println!("\nActive Profile: (default)");
+                }
+
+                Ok(())
             }
         }
     }
@@ -64,9 +95,34 @@ impl Dispatcher {
                 if self.verbose {
                     println!("Verbose: Attempting config show command");
                 }
-                Err(AppError::Cli(CliError::NotImplemented {
-                    command: "config show".to_string(),
-                }))
+
+                // Show current configuration
+                println!("Current Configuration:");
+                println!("=====================");
+
+                if let Some(default_profile) = &self.config.default_profile {
+                    println!("Default Profile: {}", default_profile);
+                } else {
+                    println!("Default Profile: (not set)");
+                }
+
+                println!("\nProfiles:");
+                if self.config.profiles.is_empty() {
+                    println!("  No profiles configured");
+                } else {
+                    for (name, profile) in &self.config.profiles {
+                        println!("  [{}]", name);
+                        println!("    Metabase URL: {}", profile.metabase_url);
+                        if let Some(timeout) = profile.timeout_seconds {
+                            println!("    Timeout: {} seconds", timeout);
+                        }
+                        if let Some(cache) = profile.cache_enabled {
+                            println!("    Cache: {}", if cache { "enabled" } else { "disabled" });
+                        }
+                    }
+                }
+
+                Ok(())
             }
             ConfigCommands::Set { key, value } => {
                 if self.verbose {
@@ -177,27 +233,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_auth_status_not_implemented() {
+    async fn test_auth_status_implemented() {
         let d = create_test_dispatcher(true);
         let result = d.handle_auth_command(AuthCommands::Status).await;
-        assert!(result.is_err());
-        if let Err(AppError::Cli(CliError::NotImplemented { command })) = result {
-            assert_eq!(command, "auth status");
-        } else {
-            panic!("Expected NotImplemented error for auth status");
-        }
+        // auth status should now succeed
+        assert!(result.is_ok());
     }
 
     #[tokio::test]
-    async fn test_config_show_not_implemented() {
+    async fn test_config_show_implemented() {
         let d = create_test_dispatcher(true);
         let result = d.handle_config_command(ConfigCommands::Show).await;
-        assert!(result.is_err());
-        if let Err(AppError::Cli(CliError::NotImplemented { command })) = result {
-            assert_eq!(command, "config show");
-        } else {
-            panic!("Expected NotImplemented error for config show");
-        }
+        // config show should now succeed
+        assert!(result.is_ok());
     }
 
     #[tokio::test]
@@ -263,18 +311,32 @@ mod tests {
     #[tokio::test]
     async fn test_dispatch_cmd() {
         let d = create_test_dispatcher(true);
+
+        // Auth login should still fail (not implemented)
         let result = d
             .dispatch(Commands::Auth {
                 command: AuthCommands::Login,
             })
             .await;
         assert!(result.is_err());
+
+        // Config show should now succeed
         let result = d
             .dispatch(Commands::Config {
                 command: ConfigCommands::Show,
             })
             .await;
-        assert!(result.is_err());
+        assert!(result.is_ok());
+
+        // Auth status should now succeed
+        let result = d
+            .dispatch(Commands::Auth {
+                command: AuthCommands::Status,
+            })
+            .await;
+        assert!(result.is_ok());
+
+        // Question list should still fail (not implemented)
         let result = d
             .dispatch(Commands::Question {
                 command: QuestionCommands::List {

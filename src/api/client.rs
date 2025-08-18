@@ -271,7 +271,7 @@ mod tests {
     #[tokio::test]
     async fn test_login_updates_session_token() {
         // This would require a mock server in real tests
-        // For now, we verify the method signature compiles
+        // For now; we verify the method signature compiles
         let client =
             MetabaseClient::new("http://example.test".to_string()).expect("client creation failed");
 
@@ -279,7 +279,7 @@ mod tests {
         assert!(!client.is_authenticated());
         assert!(client.session_token.is_none());
 
-        // After login (would need mock server for actual test)
+        // After login (would need a mock server for actual test)
         // client.login("user", "pass").await.unwrap();
         // assert!(client.is_authenticated());
     }
@@ -293,7 +293,7 @@ mod tests {
         client.set_session_token("test_token".to_string());
         assert!(client.is_authenticated());
 
-        // After logout (would need mock server for actual test)
+        // After logout (would need a mock server for actual test)
         // client.logout().await.unwrap();
         // assert!(!client.is_authenticated());
         // assert!(client.session_token.is_none());

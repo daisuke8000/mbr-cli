@@ -75,6 +75,10 @@ pub enum StorageError {
     SessionStorageFailed,
     #[error("Configuration save failed")]
     ConfigSaveFailed,
+    #[error("Configuration parse error: {message}")]
+    ConfigParseError { message: String },
+    #[error("Configuration directory not found")]
+    ConfigDirNotFound,
 }
 
 #[derive(Error, Debug)]

@@ -10,7 +10,7 @@ pub struct Credentials {
     email: Option<String>,
     password: Option<String>,
     session_token: Option<String>,
-    profile_name: String,
+    pub profile_name: String,
 }
 
 pub enum AuthMode {

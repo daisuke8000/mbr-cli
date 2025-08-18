@@ -36,7 +36,9 @@ impl Config {
         })?;
 
         let config: Config =
-            toml::from_str(&content).map_err(|_| StorageError::ConfigSaveFailed)?; // TODO: better error handling
+            toml::from_str(&content).map_err(|e| StorageError::ConfigParseError {
+                message: format!("Failed to parse config file: {}", e),
+            })?;
 
         Ok(config)
     }
@@ -54,7 +56,9 @@ impl Config {
             })?;
         }
 
-        let toml_content = toml::to_string(self).map_err(|_| StorageError::ConfigSaveFailed)?; // TODO: better error handling
+        let toml_content = toml::to_string(self).map_err(|e| StorageError::ConfigParseError {
+            message: format!("Failed to serialize config: {}", e),
+        })?;
 
         fs::write(&config_path, toml_content).map_err(|source| StorageError::FileIo {
             path: config_path.to_string_lossy().to_string(),
@@ -65,7 +69,7 @@ impl Config {
     }
 
     fn config_file_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir().ok_or(StorageError::ConfigSaveFailed)?; // TODO: better error handling
+        let config_dir = dirs::config_dir().ok_or(StorageError::ConfigDirNotFound)?;
 
         let app_config_dir = config_dir.join("mbr-cli");
         let config_file = app_config_dir.join("config.toml");
