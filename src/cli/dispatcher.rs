@@ -1,7 +1,72 @@
+use crate::api::client::MetabaseClient;
 use crate::cli::main_types::{AuthCommands, Commands, ConfigCommands, QuestionCommands};
 use crate::error::{AppError, CliError};
 use crate::storage::config::Config;
 use crate::storage::credentials::Credentials;
+use rpassword::read_password;
+use std::io::{self, Write};
+
+// TODO(human): Implement LoginInput struct for cleaner input handling
+struct LoginInput {
+    username: String,
+    password: String,
+}
+
+impl LoginInput {
+    fn collect() -> Result<Self, AppError> {
+        // Username
+        print!("Username: ");
+        io::stdout().flush().map_err(|e| {
+            AppError::Cli(CliError::InvalidArguments(format!(
+                "Failed to flush stdout: {}",
+                e
+            )))
+        })?;
+
+        let mut username = String::new();
+        io::stdin().read_line(&mut username).map_err(|e| {
+            AppError::Cli(CliError::InvalidArguments(format!(
+                "Failed to read username: {}",
+                e
+            )))
+        })?;
+
+        // Password
+        print!("Password: ");
+        io::stdout().flush().map_err(|e| {
+            AppError::Cli(CliError::InvalidArguments(format!(
+                "Failed to flush stdout: {}",
+                e
+            )))
+        })?;
+
+        let password = read_password().map_err(|e| {
+            AppError::Cli(CliError::InvalidArguments(format!(
+                "Failed to read password: {}",
+                e
+            )))
+        })?;
+
+        Ok(Self {
+            username: username.trim().to_string(),
+            password: password.trim().to_string(),
+        })
+    }
+
+    fn validate(&self) -> Result<(), AppError> {
+        if self.username.is_empty() {
+            return Err(AppError::Cli(CliError::InvalidArguments(
+                "Username cannot be empty".to_string(),
+            )));
+        }
+        if self.password.is_empty() {
+            return Err(AppError::Cli(CliError::InvalidArguments(
+                "Password cannot be empty".to_string(),
+            )));
+        }
+        Ok(())
+    }
+}
 
 pub struct Dispatcher {
     config: Config,
@@ -32,17 +97,48 @@ impl Dispatcher {
                 if self.verbose {
                     println!("Verbose: Attempting auth login command");
                 }
-                Err(AppError::Cli(CliError::NotImplemented {
-                    command: "auth login".to_string(),
-                }))
+                let input = LoginInput::collect()?;
+                input.validate()?;
+                let profile = self
+                    .config
+                    .get_profile(&self.credentials.profile_name)
+                    .ok_or_else(|| {
+                        AppError::Cli(CliError::InvalidArguments(format!(
+                            "Profile '{}' not found. Please configure a profile first.",
+                            self.credentials.profile_name
+                        )))
+                    })?;
+
+                let mut client = MetabaseClient::new(profile.metabase_url.clone())?;
+                match client.login(&input.username, &input.password).await {
+                    Ok(_) => {
+                        if let Some(token) = client.get_session_token() {
+                            Credentials::save_session_for_profile(
+                                &self.credentials.profile_name,
+                                &token,
+                            )?;
+                        }
+
+                        println!("✅ Successfully logged in as {}", input.username);
+                        println!("Connected to: {}", profile.metabase_url);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        println!("❌ Login failed: {}", e);
+                        Err(AppError::Api(e))
+                    }
+                }
             }
             AuthCommands::Logout => {
                 if self.verbose {
                     println!("Verbose: Attempting auth logout command");
                 }
-                Err(AppError::Cli(CliError::NotImplemented {
-                    command: "auth logout".to_string(),
-                }))
+                Credentials::clear_session_for_profile(&self.credentials.profile_name)?;
+                println!(
+                    "✅ Successfully logged out from profile: {}",
+                    self.credentials.profile_name
+                );
+                Ok(())
             }
             AuthCommands::Status => {
                 if self.verbose {
@@ -205,31 +301,21 @@ mod tests {
     #[tokio::test]
     async fn test_dispatcher_creation() {
         let d = create_test_dispatcher(true);
-        assert_eq!(d.verbose, true);
+        assert!(d.verbose);
     }
 
-    #[tokio::test]
-    async fn test_auth_login_not_implemented() {
-        let d = create_test_dispatcher(true);
-        let result = d.handle_auth_command(AuthCommands::Login).await;
-        assert!(result.is_err());
-        if let Err(AppError::Cli(CliError::NotImplemented { command })) = result {
-            assert_eq!(command, "auth login");
-        } else {
-            panic!("Expected NotImplemented error for auth login");
-        }
-    }
+    // Note: auth login requires interactive input, so we can't easily test the full flow
+    // TODO: Add integration tests with mock stdin for auth login
 
     #[tokio::test]
-    async fn test_auth_logout_not_implemented() {
+    async fn test_auth_logout_implemented() {
         let d = create_test_dispatcher(true);
         let result = d.handle_auth_command(AuthCommands::Logout).await;
-        assert!(result.is_err());
-        if let Err(AppError::Cli(CliError::NotImplemented { command })) = result {
-            assert_eq!(command, "auth logout");
-        } else {
-            panic!("Expected NotImplemented error for auth logout");
-        }
+        // In test environment, this should succeed (uses mock credentials)
+        assert!(
+            result.is_ok(),
+            "Auth logout should succeed in test environment"
+        );
     }
 
     #[tokio::test]
@@ -312,13 +398,9 @@ mod tests {
     async fn test_dispatch_cmd() {
         let d = create_test_dispatcher(true);
 
-        // Auth login should still fail (not implemented)
-        let result = d
-            .dispatch(Commands::Auth {
-                command: AuthCommands::Login,
-            })
-            .await;
-        assert!(result.is_err());
+        // Auth login will fail because it requires interactive input
+        // In a real test environment, we'd need to mock stdin
+        // For now, we skip testing the login command here
 
         // Config show should now succeed
         let result = d
@@ -332,6 +414,14 @@ mod tests {
         let result = d
             .dispatch(Commands::Auth {
                 command: AuthCommands::Status,
+            })
+            .await;
+        assert!(result.is_ok());
+
+        // Auth logout should succeed
+        let result = d
+            .dispatch(Commands::Auth {
+                command: AuthCommands::Logout,
             })
             .await;
         assert!(result.is_ok());

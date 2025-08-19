@@ -62,6 +62,21 @@ impl Credentials {
         Ok(())
     }
 
+    // use login
+    pub fn save_session_for_profile(profile_name: &str, token: &str) -> Result<()> {
+        let mut credentials = Self::new(profile_name.to_string());
+        credentials.session_token = Some(token.to_string());
+        credentials.save_credentials("session", &credentials.session_token)?;
+        Ok(())
+    }
+
+    // use logout
+    pub fn clear_session_for_profile(profile_name: &str) -> Result<()> {
+        let credentials = Self::new(profile_name.to_string());
+        credentials.save_credentials("session", &None)?;
+        Ok(())
+    }
+
     #[cfg(not(test))]
     fn save_credentials(&self, key_type: &str, value: &Option<String>) -> Result<()> {
         if let Some(v) = value {
