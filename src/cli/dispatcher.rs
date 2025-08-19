@@ -1,72 +1,9 @@
 use crate::api::client::MetabaseClient;
 use crate::cli::main_types::{AuthCommands, Commands, ConfigCommands, QuestionCommands};
+use crate::core::auth::LoginInput;
 use crate::error::{AppError, CliError};
 use crate::storage::config::Config;
 use crate::storage::credentials::Credentials;
-use rpassword::read_password;
-use std::io::{self, Write};
-
-// TODO(human): Implement LoginInput struct for cleaner input handling
-struct LoginInput {
-    username: String,
-    password: String,
-}
-
-impl LoginInput {
-    fn collect() -> Result<Self, AppError> {
-        // Username
-        print!("Username: ");
-        io::stdout().flush().map_err(|e| {
-            AppError::Cli(CliError::InvalidArguments(format!(
-                "Failed to flush stdout: {}",
-                e
-            )))
-        })?;
-
-        let mut username = String::new();
-        io::stdin().read_line(&mut username).map_err(|e| {
-            AppError::Cli(CliError::InvalidArguments(format!(
-                "Failed to read username: {}",
-                e
-            )))
-        })?;
-
-        // Password
-        print!("Password: ");
-        io::stdout().flush().map_err(|e| {
-            AppError::Cli(CliError::InvalidArguments(format!(
-                "Failed to flush stdout: {}",
-                e
-            )))
-        })?;
-
-        let password = read_password().map_err(|e| {
-            AppError::Cli(CliError::InvalidArguments(format!(
-                "Failed to read password: {}",
-                e
-            )))
-        })?;
-
-        Ok(Self {
-            username: username.trim().to_string(),
-            password: password.trim().to_string(),
-        })
-    }
-
-    fn validate(&self) -> Result<(), AppError> {
-        if self.username.is_empty() {
-            return Err(AppError::Cli(CliError::InvalidArguments(
-                "Username cannot be empty".to_string(),
-            )));
-        }
-        if self.password.is_empty() {
-            return Err(AppError::Cli(CliError::InvalidArguments(
-                "Password cannot be empty".to_string(),
-            )));
-        }
-        Ok(())
-    }
-}
 
 pub struct Dispatcher {
     config: Config,
@@ -83,6 +20,12 @@ impl Dispatcher {
         }
     }
 
+    fn log_verbose(&self, msg: &str) {
+        if self.verbose {
+            println!("Verbose: {}", msg);
+        }
+    }
+
     pub async fn dispatch(&self, command: Commands) -> Result<(), AppError> {
         match command {
             Commands::Auth { command } => self.handle_auth_command(command).await,
@@ -94,9 +37,7 @@ impl Dispatcher {
     async fn handle_auth_command(&self, commands: AuthCommands) -> Result<(), AppError> {
         match commands {
             AuthCommands::Login => {
-                if self.verbose {
-                    println!("Verbose: Attempting auth login command");
-                }
+                self.log_verbose("Attempting auth login command");
                 let input = LoginInput::collect()?;
                 input.validate()?;
                 let profile = self
@@ -130,9 +71,7 @@ impl Dispatcher {
                 }
             }
             AuthCommands::Logout => {
-                if self.verbose {
-                    println!("Verbose: Attempting auth logout command");
-                }
+                self.log_verbose("Attempting auth logout command");
                 Credentials::clear_session_for_profile(&self.credentials.profile_name)?;
                 println!(
                     "✅ Successfully logged out from profile: {}",
@@ -141,9 +80,7 @@ impl Dispatcher {
                 Ok(())
             }
             AuthCommands::Status => {
-                if self.verbose {
-                    println!("Verbose: Attempting auth status command");
-                }
+                self.log_verbose("Attempting auth status command");
 
                 // Show authentication status
                 println!("Authentication Status:");
@@ -188,11 +125,9 @@ impl Dispatcher {
     async fn handle_config_command(&self, commands: ConfigCommands) -> Result<(), AppError> {
         match commands {
             ConfigCommands::Show => {
-                if self.verbose {
-                    println!("Verbose: Attempting config show command");
-                }
+                self.log_verbose("Attempting config show command");
 
-                // Show current configuration
+                // Show the current configuration
                 println!("Current Configuration:");
                 println!("=====================");
 
@@ -221,12 +156,10 @@ impl Dispatcher {
                 Ok(())
             }
             ConfigCommands::Set { key, value } => {
-                if self.verbose {
-                    println!(
-                        "Verbose: Attempting config set - key: {}, value: {}",
-                        key, value
-                    );
-                }
+                self.log_verbose(&format!(
+                    "Attempting config set - key: {}, value: {}",
+                    key, value
+                ));
                 Err(AppError::Cli(CliError::NotImplemented {
                     command: format!("config set - key: {}, value: {}", key, value),
                 }))
@@ -237,12 +170,10 @@ impl Dispatcher {
     async fn handle_question_command(&self, commands: QuestionCommands) -> Result<(), AppError> {
         match commands {
             QuestionCommands::Execute { id, param, limit } => {
-                if self.verbose {
-                    println!(
-                        "Verbose: Attempting question execute command - ID: {}, Params: {:?}, Limit: {:?}",
-                        id, param, limit
-                    );
-                }
+                self.log_verbose(&format!(
+                    "Attempting question execute command - ID: {}, Params: {:?}, Limit: {:?}",
+                    id, param, limit
+                ));
                 Err(AppError::Cli(CliError::NotImplemented {
                     command: format!(
                         "question execute - ID: {}, Params: {:?}, Limit: {:?}",
@@ -255,12 +186,10 @@ impl Dispatcher {
                 limit,
                 collection,
             } => {
-                if self.verbose {
-                    println!(
-                        "Verbose: Attempting question list command - Search: {:?}, Limit: {}, Collection: {:?}",
-                        search, limit, collection
-                    );
-                }
+                self.log_verbose(&format!(
+                    "Attempting question list command - Search: {:?}, Limit: {}, Collection: {:?}",
+                    search, limit, collection
+                ));
                 Err(AppError::Cli(CliError::NotImplemented {
                     command: format!(
                         "question list - Search: {:?}, Limit: {}, Collection: {:?}",
@@ -311,7 +240,7 @@ mod tests {
     async fn test_auth_logout_implemented() {
         let d = create_test_dispatcher(true);
         let result = d.handle_auth_command(AuthCommands::Logout).await;
-        // In test environment, this should succeed (uses mock credentials)
+        // In a test environment, this should succeed (uses mock credentials)
         assert!(
             result.is_ok(),
             "Auth logout should succeed in test environment"

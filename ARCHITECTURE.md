@@ -287,7 +287,9 @@ flowchart LR
 - **Error System** (src/error.rs): Full hierarchy with AppError, CliError, ApiError, ConfigError, AuthError, StorageError
 - **CLI Layer**:
   - main_types.rs: Command structure with clap derive macros
-  - dispatcher.rs: Command routing with auth login/logout, config show
+  - dispatcher.rs: Command routing with auth login/logout, config show, verbose logging helper
+- **Core Layer**:
+  - auth.rs: LoginInput struct for authentication input handling and validation
 - **Storage Layer**:
   - config.rs: TOML configuration with profile management
   - credentials.rs: Keyring integration with session persistence
@@ -300,7 +302,6 @@ flowchart LR
 - **Question Commands**: List and execute operations
 
 ### Not Implemented ⏳
-- **Core Layer**: Business logic services
 - **Utils Layer**: Display utilities, progress indicators
 - **Config Commands**: Set operations
 - **Cache System**: Response caching mechanism

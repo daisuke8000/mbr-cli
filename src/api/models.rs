@@ -84,7 +84,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_collection_id_with_question() {
-        // Test with "root" string
+        // Test with a "root" string
         let json = r#"{
             "id": 1,
             "name": "Test Question",
