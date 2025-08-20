@@ -3,7 +3,7 @@ use crate::cli::main_types::{AuthCommands, Commands, ConfigCommands, QuestionCom
 use crate::core::auth::LoginInput;
 use crate::error::{AppError, CliError};
 use crate::storage::config::Config;
-use crate::storage::credentials::Credentials;
+use crate::storage::credentials::{AuthMode, Credentials};
 
 pub struct Dispatcher {
     config: Config,
@@ -12,17 +12,53 @@ pub struct Dispatcher {
 }
 
 impl Dispatcher {
-    pub fn new(config: Config, credentials: Credentials, verbose: bool) -> Self {
+    // Static helper function for verbose logging (used before self exists)
+    fn print_verbose(verbose: bool, msg: &str) {
+        if verbose {
+            println!("Verbose: {}", msg);
+        }
+    }
+
+    // Instance method for verbose logging
+    fn log_verbose(&self, msg: &str) {
+        Self::print_verbose(self.verbose, msg);
+    }
+
+    pub fn new(config: Config, mut credentials: Credentials, verbose: bool) -> Self {
+        // Session auto-restoration logic
+        // Skip if an API key is set (an API key has priority)
+        if matches!(credentials.get_auth_mode(), AuthMode::Session) {
+            Self::print_verbose(verbose, "Checking for saved session token...");
+
+            match Credentials::load(&credentials.profile_name) {
+                Ok(loaded_creds) => {
+                    credentials = loaded_creds;
+                    Self::print_verbose(
+                        verbose,
+                        &format!(
+                            "Session credentials loaded for profile: {}",
+                            credentials.profile_name
+                        ),
+                    );
+                }
+                Err(_) => {
+                    Self::print_verbose(
+                        verbose,
+                        &format!(
+                            "No saved session token found for profile: {}",
+                            credentials.profile_name
+                        ),
+                    );
+                }
+            }
+        } else {
+            Self::print_verbose(verbose, "API key is set, skipping session restoration");
+        }
+
         Self {
             config,
             credentials,
             verbose,
-        }
-    }
-
-    fn log_verbose(&self, msg: &str) {
-        if self.verbose {
-            println!("Verbose: {}", msg);
         }
     }
 
@@ -88,7 +124,7 @@ impl Dispatcher {
 
                 let auth_mode = self.credentials.get_auth_mode();
                 match auth_mode {
-                    crate::storage::credentials::AuthMode::APIKey => {
+                    AuthMode::APIKey => {
                         println!("Authentication Mode: API Key");
                         // API key is set via environment variable
                         if let Ok(key) = std::env::var("MBR_API_KEY") {
@@ -103,7 +139,7 @@ impl Dispatcher {
                             println!("API Key: (not set)");
                         }
                     }
-                    crate::storage::credentials::AuthMode::Session => {
+                    AuthMode::Session => {
                         println!("Authentication Mode: Session");
                         // Session token would be stored in the keyring
                         println!("Session: Check using 'auth login' to authenticate");
