@@ -56,9 +56,11 @@ pub enum ConfigCommands {
     Show,
     /// Set configuration value
     Set {
-        /// Configuration key
-        key: String,
-        /// Configuration value
+        /// Profile name
+        profile: String,
+        /// Field to set (url or email)
+        field: String,
+        /// Value to set
         value: String,
     },
 }

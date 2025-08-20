@@ -10,23 +10,31 @@ pub struct LoginInput {
 
 impl LoginInput {
     /// Collect login credentials from interactive input
-    pub fn collect() -> Result<Self, AppError> {
-        // Username
-        print!("Username: ");
-        io::stdout().flush().map_err(|e| {
-            AppError::Cli(CliError::InvalidArguments(format!(
-                "Failed to flush stdout: {}",
-                e
-            )))
-        })?;
+    /// If profile_email is provided, only password will be prompted
+    pub fn collect(profile_email: Option<&str>) -> Result<Self, AppError> {
+        let username = if let Some(email) = profile_email {
+            // Use email from profile
+            println!("Using email from profile: {}", email);
+            email.to_string()
+        } else {
+            // Prompt for username
+            print!("Username: ");
+            io::stdout().flush().map_err(|e| {
+                AppError::Cli(CliError::InvalidArguments(format!(
+                    "Failed to flush stdout: {}",
+                    e
+                )))
+            })?;
 
-        let mut username = String::new();
-        io::stdin().read_line(&mut username).map_err(|e| {
-            AppError::Cli(CliError::InvalidArguments(format!(
-                "Failed to read username: {}",
-                e
-            )))
-        })?;
+            let mut username = String::new();
+            io::stdin().read_line(&mut username).map_err(|e| {
+                AppError::Cli(CliError::InvalidArguments(format!(
+                    "Failed to read username: {}",
+                    e
+                )))
+            })?;
+            username.trim().to_string()
+        };
 
         // Password
         print!("Password: ");
@@ -45,7 +53,7 @@ impl LoginInput {
         })?;
 
         Ok(Self {
-            username: username.trim().to_string(),
+            username,
             password: password.trim().to_string(),
         })
     }

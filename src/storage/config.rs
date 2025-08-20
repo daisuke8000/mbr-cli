@@ -15,8 +15,7 @@ pub struct Config {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Profile {
     pub metabase_url: String,
-    pub timeout_seconds: Option<u64>,
-    pub cache_enabled: Option<bool>,
+    pub email: Option<String>, // Optional email for login convenience
 }
 
 impl Config {
@@ -104,8 +103,7 @@ mod tests {
         // Create a profile
         let profile = Profile {
             metabase_url: "http://example.test".to_string(),
-            timeout_seconds: Some(30),
-            cache_enabled: Some(true),
+            email: Some("test@example.com".to_string()),
         };
         // Set the profile in the config
         config.set_profile("test".to_string(), profile.clone());
@@ -114,8 +112,7 @@ mod tests {
         assert!(retrieved.is_some());
         if let Some(retrieved) = retrieved {
             assert_eq!(retrieved.metabase_url, profile.metabase_url);
-            assert_eq!(retrieved.timeout_seconds, profile.timeout_seconds);
-            assert_eq!(retrieved.cache_enabled, profile.cache_enabled);
+            assert_eq!(retrieved.email, profile.email);
         }
         // Nonexistent profile should return None
         assert!(config.get_profile("nonexistent").is_none());
@@ -135,8 +132,7 @@ mod tests {
             "test".to_string(),
             Profile {
                 metabase_url: "http://example.test".to_string(),
-                timeout_seconds: Some(30),
-                cache_enabled: Some(true),
+                email: Some("test@example.com".to_string()),
             },
         );
 
@@ -156,7 +152,11 @@ mod tests {
 
     #[test]
     fn test_load_nonexistent_file() {
-        let config = Config::load(None);
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let nonexistent_path = temp_dir.path().join("nonexistent.toml");
+
+        // Load from a path that doesn't exist
+        let config = Config::load(Some(nonexistent_path));
         assert!(config.is_ok());
 
         let config = config.expect("Failed to load default config");

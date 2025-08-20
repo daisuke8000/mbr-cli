@@ -2,7 +2,7 @@ use crate::api::client::MetabaseClient;
 use crate::cli::main_types::{AuthCommands, Commands, ConfigCommands, QuestionCommands};
 use crate::core::auth::LoginInput;
 use crate::error::{AppError, CliError};
-use crate::storage::config::Config;
+use crate::storage::config::{Config, Profile};
 use crate::storage::credentials::{AuthMode, Credentials};
 
 pub struct Dispatcher {
@@ -74,8 +74,8 @@ impl Dispatcher {
         match commands {
             AuthCommands::Login => {
                 self.log_verbose("Attempting auth login command");
-                let input = LoginInput::collect()?;
-                input.validate()?;
+
+                // Get a profile to check for stored email
                 let profile = self
                     .config
                     .get_profile(&self.credentials.profile_name)
@@ -85,6 +85,10 @@ impl Dispatcher {
                             self.credentials.profile_name
                         )))
                     })?;
+
+                // Pass profile email to LoginInput::collect if available
+                let input = LoginInput::collect(profile.email.as_deref())?;
+                input.validate()?;
 
                 let mut client = MetabaseClient::new(profile.metabase_url.clone())?;
                 match client.login(&input.username, &input.password).await {
@@ -179,26 +183,77 @@ impl Dispatcher {
                 } else {
                     for (name, profile) in &self.config.profiles {
                         println!("  [{}]", name);
-                        println!("    Metabase URL: {}", profile.metabase_url);
-                        if let Some(timeout) = profile.timeout_seconds {
-                            println!("    Timeout: {} seconds", timeout);
-                        }
-                        if let Some(cache) = profile.cache_enabled {
-                            println!("    Cache: {}", if cache { "enabled" } else { "disabled" });
+                        println!("    URL: {}", profile.metabase_url);
+                        if let Some(email) = &profile.email {
+                            println!("    Email: {}", email);
                         }
                     }
                 }
 
                 Ok(())
             }
-            ConfigCommands::Set { key, value } => {
+            ConfigCommands::Set {
+                profile,
+                field,
+                value,
+            } => {
                 self.log_verbose(&format!(
-                    "Attempting config set - key: {}, value: {}",
-                    key, value
+                    "Attempting config set - profile: {}, field: {}, value: {}",
+                    profile, field, value
                 ));
-                Err(AppError::Cli(CliError::NotImplemented {
-                    command: format!("config set - key: {}, value: {}", key, value),
-                }))
+
+                // Clone config for modification
+                let mut config = self.config.clone();
+
+                // Get or create a profile
+                let prof = config
+                    .profiles
+                    .entry(profile.to_string())
+                    .or_insert_with(|| Profile {
+                        metabase_url: String::new(),
+                        email: None,
+                    });
+
+                // Set the field
+                match field.as_str() {
+                    "url" => {
+                        // Validate URL
+                        if !value.starts_with("http://") && !value.starts_with("https://") {
+                            return Err(AppError::Cli(CliError::InvalidArguments(format!(
+                                "Invalid URL: {}. Must start with http:// or https://",
+                                value
+                            ))));
+                        }
+                        prof.metabase_url = value.to_string();
+                        println!("✅ Set profile '{}' URL to: {}", profile, value);
+                    }
+                    "email" => {
+                        prof.email = Some(value.to_string());
+                        println!("✅ Set profile '{}' email to: {}", profile, value);
+                    }
+                    _ => {
+                        return Err(AppError::Cli(CliError::InvalidArguments(format!(
+                            "Invalid field: {}. Use 'url' or 'email'",
+                            field
+                        ))));
+                    }
+                }
+
+                // If this is the first profile or named "default", set it as default
+                if config.profiles.len() == 1 || profile == "default" {
+                    config.default_profile = Some(profile.to_string());
+                }
+
+                // Save the updated config to a file
+                config.save(None).map_err(|e| {
+                    AppError::Cli(CliError::InvalidArguments(format!(
+                        "Failed to save config: {}",
+                        e
+                    )))
+                })?;
+
+                println!("Configuration saved successfully.");
+                Ok(())
             }
         }
     }
@@ -252,8 +307,7 @@ mod tests {
                     "test".to_string(),
                     Profile {
                         metabase_url: "http://example.test".to_string(),
-                        timeout_seconds: Some(30),
-                        cache_enabled: Some(true),
+                        email: None,
                     },
                 );
                 profiles
@@ -300,18 +354,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_config_set_not_implemented() {
+    async fn test_config_set_url() {
         let d = create_test_dispatcher(true);
         let result = d
             .handle_config_command(ConfigCommands::Set {
-                key: "test".to_string(),
-                value: "test".to_string(),
+                profile: "test".to_string(),
+                field: "url".to_string(),
+                value: "http://localhost:3000".to_string(),
             })
             .await;
-        assert!(result.is_err());
-        if let Err(AppError::Cli(CliError::NotImplemented { command })) = result {
-            assert_eq!(command, "config set - key: test, value: test");
-        }
+        // Config set should now succeed
+        assert!(result.is_ok());
     }
 
     #[tokio::test]
