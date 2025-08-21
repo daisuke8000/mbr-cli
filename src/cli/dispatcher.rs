@@ -265,12 +265,104 @@ impl Dispatcher {
                     "Attempting question execute command - ID: {}, Params: {:?}, Limit: {:?}",
                     id, param, limit
                 ));
-                Err(AppError::Cli(CliError::NotImplemented {
-                    command: format!(
-                        "question execute - ID: {}, Params: {:?}, Limit: {:?}",
-                        id, param, limit
-                    ),
-                }))
+
+                // Get profile for API connection
+                let profile = self
+                    .config
+                    .get_profile(&self.credentials.profile_name)
+                    .ok_or_else(|| {
+                        AppError::Cli(CliError::InvalidArguments(format!(
+                            "Profile '{}' not found. Please configure a profile first.",
+                            self.credentials.profile_name
+                        )))
+                    })?;
+
+                // Create API client
+                let client = MetabaseClient::new(profile.metabase_url.clone())?;
+
+                // Convert parameters from Vec<String> to HashMap<String, String>
+                let parameters = if param.is_empty() {
+                    None
+                } else {
+                    let mut param_map = std::collections::HashMap::new();
+                    for param_str in param {
+                        // Parse parameter string (expected format: key=value)
+                        if let Some((key, value)) = param_str.split_once('=') {
+                            param_map.insert(key.to_string(), value.to_string());
+                        } else {
+                            println!(
+                                "Warning: Invalid parameter format '{}'. Expected 'key=value'",
+                                param_str
+                            );
+                        }
+                    }
+                    if param_map.is_empty() {
+                        None
+                    } else {
+                        Some(param_map)
+                    }
+                };
+
+                // Execute the question
+                let result = client.execute_question(id, parameters).await?;
+
+                // Display results with optional limit
+                println!("Query executed successfully for question ID: {}", id);
+                println!("Columns: {}", result.data.cols.len());
+                println!("Rows: {}", result.data.rows.len());
+
+                // Display column headers
+                if !result.data.cols.is_empty() {
+                    print!("| ");
+                    for col in &result.data.cols {
+                        print!("{:15} | ", col.display_name);
+                    }
+                    println!();
+
+                    // Display separator
+                    print!("|");
+                    for _ in &result.data.cols {
+                        print!("-----------------+");
+                    }
+                    println!();
+                }
+
+                // Display data rows with optional limit
+                let rows_to_show = if let Some(limit_value) = limit {
+                    std::cmp::min(limit_value as usize, result.data.rows.len())
+                } else {
+                    result.data.rows.len()
+                };
+
+                for (i, row) in result.data.rows.iter().enumerate() {
+                    if i >= rows_to_show {
+                        break;
+                    }
+                    print!("| ");
+                    for value in row {
+                        let display_value = match value {
+                            serde_json::Value::String(s) => s.clone(),
+                            serde_json::Value::Number(n) => n.to_string(),
+                            serde_json::Value::Bool(b) => b.to_string(),
+                            serde_json::Value::Null => "NULL".to_string(),
+                            _ => value.to_string(),
+                        };
+                        print!(
+                            "{:15} | ",
+                            display_value.chars().take(15).collect::<String>()
+                        );
+                    }
+                    println!();
+                }
+
+                if rows_to_show < result.data.rows.len() {
+                    println!(
+                        "... and {} more rows",
+                        result.data.rows.len() - rows_to_show
+                    );
+                }
+
+                Ok(())
             }
             QuestionCommands::List {
                 search,
@@ -424,7 +516,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_question_execute_not_implemented() {
+    async fn test_question_execute_implemented() {
         let d = create_test_dispatcher(true);
         let result = d
             .handle_question_command(QuestionCommands::Execute {
@@ -436,14 +528,19 @@ mod tests {
                 limit: Some(20),
             })
             .await;
+
+        // Should get an API error (network error due to test URL), not NotImplemented
         assert!(result.is_err());
-        if let Err(AppError::Cli(CliError::NotImplemented { command })) = result {
-            assert_eq!(
-                command,
-                "question execute - ID: 1, Params: [\"sample_param=sample_value\", \"another_param=another_value\"], Limit: Some(20)"
-            );
-        } else {
-            panic!("Expected NotImplemented error for question execute");
+        match result {
+            Err(AppError::Api(_)) => {
+                // Expected: API error due to invalid test URL or network issues
+            }
+            Err(other) => {
+                panic!("Expected API error, got: {:?}", other);
+            }
+            Ok(_) => {
+                panic!("Expected error due to test environment");
+            }
         }
     }
 

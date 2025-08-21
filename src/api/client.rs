@@ -1,6 +1,7 @@
 use crate::api::models::{LoginRequest, LoginResponse};
 use crate::error::{ApiError, AppError};
 use reqwest::{Client, Method, RequestBuilder, Response};
+use std::collections::HashMap;
 use std::time::Duration;
 
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
@@ -190,6 +191,76 @@ impl MetabaseClient {
             }
 
             Ok(questions)
+        } else if status == reqwest::StatusCode::UNAUTHORIZED {
+            Err(AppError::Api(ApiError::Unauthorized {
+                status: status.as_u16(),
+                endpoint,
+                server_message: "Authentication failed - please login first".to_string(),
+            }))
+        } else {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+
+            Err(AppError::Api(ApiError::Http {
+                status: status.as_u16(),
+                endpoint,
+                message: error_text,
+            }))
+        }
+    }
+
+    /// Execute a question and return query results
+    pub async fn execute_question(
+        &self,
+        question_id: u32,
+        parameters: Option<HashMap<String, String>>,
+    ) -> Result<crate::api::models::QueryResult, AppError> {
+        let endpoint = format!("/api/card/{}/query", question_id);
+
+        // Build request with longer timeout for query execution
+        let mut request = self.build_request(Method::POST, &endpoint);
+
+        // Add parameters as JSON body if provided
+        if let Some(params) = parameters {
+            if !params.is_empty() {
+                request = request.json(&params);
+            }
+        }
+
+        // Send request with extended timeout
+        let response = request
+            .timeout(Duration::from_secs(60)) // 60 second timeout for query execution
+            .send()
+            .await
+            .map_err(|_e| {
+                AppError::Api(ApiError::Timeout {
+                    timeout_secs: 60,
+                    endpoint: endpoint.clone(),
+                })
+            })?;
+
+        let status = response.status();
+
+        if status.is_success() {
+            // Parse response as QueryResult
+            let query_result: crate::api::models::QueryResult =
+                response.json().await.map_err(|e| {
+                    AppError::Api(ApiError::Http {
+                        status: 200, // Success status but parsing failed
+                        endpoint: endpoint.clone(),
+                        message: format!("Failed to parse query result JSON: {}", e),
+                    })
+                })?;
+
+            Ok(query_result)
+        } else if status == reqwest::StatusCode::NOT_FOUND {
+            Err(AppError::Api(ApiError::Http {
+                status: 404,
+                endpoint,
+                message: format!("Question with ID {} not found", question_id),
+            }))
         } else if status == reqwest::StatusCode::UNAUTHORIZED {
             Err(AppError::Api(ApiError::Unauthorized {
                 status: status.as_u16(),
