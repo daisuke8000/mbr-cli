@@ -43,7 +43,14 @@ pub enum Commands {
 #[derive(Subcommand, Debug)]
 pub enum AuthCommands {
     /// Login to Metabase
-    Login,
+    Login {
+        /// Username for login (optional, will prompt if not provided)
+        #[arg(long)]
+        username: Option<String>,
+        /// Password for login (optional, will prompt if not provided)
+        #[arg(long)]
+        password: Option<String>,
+    },
     /// Logout and clear the session
     Logout,
     /// Show authentication status

@@ -95,14 +95,25 @@ impl Dispatcher {
 
     async fn handle_auth_command(&self, commands: AuthCommands) -> Result<(), AppError> {
         match commands {
-            AuthCommands::Login => {
+            AuthCommands::Login { username, password } => {
                 self.log_verbose("Attempting auth login command");
 
                 // Get a profile to check for stored email
                 let profile = self.get_current_profile()?;
 
-                // Pass profile email to LoginInput::collect if available
-                let input = LoginInput::collect(profile.email.as_deref())?;
+                // Use CLI arguments if provided, otherwise collect interactively
+                let input = if let (Some(user), Some(pass)) = (&username, &password) {
+                    // Non-interactive mode: use provided credentials
+                    LoginInput {
+                        username: user.clone(),
+                        password: pass.clone(),
+                    }
+                } else {
+                    // Interactive mode: collect credentials via prompts
+                    // Use profile email as default username if available and no username provided
+                    let default_username = username.or_else(|| profile.email.clone());
+                    LoginInput::collect(default_username.as_deref())?
+                };
                 input.validate()?;
 
                 let mut client = self.create_client(profile)?;
