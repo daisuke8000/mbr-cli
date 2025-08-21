@@ -281,12 +281,42 @@ impl Dispatcher {
                     "Attempting question list command - Search: {:?}, Limit: {}, Collection: {:?}",
                     search, limit, collection
                 ));
-                Err(AppError::Cli(CliError::NotImplemented {
-                    command: format!(
-                        "question list - Search: {:?}, Limit: {}, Collection: {:?}",
-                        search, limit, collection
-                    ),
-                }))
+                // Get profile for API connection
+                let profile = self
+                    .config
+                    .get_profile(&self.credentials.profile_name)
+                    .ok_or_else(|| {
+                        AppError::Cli(CliError::InvalidArguments(format!(
+                            "Profile '{}' not found. Please configure a profile first.",
+                            self.credentials.profile_name
+                        )))
+                    })?;
+
+                // Create API client
+                let client = MetabaseClient::new(profile.metabase_url.clone())?;
+
+                // Call list_questions with optional parameters
+                let questions = client
+                    .list_questions(search.as_deref(), Some(limit), collection.as_deref())
+                    .await?;
+
+                // Display results
+                if questions.is_empty() {
+                    println!("No questions found.");
+                } else {
+                    println!("Found {} question(s):", questions.len());
+                    for question in questions {
+                        println!(
+                            "  [{}] {} (Collection: {})",
+                            question.id,
+                            question.name,
+                            question
+                                .collection_id
+                                .map_or("None".to_string(), |id| id.to_string())
+                        );
+                    }
+                }
+                Ok(())
             }
         }
     }
@@ -368,7 +398,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_question_list_not_implemented() {
+    async fn test_question_list_implemented() {
         let d = create_test_dispatcher(true);
         let result = d
             .handle_question_command(QuestionCommands::List {
@@ -377,14 +407,19 @@ mod tests {
                 collection: None,
             })
             .await;
+
+        // Should get an API error (network error due to test URL), not NotImplemented
         assert!(result.is_err());
-        if let Err(AppError::Cli(CliError::NotImplemented { command })) = result {
-            assert_eq!(
-                command,
-                "question list - Search: None, Limit: 10, Collection: None"
-            );
-        } else {
-            panic!("Expected NotImplemented error for question list");
+        match result {
+            Err(AppError::Api(_)) => {
+                // Expected: API error due to invalid test URL or network issues
+            }
+            Err(other) => {
+                panic!("Expected API error, got: {:?}", other);
+            }
+            Ok(_) => {
+                panic!("Expected error due to test environment");
+            }
         }
     }
 

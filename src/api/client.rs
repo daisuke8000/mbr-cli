@@ -1,5 +1,5 @@
 use crate::api::models::{LoginRequest, LoginResponse};
-use crate::error::ApiError;
+use crate::error::{ApiError, AppError};
 use reqwest::{Client, Method, RequestBuilder, Response};
 use std::time::Duration;
 
@@ -121,6 +121,92 @@ impl MetabaseClient {
                 endpoint: "/api/session".to_string(),
                 message: error_text,
             })
+        }
+    }
+
+    /// List questions from Metabase with optional search, limit, and collection filters
+    pub async fn list_questions(
+        &self,
+        search: Option<&str>,
+        limit: Option<u32>,
+        collection: Option<&str>,
+    ) -> Result<Vec<crate::api::models::Question>, AppError> {
+        // Build query parameters
+        let mut params = Vec::new();
+        params.push("f=all".to_string());
+
+        // Add search parameter if provided
+        if let Some(search_term) = search {
+            if !search_term.is_empty() {
+                params.push(format!("q={}", search_term));
+            }
+        }
+
+        // Add collection parameter if provided
+        if let Some(collection_id) = collection {
+            if !collection_id.is_empty() {
+                params.push(format!("collection={}", collection_id));
+            }
+        }
+
+        // Build endpoint with parameters
+        let endpoint = if params.is_empty() {
+            "/api/card".to_string()
+        } else {
+            format!("/api/card?{}", params.join("&"))
+        };
+
+        // Build and send request
+        let response = self
+            .build_request(Method::GET, &endpoint)
+            .send()
+            .await
+            .map_err(|e| {
+                AppError::Api(ApiError::Http {
+                    status: 0, // Network error, no status available
+                    endpoint: endpoint.clone(),
+                    message: format!("Network error: {}", e),
+                })
+            })?;
+
+        let status = response.status();
+
+        if status.is_success() {
+            // Parse response as Vec<Question>
+            let mut questions: Vec<crate::api::models::Question> =
+                response.json().await.map_err(|e| {
+                    AppError::Api(ApiError::Http {
+                        status: 200, // Success status but parsing failed
+                        endpoint: endpoint.clone(),
+                        message: format!("Failed to parse JSON response: {}", e),
+                    })
+                })?;
+
+            // Apply limit if specified
+            if let Some(limit_value) = limit {
+                if limit_value > 0 {
+                    questions.truncate(limit_value as usize);
+                }
+            }
+
+            Ok(questions)
+        } else if status == reqwest::StatusCode::UNAUTHORIZED {
+            Err(AppError::Api(ApiError::Unauthorized {
+                status: status.as_u16(),
+                endpoint,
+                server_message: "Authentication failed - please login first".to_string(),
+            }))
+        } else {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+
+            Err(AppError::Api(ApiError::Http {
+                status: status.as_u16(),
+                endpoint,
+                message: error_text,
+            }))
         }
     }
 
