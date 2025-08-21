@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Create dispatcher
-    let dispatcher = Dispatcher::new(config, credentials, cli.verbose);
+    let dispatcher = Dispatcher::new(config, credentials, cli.verbose, cli.api_key);
 
     // Execute the command
     if let Err(e) = dispatcher.dispatch(cli.command).await {

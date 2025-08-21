@@ -9,6 +9,7 @@ pub struct Dispatcher {
     config: Config,
     credentials: Credentials,
     verbose: bool,
+    api_key: Option<String>,
 }
 
 impl Dispatcher {
@@ -24,7 +25,7 @@ impl Dispatcher {
         Self::print_verbose(self.verbose, msg);
     }
 
-    pub fn new(config: Config, mut credentials: Credentials, verbose: bool) -> Self {
+    pub fn new(config: Config, mut credentials: Credentials, verbose: bool, api_key: Option<String>) -> Self {
         // Session auto-restoration logic
         // Skip if an API key is set (an API key has priority)
         if matches!(credentials.get_auth_mode(), AuthMode::Session) {
@@ -59,6 +60,7 @@ impl Dispatcher {
             config,
             credentials,
             verbose,
+            api_key,
         }
     }
 
@@ -436,7 +438,7 @@ mod tests {
             },
         };
         let creds = Credentials::new("test".to_string());
-        Dispatcher::new(config, creds, verbose)
+        Dispatcher::new(config, creds, verbose, None)
     }
 
     #[tokio::test]
