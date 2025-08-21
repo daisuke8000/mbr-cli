@@ -64,6 +64,27 @@ impl Dispatcher {
         }
     }
 
+    // Helper method to get profile for the current credentials
+    fn get_current_profile(&self) -> Result<&Profile, AppError> {
+        self.config.get_profile(&self.credentials.profile_name)
+            .ok_or_else(|| AppError::Cli(CliError::AuthRequired {
+                message: format!("Profile '{}' not found", self.credentials.profile_name),
+                hint: "Use 'mbr-cli config set <profile> <field> <value>' to create a profile".to_string(),
+                available_profiles: self.config.profiles.keys().cloned().collect(),
+            }))
+    }
+
+    // Helper method to create MetabaseClient with API key integration
+    fn create_client(&self, profile: &Profile) -> Result<MetabaseClient, AppError> {
+        if let Some(ref api_key) = self.api_key {
+            self.log_verbose("Creating client with API key");
+            Ok(MetabaseClient::with_api_key(profile.metabase_url.clone(), api_key.clone())?)
+        } else {
+            self.log_verbose("Creating client without API key");
+            Ok(MetabaseClient::new(profile.metabase_url.clone())?)
+        }
+    }
+
     pub async fn dispatch(&self, command: Commands) -> Result<(), AppError> {
         match command {
             Commands::Auth { command } => self.handle_auth_command(command).await,
@@ -78,21 +99,13 @@ impl Dispatcher {
                 self.log_verbose("Attempting auth login command");
 
                 // Get a profile to check for stored email
-                let profile = self
-                    .config
-                    .get_profile(&self.credentials.profile_name)
-                    .ok_or_else(|| {
-                        AppError::Cli(CliError::InvalidArguments(format!(
-                            "Profile '{}' not found. Please configure a profile first.",
-                            self.credentials.profile_name
-                        )))
-                    })?;
+                let profile = self.get_current_profile()?;
 
                 // Pass profile email to LoginInput::collect if available
                 let input = LoginInput::collect(profile.email.as_deref())?;
                 input.validate()?;
 
-                let mut client = MetabaseClient::new(profile.metabase_url.clone())?;
+                let mut client = self.create_client(profile)?;
                 match client.login(&input.username, &input.password).await {
                     Ok(_) => {
                         if let Some(token) = client.get_session_token() {
@@ -269,18 +282,10 @@ impl Dispatcher {
                 ));
 
                 // Get profile for API connection
-                let profile = self
-                    .config
-                    .get_profile(&self.credentials.profile_name)
-                    .ok_or_else(|| {
-                        AppError::Cli(CliError::InvalidArguments(format!(
-                            "Profile '{}' not found. Please configure a profile first.",
-                            self.credentials.profile_name
-                        )))
-                    })?;
+                let profile = self.get_current_profile()?;
 
                 // Create API client
-                let client = MetabaseClient::new(profile.metabase_url.clone())?;
+                let client = self.create_client(profile)?;
 
                 // Convert parameters from Vec<String> to HashMap<String, String>
                 let parameters = if param.is_empty() {
@@ -376,18 +381,10 @@ impl Dispatcher {
                     search, limit, collection
                 ));
                 // Get profile for API connection
-                let profile = self
-                    .config
-                    .get_profile(&self.credentials.profile_name)
-                    .ok_or_else(|| {
-                        AppError::Cli(CliError::InvalidArguments(format!(
-                            "Profile '{}' not found. Please configure a profile first.",
-                            self.credentials.profile_name
-                        )))
-                    })?;
+                let profile = self.get_current_profile()?;
 
                 // Create API client
-                let client = MetabaseClient::new(profile.metabase_url.clone())?;
+                let client = self.create_client(profile)?;
 
                 // Call list_questions with optional parameters
                 let questions = client
