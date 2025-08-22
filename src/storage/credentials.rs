@@ -13,6 +13,7 @@ pub struct Credentials {
     pub profile_name: String,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum AuthMode {
     APIKey,
     Session,
