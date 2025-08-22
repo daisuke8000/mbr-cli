@@ -14,6 +14,7 @@ use crate::storage::credentials::AuthMode;
 use crate::utils::data::OffsetManager;
 
 /// Handler for authentication commands
+#[derive(Default)]
 pub struct AuthHandler;
 
 impl AuthHandler {
@@ -138,6 +139,7 @@ impl AuthHandler {
 }
 
 /// Handler for configuration commands
+#[derive(Default)]
 pub struct ConfigHandler;
 
 impl ConfigHandler {
@@ -235,6 +237,7 @@ impl ConfigHandler {
 }
 
 /// Handler for question commands
+#[derive(Default)]
 pub struct QuestionHandler;
 
 impl QuestionHandler {
@@ -480,39 +483,3 @@ impl QuestionHandler {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_auth_handler_creation() {
-        let handler = AuthHandler::new();
-        assert!(std::any::type_name::<AuthHandler>().contains("AuthHandler"));
-    }
-
-    #[test]
-    fn test_config_handler_creation() {
-        let handler = ConfigHandler::new();
-        assert!(std::any::type_name::<ConfigHandler>().contains("ConfigHandler"));
-    }
-
-    #[test]
-    fn test_question_handler_creation() {
-        let handler = QuestionHandler::new();
-        assert!(std::any::type_name::<QuestionHandler>().contains("QuestionHandler"));
-    }
-
-    #[test]
-    fn test_command_handlers_separation() {
-        // Test that command handlers are separate concerns
-        let auth_handler = AuthHandler::new();
-        let config_handler = ConfigHandler::new();
-        let question_handler = QuestionHandler::new();
-        
-        // Each handler should focus on its specific command domain
-        // No shared state or cross-cutting concerns
-        assert!(std::mem::size_of_val(&auth_handler) == std::mem::size_of::<AuthHandler>());
-        assert!(std::mem::size_of_val(&config_handler) == std::mem::size_of::<ConfigHandler>());
-        assert!(std::mem::size_of_val(&question_handler) == std::mem::size_of::<QuestionHandler>());
-    }
-}

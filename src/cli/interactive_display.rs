@@ -2,6 +2,7 @@ use crate::api::models::{Question, QueryResult};
 use crate::error::AppError;
 
 /// Interactive display manager for full-screen table and pagination
+#[derive(Default)]
 pub struct InteractiveDisplay;
 
 impl InteractiveDisplay {
@@ -504,29 +505,3 @@ impl InteractiveDisplay {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_interactive_display_creation() {
-        let display = InteractiveDisplay::new();
-        // Should create successfully
-        assert!(std::mem::size_of_val(&display) == std::mem::size_of::<InteractiveDisplay>());
-    }
-
-    #[test]
-    fn test_interactive_display_separation() {
-        // Test that InteractiveDisplay is separate from dispatcher concerns
-        let display = InteractiveDisplay::new();
-        
-        // InteractiveDisplay should only handle display logic, not:
-        // - Command parsing
-        // - Service creation
-        // - Authentication logic
-        // - Configuration management
-        
-        // This test verifies the responsibility separation
-        assert!(std::any::type_name::<InteractiveDisplay>().contains("InteractiveDisplay"));
-    }
-}

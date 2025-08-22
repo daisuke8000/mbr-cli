@@ -85,6 +85,6 @@ mod tests {
         assert!(validate_url("invalid-url").is_err());
         
         // Successful compilation means proper dependency direction
-        assert!(true);
+        // Test validates that display can use utils without circular dependency
     }
 }

@@ -166,61 +166,6 @@ impl Dispatcher {
         }
     }
 
-    /// Display query results with interactive pagination using InteractiveDisplay
-    async fn display_interactive_pagination(
-        &self,
-        result: &crate::api::models::QueryResult,
-        page_size: usize,
-        initial_offset: Option<usize>,
-        no_fullscreen: bool,
-        question_id: u32,
-        question_name: &str,
-    ) -> Result<(), AppError> {
-        let display = crate::cli::interactive_display::InteractiveDisplay::new();
-        display.display_query_result_pagination(
-            result,
-            page_size,
-            initial_offset,
-            no_fullscreen,
-            question_id,
-            question_name,
-        ).await
-    }
-
-    /// Display question list with interactive pagination using InteractiveDisplay
-    async fn display_interactive_question_list(
-        &self,
-        questions: &[crate::api::models::Question],
-        page_size: usize,
-    ) -> Result<(), AppError> {
-        let display = crate::cli::interactive_display::InteractiveDisplay::new();
-        display.display_question_list_pagination(questions, page_size).await
-    }
 
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::storage::config::Profile;
-    use std::collections::HashMap;
-
-    fn create_test_dispatcher(verbose: bool) -> Dispatcher {
-        let config = Config {
-            default_profile: Some("test".to_string()),
-            profiles: {
-                let mut profiles = HashMap::new();
-                profiles.insert(
-                    "test".to_string(),
-                    Profile {
-                        metabase_url: "http://example.test".to_string(),
-                        email: None,
-                    },
-                );
-                profiles
-            },
-        };
-        let creds = Credentials::new("test".to_string());
-        Dispatcher::new(config, creds, verbose, None)
-    }
-}
