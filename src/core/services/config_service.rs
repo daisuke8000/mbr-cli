@@ -18,6 +18,11 @@ impl ConfigService {
         self.config.profiles.get(name)
     }
 
+    /// Get default profile name
+    pub fn get_default_profile(&self) -> Option<&String> {
+        self.config.default_profile.as_ref()
+    }
+
     /// Set profile field value
     pub fn set_profile_field(&mut self, profile: &str, field: &str, value: &str) -> Result<(), AppError> {
         use crate::error::CliError;
