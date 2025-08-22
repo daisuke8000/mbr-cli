@@ -9,5 +9,6 @@ pub mod storage; // Configuration and data persistence
 pub mod api; // Metabase API client
 pub mod display; // Output formatting
 pub mod error; // Error handling
+pub mod utils; // Shared utilities and helpers
 
 pub type Result<T> = std::result::Result<T, AppError>;
