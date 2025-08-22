@@ -40,9 +40,8 @@ mod tests {
     fn test_read_no_color_default() {
         // Without setting environment variable, should return false
         // Note: This test might be affected by actual environment
-        let result = EnvConfigReader::read_no_color();
-        // Just verify it returns a boolean
-        assert!(result == true || result == false);
+        let _result = EnvConfigReader::read_no_color();
+        // Function exists and returns a boolean value
     }
 
     #[test]
