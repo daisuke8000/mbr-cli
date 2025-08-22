@@ -4,9 +4,10 @@ use crate::core::auth::LoginInput;
 use crate::core::services::auth_service::AuthService;
 use crate::core::services::config_service::ConfigService;
 use crate::display::{
-    OffsetManager, OperationStatus, ProgressSpinner, TableDisplay, TableHeaderInfoBuilder,
+    OperationStatus, ProgressSpinner, TableDisplay, TableHeaderInfoBuilder,
     display_status,
 };
+use crate::utils::data::OffsetManager;
 use crate::error::{AppError, CliError};
 use crate::storage::config::{Config, Profile};
 use crate::storage::credentials::{AuthMode, Credentials};
