@@ -29,12 +29,12 @@ impl ConfigService {
                 email: None,
             });
 
-        // Set field based on field name
+        // Set field based on field name - only accept user-facing field names
         match field {
-            "host" | "metabase_url" => profile_entry.metabase_url = value.to_string(),
+            "url" => profile_entry.metabase_url = value.to_string(),
             "email" => profile_entry.email = Some(value.to_string()),
             _ => return Err(AppError::Cli(CliError::InvalidArguments(
-                format!("Unknown field: {}", field)
+                format!("Unknown field: {}. Use 'url' or 'email'", field)
             ))),
         }
 
@@ -90,8 +90,8 @@ mod tests {
         let config = Config::default();
         let mut service = ConfigService::new(config);
         
-        // Verify set_profile_field returns Result
-        let result = service.set_profile_field("default", "host", "http://localhost:3000");
+        // Verify set_profile_field returns Result with user-facing field name
+        let result = service.set_profile_field("default", "url", "http://localhost:3000");
         assert!(result.is_ok());
         
         // Verify the field was set
@@ -108,5 +108,27 @@ mod tests {
         // Verify save_config returns Result
         let result = service.save_config(None);
         assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn test_set_profile_field_rejects_internal_field_names() {
+        let config = Config::default();
+        let mut service = ConfigService::new(config);
+        
+        // Should reject internal field names
+        let result = service.set_profile_field("test", "host", "http://example.com");
+        assert!(result.is_err());
+        assert!(format!("{:?}", result).contains("Unknown field: host"));
+        
+        let result = service.set_profile_field("test", "metabase_url", "http://example.com");
+        assert!(result.is_err());
+        assert!(format!("{:?}", result).contains("Unknown field: metabase_url"));
+        
+        // Should accept user-facing field names
+        let result = service.set_profile_field("test", "url", "http://example.com");
+        assert!(result.is_ok());
+        
+        let result = service.set_profile_field("test", "email", "test@example.com");
+        assert!(result.is_ok());
     }
 }

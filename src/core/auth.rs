@@ -3,6 +3,7 @@ use rpassword::read_password;
 use std::io::{self, Write};
 
 /// User login credentials input handler
+#[derive(Clone)]
 pub struct LoginInput {
     pub username: String,
     pub password: String,
