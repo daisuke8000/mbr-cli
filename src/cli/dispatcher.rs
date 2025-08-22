@@ -265,12 +265,8 @@ impl Dispatcher {
                     }
                 }
 
-                // Profile is determined by the current config
-                if let Some(profile) = &self.config.default_profile {
-                    println!("\nActive Profile: {}", profile);
-                } else {
-                    println!("\nActive Profile: (default)");
-                }
+                // Profile is determined by the current credentials (runtime profile)
+                println!("\nActive Profile: {}", self.credentials.profile_name);
 
                 Ok(())
             }
