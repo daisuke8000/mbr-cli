@@ -1,4 +1,4 @@
-use crate::api::models::{Question, QueryResult};
+use crate::api::models::{QueryResult, Question};
 use crate::error::AppError;
 
 /// Interactive display manager for full-screen table and pagination
@@ -367,7 +367,8 @@ impl InteractiveDisplay {
                         )),
                         ResetColor,
                         Print("\r\n\r\n")
-                    ).ok();
+                    )
+                    .ok();
 
                     // Display content within scroll range
                     let total_lines = table_lines.len();
@@ -504,4 +505,3 @@ impl InteractiveDisplay {
         Ok(())
     }
 }
-

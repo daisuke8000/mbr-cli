@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .as_ref()
         .map(|dir| PathBuf::from(dir).join("config.toml"));
 
-    let mut config = match Config::load(config_path.clone()) {
+    let config = match Config::load(config_path.clone()) {
         Ok(config) => config,
         Err(err) => {
             eprintln!("Error loading config: {}", err);
@@ -23,38 +23,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Determine the profile to use
-    let profile_name = cli
-        .profile
-        .or(config.default_profile.clone())
-        .unwrap_or_else(|| "default".to_string());
+    // Determine the profile to use (default to "default" if not specified)
+    let profile_name = cli.profile.unwrap_or_else(|| "default".to_string());
 
-    // Create a default profile if it doesn't exist
-    if config.get_profile(&profile_name).is_none() {
-        if cli.verbose {
-            println!("Creating default profile: {}", profile_name);
-        }
-
-        use mbr_cli::storage::config::Profile;
-        let default_profile = Profile {
-            metabase_url: "http://localhost:3000".to_string(),
-            email: None,
-        };
-
-        config.set_profile(profile_name.clone(), default_profile);
-
-        // Set as default if no default is set
-        if config.default_profile.is_none() {
-            config.default_profile = Some(profile_name.clone());
-        }
-
-        // Save the updated config
-        if let Err(err) = config.save(config_path) {
-            if cli.verbose {
-                println!("Warning: Failed to save config: {}", err);
-            }
-        }
-    }
+    // Profile creation and config file saving is now handled by Dispatcher::new()
 
     if cli.verbose {
         println!("Verbose mode is enabled");
@@ -78,8 +50,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Create dispatcher
-    let dispatcher = Dispatcher::new(config, credentials, cli.verbose, cli.api_key);
+    // Create dispatcher (handles profile creation and config file saving)
+    let dispatcher = Dispatcher::new(config, credentials, cli.verbose, cli.api_key, config_path);
 
     // Execute the command
     if let Err(e) = dispatcher.dispatch(cli.command).await {

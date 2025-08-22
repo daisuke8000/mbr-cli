@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::storage::credentials::AuthMode;
+use std::collections::HashMap;
 
 /// 認証状態情報
 #[derive(Debug, Clone)]
@@ -60,7 +60,7 @@ mod tests {
     fn test_execute_params_creation() {
         let mut parameters = HashMap::new();
         parameters.insert("param1".to_string(), "value1".to_string());
-        
+
         let params = ExecuteParams {
             parameters,
             format: "json".to_string(),

@@ -1,6 +1,6 @@
 use crate::api::client::MetabaseClient;
 use crate::cli::command_handlers::{AuthHandler, ConfigHandler, QuestionHandler};
-use crate::cli::main_types::{Commands};
+use crate::cli::main_types::Commands;
 use crate::core::services::auth_service::AuthService;
 use crate::core::services::config_service::ConfigService;
 use crate::error::{AppError, CliError};
@@ -28,10 +28,11 @@ impl Dispatcher {
     }
 
     pub fn new(
-        config: Config,
+        mut config: Config,
         mut credentials: Credentials,
         verbose: bool,
         api_key: Option<String>,
+        config_path: Option<std::path::PathBuf>,
     ) -> Self {
         // Session auto-restoration logic
         // Skip if an API key is set (an API key has priority)
@@ -64,6 +65,29 @@ impl Dispatcher {
             Self::print_verbose(verbose, "API key is set, skipping session restoration");
         }
 
+        // Create default profile if it doesn't exist
+        if config.get_profile(&credentials.profile_name).is_none() {
+            Self::print_verbose(
+                verbose,
+                &format!("Creating default profile: {}", credentials.profile_name),
+            );
+
+            use crate::storage::config::Profile;
+            let default_profile = Profile {
+                url: "http://localhost:3000".to_string(),
+                email: None,
+            };
+
+            config.set_profile(credentials.profile_name.clone(), default_profile);
+
+            // Save the updated config
+            if let Err(err) = config.save(config_path) {
+                Self::print_verbose(verbose, &format!("Warning: Failed to save config: {}", err));
+            } else {
+                Self::print_verbose(verbose, "Successfully saved config file");
+            }
+        }
+
         Self {
             config,
             credentials,
@@ -92,16 +116,16 @@ impl Dispatcher {
             if !api_key.is_empty() {
                 self.log_verbose("Creating client with API key");
                 Ok(MetabaseClient::with_api_key(
-                    profile.metabase_url.clone(),
+                    profile.url.clone(),
                     api_key.clone(),
                 )?)
             } else {
                 self.log_verbose("Creating client without API key (empty API key ignored)");
-                Ok(MetabaseClient::new(profile.metabase_url.clone())?)
+                Ok(MetabaseClient::new(profile.url.clone())?)
             }
         } else {
             self.log_verbose("Creating client without API key");
-            Ok(MetabaseClient::new(profile.metabase_url.clone())?)
+            Ok(MetabaseClient::new(profile.url.clone())?)
         }
     }
 
@@ -133,9 +157,10 @@ impl Dispatcher {
             self.credentials.clone()
         } else {
             // Load latest credentials from storage for session mode
-            Credentials::load(&self.credentials.profile_name).unwrap_or_else(|_| self.credentials.clone())
+            Credentials::load(&self.credentials.profile_name)
+                .unwrap_or_else(|_| self.credentials.clone())
         };
-        
+
         Ok(AuthService::new(credentials, client))
     }
 
@@ -150,12 +175,16 @@ impl Dispatcher {
                 let handler = AuthHandler::new();
                 let profile = self.get_current_profile()?;
                 let mut auth_service = self.create_auth_service(profile)?;
-                handler.handle(command, &mut auth_service, profile, self.verbose).await
+                handler
+                    .handle(command, &mut auth_service, profile, self.verbose)
+                    .await
             }
             Commands::Config { command } => {
                 let handler = ConfigHandler::new();
                 let mut config_service = self.create_config_service();
-                handler.handle(command, &mut config_service, self.verbose).await
+                handler
+                    .handle(command, &mut config_service, self.verbose)
+                    .await
             }
             Commands::Question { command } => {
                 let handler = QuestionHandler::new();
@@ -165,7 +194,4 @@ impl Dispatcher {
             }
         }
     }
-
-
 }
-

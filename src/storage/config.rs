@@ -8,13 +8,13 @@ use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Config {
-    pub default_profile: Option<String>,
+    #[serde(flatten)]
     pub profiles: HashMap<String, Profile>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Profile {
-    pub metabase_url: String,
+    pub url: String,
     pub email: Option<String>, // Optional email for login convenience
 }
 
@@ -68,9 +68,9 @@ impl Config {
     }
 
     fn config_file_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir().ok_or(StorageError::ConfigDirNotFound)?;
+        let home_dir = dirs::home_dir().ok_or(StorageError::ConfigDirNotFound)?;
 
-        let app_config_dir = config_dir.join("mbr-cli");
+        let app_config_dir = home_dir.join(".config").join("mbr-cli");
         let config_file = app_config_dir.join("config.toml");
 
         Ok(config_file)
@@ -93,7 +93,6 @@ mod tests {
     #[test]
     fn test_config_default() {
         let config = Config::default();
-        assert_eq!(config.default_profile, None);
         assert_eq!(config.profiles.len(), 0);
     }
 
@@ -102,7 +101,7 @@ mod tests {
         let mut config = Config::default();
         // Create a profile
         let profile = Profile {
-            metabase_url: "http://example.test".to_string(),
+            url: "http://example.test".to_string(),
             email: Some("test@example.com".to_string()),
         };
         // Set the profile in the config
@@ -111,7 +110,7 @@ mod tests {
         let retrieved = config.get_profile("test");
         assert!(retrieved.is_some());
         if let Some(retrieved) = retrieved {
-            assert_eq!(retrieved.metabase_url, profile.metabase_url);
+            assert_eq!(retrieved.url, profile.url);
             assert_eq!(retrieved.email, profile.email);
         }
         // Nonexistent profile should return None
@@ -124,14 +123,11 @@ mod tests {
         let config_path = temp_dir.path().join("config.toml");
 
         // Create a sample config
-        let mut config = Config {
-            default_profile: Some("test".to_string()),
-            ..Default::default()
-        };
+        let mut config = Config::default();
         config.profiles.insert(
             "test".to_string(),
             Profile {
-                metabase_url: "http://example.test".to_string(),
+                url: "http://example.test".to_string(),
                 email: Some("test@example.com".to_string()),
             },
         );
@@ -145,7 +141,6 @@ mod tests {
         let loaded_config = Config::load(Some(config_path)).expect("Failed to load config");
 
         // Check if loaded config matches saved config
-        assert_eq!(loaded_config.default_profile, config.default_profile);
         assert_eq!(loaded_config.profiles.len(), 1);
         assert!(loaded_config.get_profile("test").is_some());
     }
@@ -160,7 +155,6 @@ mod tests {
         assert!(config.is_ok());
 
         let config = config.expect("Failed to load default config");
-        assert_eq!(config.default_profile, None);
         assert_eq!(config.profiles.len(), 0);
     }
 }

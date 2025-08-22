@@ -5,8 +5,7 @@ use crate::core::auth::LoginInput;
 use crate::core::services::auth_service::AuthService;
 use crate::core::services::config_service::ConfigService;
 use crate::display::{
-    OperationStatus, ProgressSpinner, TableDisplay, TableHeaderInfoBuilder,
-    display_status,
+    OperationStatus, ProgressSpinner, TableDisplay, TableHeaderInfoBuilder, display_status,
 };
 use crate::error::{AppError, CliError};
 use crate::storage::config::Profile;
@@ -40,25 +39,17 @@ impl AuthHandler {
             AuthCommands::Login { username, password } => {
                 Self::print_verbose(verbose, "Attempting auth login command using AuthService");
 
-                // Use CLI arguments if provided, otherwise collect interactively
-                let input = if let (Some(user), Some(pass)) = (&username, &password) {
-                    // Non-interactive mode: use provided credentials
-                    LoginInput {
-                        username: user.clone(),
-                        password: pass.clone(),
-                    }
-                } else {
-                    // Interactive mode: collect credentials via prompts
-                    // Use profile email as default username if available and no username provided
-                    let default_username = username.or_else(|| profile.email.clone());
-                    LoginInput::collect(default_username.as_deref())?
-                };
+                // Use new method that supports environment variables
+                // Priority: CLI args > environment variables > profile email > interactive input
+                let default_username = username.clone().or_else(|| profile.email.clone());
+                let input =
+                    LoginInput::from_args_or_env(username, password, default_username.as_deref())?;
 
                 match auth_service.authenticate(input.clone()).await {
                     Ok(_) => {
                         Self::print_verbose(verbose, "Authentication via AuthService succeeded");
                         println!("✅ Successfully logged in as {}", input.username);
-                        println!("Connected to: {}", profile.metabase_url);
+                        println!("Connected to: {}", profile.url);
                         Ok(())
                     }
                     Err(e) => {
@@ -69,7 +60,7 @@ impl AuthHandler {
             }
             AuthCommands::Logout => {
                 Self::print_verbose(verbose, "Attempting auth logout command using AuthService");
-                
+
                 match auth_service.logout().await {
                     Ok(_) => {
                         println!(
@@ -115,10 +106,16 @@ impl AuthHandler {
                         if auth_status.session_active {
                             if auth_service.is_authenticated() {
                                 println!("Session: ✅ Active session found");
-                                Self::print_verbose(verbose, "Valid session token found in keychain");
+                                Self::print_verbose(
+                                    verbose,
+                                    "Valid session token found in keychain",
+                                );
                             } else {
                                 println!("Session: ❌ Session token invalid or expired");
-                                Self::print_verbose(verbose, "Session token found but appears invalid");
+                                Self::print_verbose(
+                                    verbose,
+                                    "Session token found but appears invalid",
+                                );
                             }
                         } else {
                             println!(
@@ -162,7 +159,10 @@ impl ConfigHandler {
     ) -> Result<(), AppError> {
         match command {
             ConfigCommands::Show => {
-                Self::print_verbose(verbose, "Attempting config show command using ConfigService");
+                Self::print_verbose(
+                    verbose,
+                    "Attempting config show command using ConfigService",
+                );
 
                 let profiles = config_service.list_profiles();
 
@@ -170,11 +170,7 @@ impl ConfigHandler {
                 println!("Current Configuration:");
                 println!("=====================");
 
-                if let Some(default_profile) = config_service.get_default_profile() {
-                    println!("Default Profile: {}", default_profile);
-                } else {
-                    println!("Default Profile: (not set)");
-                }
+                println!("Default Profile: {}", config_service.get_default_profile());
 
                 println!("\nProfiles:");
                 if profiles.is_empty() {
@@ -182,7 +178,7 @@ impl ConfigHandler {
                 } else {
                     for (name, profile) in profiles {
                         println!("  [{}]", name);
-                        println!("    URL: {}", profile.metabase_url);
+                        println!("    URL: {}", profile.url);
                         if let Some(email) = &profile.email {
                             println!("    Email: {}", email);
                         }
@@ -195,35 +191,68 @@ impl ConfigHandler {
                 profile,
                 field,
                 value,
+                url,
+                email,
             } => {
-                Self::print_verbose(verbose, &format!(
-                    "Attempting config set using ConfigService - profile: {}, field: {}, value: {}",
-                    profile, field, value
-                ));
+                Self::print_verbose(
+                    verbose,
+                    &format!(
+                        "Attempting config set using ConfigService - profile: {}, field: {:?}, value: {:?}, url: {:?}, email: {:?}",
+                        profile, field, value, url, email
+                    ),
+                );
 
-                // Validate URL if setting URL field
-                if field.as_str() == "url" {
-                    crate::utils::validation::validate_url(&value)?;
-                }
+                // Handle different input modes
+                if let (Some(field), Some(value)) = (field, value) {
+                    // Legacy mode: explicit field/value arguments
+                    println!("Using explicit field/value arguments");
 
-                // Set the field using ConfigService
-                config_service.set_profile_field(&profile, &field, &value)?;
+                    // Validate URL if setting URL field
+                    if field.as_str() == "url" {
+                        crate::utils::validation::validate_url(&value)?;
+                    }
 
-                // Display success message - ConfigService handles field validation
-                match field.as_str() {
-                    "url" => {
-                        println!("✅ Set profile '{}' URL to: {}", profile, value);
+                    // Set the field using ConfigService
+                    config_service.set_profile_field(&profile, &field, &value)?;
+
+                    // Display success message
+                    match field.as_str() {
+                        "url" => println!("✅ Set profile '{}' URL to: {}", profile, value),
+                        "email" => println!("✅ Set profile '{}' email to: {}", profile, value),
+                        _ => {
+                            return Err(AppError::Cli(crate::error::CliError::InvalidArguments(
+                                format!("Invalid field: {}. Use 'url' or 'email'", field),
+                            )));
+                        }
                     }
-                    "email" => {
-                        println!("✅ Set profile '{}' email to: {}", profile, value);
+                } else {
+                    // Environment variable mode: use --url and --email flags (with env var fallback)
+                    let mut updated_fields = Vec::new();
+
+                    // Handle URL setting
+                    if let Some(url_value) = url {
+                        println!("Using URL from --url argument or MBR_URL environment variable");
+                        crate::utils::validation::validate_url(&url_value)?;
+                        config_service.set_profile_field(&profile, "url", &url_value)?;
+                        updated_fields.push(format!("URL to: {}", url_value));
                     }
-                    _ => {
-                        // This should not happen as ConfigService validates fields first
-                        return Err(AppError::Cli(crate::error::CliError::InvalidArguments(format!(
-                            "Invalid field: {}. Use 'url' or 'email'",
-                            field
-                        ))));
+
+                    // Handle email setting
+                    if let Some(email_value) = email {
+                        println!(
+                            "Using email from --email argument or MBR_USERNAME environment variable"
+                        );
+                        config_service.set_profile_field(&profile, "email", &email_value)?;
+                        updated_fields.push(format!("email to: {}", email_value));
                     }
+
+                    if updated_fields.is_empty() {
+                        return Err(AppError::Cli(crate::error::CliError::InvalidArguments(
+                            "No configuration values provided. Use --field/--value, --url, --email, or set MBR_URL/MBR_USERNAME environment variables".to_string(),
+                        )));
+                    }
+
+                    println!("✅ Set profile '{}' {}", profile, updated_fields.join(", "));
                 }
 
                 // Save the updated config
@@ -270,10 +299,13 @@ impl QuestionHandler {
                 columns,
                 page_size,
             } => {
-                Self::print_verbose(verbose, &format!(
-                    "Attempting question execute command - ID: {}, Params: {:?}, Format: {}, Limit: {:?}, Full: {}, Offset: {:?}, Page size: {}",
-                    id, param, format, limit, full, offset, page_size
-                ));
+                Self::print_verbose(
+                    verbose,
+                    &format!(
+                        "Attempting question execute command - ID: {}, Params: {:?}, Format: {}, Limit: {:?}, Full: {}, Offset: {:?}, Page size: {}",
+                        id, param, format, limit, full, offset, page_size
+                    ),
+                );
 
                 // Convert parameters from Vec<String> to HashMap<String, String>
                 let parameters = if param.is_empty() {
@@ -314,11 +346,14 @@ impl QuestionHandler {
                     if offset_val > 0 {
                         let offset_manager = OffsetManager::new(Some(offset_val))?;
                         processed_result = offset_manager.apply_offset(&processed_result)?;
-                        Self::print_verbose(verbose, &format!(
-                            "Applied offset: {}, remaining rows: {}",
-                            offset_val,
-                            processed_result.data.rows.len()
-                        ));
+                        Self::print_verbose(
+                            verbose,
+                            &format!(
+                                "Applied offset: {}, remaining rows: {}",
+                                offset_val,
+                                processed_result.data.rows.len()
+                            ),
+                        );
                     }
                 }
 
@@ -423,18 +458,22 @@ impl QuestionHandler {
                             println!("{}", rendered_table);
                         } else {
                             // Interactive mode - Full interactive display based on original implementation
-                            Self::print_verbose(verbose, "Using full interactive mode with crossterm");
+                            Self::print_verbose(
+                                verbose,
+                                "Using full interactive mode with crossterm",
+                            );
 
                             let interactive_display = InteractiveDisplay::new();
-                            interactive_display.display_query_result_pagination(
-                                &final_result,
-                                page_size,
-                                offset,
-                                no_fullscreen,
-                                id,
-                                &format!("Question {}", id),
-                            )
-                            .await?;
+                            interactive_display
+                                .display_query_result_pagination(
+                                    &final_result,
+                                    page_size,
+                                    offset,
+                                    no_fullscreen,
+                                    id,
+                                    &format!("Question {}", id),
+                                )
+                                .await?;
                         }
                     }
                 }
@@ -446,10 +485,13 @@ impl QuestionHandler {
                 limit,
                 collection,
             } => {
-                Self::print_verbose(verbose, &format!(
-                    "Attempting question list command - Search: {:?}, Limit: {}, Collection: {:?}",
-                    search, limit, collection
-                ));
+                Self::print_verbose(
+                    verbose,
+                    &format!(
+                        "Attempting question list command - Search: {:?}, Limit: {}, Collection: {:?}",
+                        search, limit, collection
+                    ),
+                );
 
                 // Show progress while fetching questions
                 let mut spinner = ProgressSpinner::new("Fetching questions...".to_string());
@@ -474,7 +516,8 @@ impl QuestionHandler {
 
                     // Interactive mode for question list
                     let interactive_display = InteractiveDisplay::new();
-                    interactive_display.display_question_list_pagination(&questions, limit as usize)
+                    interactive_display
+                        .display_question_list_pagination(&questions, limit as usize)
                         .await?;
                 }
                 Ok(())
@@ -482,4 +525,3 @@ impl QuestionHandler {
         }
     }
 }
-

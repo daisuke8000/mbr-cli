@@ -158,6 +158,10 @@ impl Credentials {
     pub fn get_session_token(&self) -> Option<String> {
         self.session_token.clone()
     }
+
+    pub fn set_session_token(&mut self, token: Option<String>) {
+        self.session_token = token;
+    }
 }
 
 #[cfg(test)]

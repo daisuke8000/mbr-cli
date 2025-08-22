@@ -283,25 +283,45 @@ flowchart LR
 
 ## Current Implementation Status
 
-### Implemented Components ✅
-- **Error System** (src/error.rs): Full hierarchy with AppError, CliError, ApiError, ConfigError, AuthError, StorageError
-- **CLI Layer**:
-  - main_types.rs: Command structure with clap derive macros
-  - dispatcher.rs: Command routing with auth login/logout, config show, verbose logging helper
-- **Core Layer**:
-  - auth.rs: LoginInput struct for authentication input handling and validation
-- **Storage Layer**:
-  - config.rs: TOML configuration with profile management
-  - credentials.rs: Keyring integration with session persistence
-- **API Layer**:
-  - client.rs: MetabaseClient with login/logout/session management
-  - models.rs: API data models with custom deserializers
+### ✅ Implemented Components (4-Layer Architecture Complete)
 
-### In Progress 🔄
-- **Session Management**: Auto-restoration on startup
-- **Question Commands**: List and execute operations
+#### CLI Layer (User Interface)
+- **main_types.rs**: Hierarchical command structure with clap derive macros
+- **dispatcher.rs**: Thin facade layer delegating to service handlers (226 lines, 83% reduction)
+- **command_handlers.rs**: Dedicated handlers for Auth, Config, Question commands (481 lines)
+- **interactive_display.rs**: Full-screen pagination and interactive display logic (500+ lines)
 
-### Not Implemented ⏳
-- **Utils Layer**: Display utilities, progress indicators
-- **Config Commands**: Set operations
-- **Cache System**: Response caching mechanism
+#### Core Layer (Business Logic)
+- **auth.rs**: LoginInput struct for authentication input handling and validation
+- **services/auth_service.rs**: Authentication service with session management
+- **services/config_service.rs**: Configuration service with profile management
+- **services/question_service.rs**: Question service foundation for future expansion
+- **services/types.rs**: Service layer data models (AuthStatus, ListParams, ExecuteParams)
+
+#### Storage Layer (Data Persistence)
+- **config.rs**: TOML configuration with profile management and Default trait
+- **credentials.rs**: Dual-mode authentication (API key priority, keyring integration)
+
+#### Utils Layer (Shared Utilities)
+- **validation.rs**: URL and email validation functions
+- **memory.rs**: Memory estimation and management utilities (moved from display)
+- **data.rs**: Offset management and data processing (moved from display)
+- **file.rs**: File operations and directory management
+- **input.rs**: Interactive input handling utilities
+
+#### Support Modules
+- **API Layer**: MetabaseClient with HTTP communication, API data models
+- **Display Layer**: UI-only components (table, pagination, progress indicators)
+- **Error System**: Hierarchical error handling with ServiceError, UtilsError integration
+
+### 🎯 Architecture Achievements
+- **4-Layer Dependency Flow**: CLI → Core → Storage → Utils properly maintained
+- **Service Layer Pattern**: Business logic separated from CLI with facade pattern
+- **Single Responsibility**: Each module has clear, focused responsibilities
+- **Zero Circular Dependencies**: Architecture validation confirms clean separation
+- **Quality Gates**: Zero clippy warnings, comprehensive test coverage (108 tests)
+
+### ⏳ Future Enhancements
+- **Question Commands**: Enhanced list and execute operations
+- **Config Set Commands**: Configuration modification operations
+- **Cache System**: Response caching for improved performance

@@ -44,11 +44,11 @@ pub enum Commands {
 pub enum AuthCommands {
     /// Login to Metabase
     Login {
-        /// Username for login (optional, will prompt if not provided)
-        #[arg(long)]
+        /// Username for login (optional, will use MBR_USERNAME env var or prompt if not provided)
+        #[arg(long, env = "MBR_USERNAME")]
         username: Option<String>,
-        /// Password for login (optional, will prompt if not provided)
-        #[arg(long)]
+        /// Password for login (optional, will use MBR_PASSWORD env var or prompt if not provided)
+        #[arg(long, env = "MBR_PASSWORD")]
         password: Option<String>,
     },
     /// Logout and clear the session
@@ -63,12 +63,21 @@ pub enum ConfigCommands {
     Show,
     /// Set configuration value
     Set {
-        /// Profile name
+        /// Profile name (optional, defaults to 'default')
+        #[arg(long, default_value = "default")]
         profile: String,
-        /// Field to set (url or email)
-        field: String,
-        /// Value to set
-        value: String,
+        /// Field to set (url or email) - optional when using environment variables
+        #[arg(long)]
+        field: Option<String>,
+        /// Value to set - optional when using environment variables
+        #[arg(long)]
+        value: Option<String>,
+        /// URL for profile (will use MBR_URL env var if not provided)
+        #[arg(long, env = "MBR_URL")]
+        url: Option<String>,
+        /// Email for profile (will use MBR_USERNAME env var if not provided)
+        #[arg(long, env = "MBR_USERNAME")]
+        email: Option<String>,
     },
 }
 
