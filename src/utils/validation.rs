@@ -40,6 +40,43 @@ pub fn validate_api_key(api_key: &str) -> crate::Result<()> {
     Ok(())
 }
 
+/// Validate email format
+pub fn validate_email(email: &str) -> crate::Result<()> {
+    if email.is_empty() {
+        return Err(CliError::InvalidArguments("Email cannot be empty".to_string()).into());
+    }
+
+    // Basic email validation - must contain @ symbol
+    if !email.contains('@') {
+        return Err(CliError::InvalidArguments(format!(
+            "Invalid email '{}': Email must contain @ symbol",
+            email
+        ))
+        .into());
+    }
+
+    // Check for domain part (after @) and username part (before @)
+    let parts: Vec<&str> = email.split('@').collect();
+    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+        return Err(CliError::InvalidArguments(format!(
+            "Invalid email '{}': Email must have username and domain parts",
+            email
+        ))
+        .into());
+    }
+
+    // Basic domain validation - must contain at least one dot
+    if !parts[1].contains('.') {
+        return Err(CliError::InvalidArguments(format!(
+            "Invalid email '{}': Domain must contain dot",
+            email
+        ))
+        .into());
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,5 +104,22 @@ mod tests {
     fn test_validate_api_key_rejects_invalid_keys() {
         assert!(validate_api_key("").is_err());
         assert!(validate_api_key("short").is_err());
+    }
+
+    #[test]
+    fn test_validate_email_accepts_valid_emails() {
+        assert!(validate_email("user@example.com").is_ok());
+        assert!(validate_email("test.email@domain.org").is_ok());
+        assert!(validate_email("admin@metabase.local").is_ok());
+    }
+
+    #[test]
+    fn test_validate_email_rejects_invalid_emails() {
+        assert!(validate_email("").is_err());
+        assert!(validate_email("invalid").is_err());
+        assert!(validate_email("@domain.com").is_err());
+        assert!(validate_email("user@").is_err());
+        assert!(validate_email("user@domain").is_err());
+        assert!(validate_email("user@domain@com").is_err());
     }
 }

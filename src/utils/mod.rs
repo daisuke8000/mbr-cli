@@ -17,3 +17,6 @@ pub mod memory;
 
 /// Data processing and offset management
 pub mod data;
+
+/// Input processing and configuration utilities
+pub mod input;

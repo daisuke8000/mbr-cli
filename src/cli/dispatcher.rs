@@ -328,13 +328,8 @@ impl Dispatcher {
                 // Set the field
                 match field.as_str() {
                     "url" => {
-                        // Validate URL
-                        if !value.starts_with("http://") && !value.starts_with("https://") {
-                            return Err(AppError::Cli(CliError::InvalidArguments(format!(
-                                "Invalid URL: {}. Must start with http:// or https://",
-                                value
-                            ))));
-                        }
+                        // Validate URL using utils::validation
+                        crate::utils::validation::validate_url(&value)?;
                         prof.metabase_url = value.to_string();
                         println!("✅ Set profile '{}' URL to: {}", profile, value);
                     }

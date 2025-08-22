@@ -94,25 +94,17 @@ impl DisplayOptions {
     pub fn from_env() -> Self {
         let mut options = Self::default();
 
-        // Read environment variables
-        if std::env::var("NO_COLOR").is_ok() {
-            options.no_color = true;
+        // Read environment variables using utils::input
+        options.no_color = crate::utils::input::EnvConfigReader::read_no_color();
+
+        if let Some(page_size) = crate::utils::input::EnvConfigReader::read_page_size() {
+            options.page_size = page_size;
         }
 
-        if let Ok(page_size_str) = std::env::var("MBR_PAGE_SIZE") {
-            if let Ok(page_size) = page_size_str.parse::<usize>() {
-                options.page_size = page_size;
-            }
-        }
+        options.no_fullscreen = crate::utils::input::EnvConfigReader::read_no_fullscreen();
 
-        if std::env::var("MBR_NO_FULLSCREEN").is_ok() {
-            options.no_fullscreen = true;
-        }
-
-        if let Ok(memory_str) = std::env::var("MBR_MAX_MEMORY") {
-            if let Ok(memory_mb) = memory_str.parse::<usize>() {
-                options.max_memory_mb = memory_mb;
-            }
+        if let Some(memory_mb) = crate::utils::input::EnvConfigReader::read_max_memory() {
+            options.max_memory_mb = memory_mb;
         }
 
         options
