@@ -16,6 +16,10 @@ pub enum AppError {
     Display(#[from] DisplayError),
     #[error("QuestionError: {0}")]
     Question(#[from] QuestionError),
+    #[error("ServiceError: {0}")]
+    Service(#[from] ServiceError),
+    #[error("UtilsError: {0}")]
+    Utils(#[from] UtilsError),
 }
 
 #[derive(Error, Debug)]
@@ -117,6 +121,28 @@ pub enum ConfigError {
     },
 }
 
+#[derive(Error, Debug)]
+pub enum ServiceError {
+    #[error("Authentication service error: {message}")]
+    AuthService { message: String },
+    #[error("Configuration service error: {message}")]
+    ConfigService { message: String },
+    #[error("Question service error: {message}")]
+    QuestionService { message: String },
+}
+
+#[derive(Error, Debug)]
+pub enum UtilsError {
+    #[error("Validation error: {message}")]
+    Validation { message: String },
+    #[error("Memory calculation error: {message}")]
+    Memory { message: String },
+    #[error("Data processing error: {message}")]
+    DataProcessing { message: String },
+    #[error("Input processing error: {message}")]
+    InputProcessing { message: String },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ErrorSeverity {
     Critical,
@@ -151,6 +177,12 @@ impl AppError {
             AppError::Storage(_) => ErrorSeverity::Medium,
             AppError::Display(_) => ErrorSeverity::Low,
             AppError::Question(_) => ErrorSeverity::Medium,
+            AppError::Service(service_error) => match service_error {
+                ServiceError::AuthService { .. } => ErrorSeverity::High,
+                ServiceError::ConfigService { .. } => ErrorSeverity::Medium,
+                ServiceError::QuestionService { .. } => ErrorSeverity::Medium,
+            },
+            AppError::Utils(_) => ErrorSeverity::Low,
         }
     }
 
@@ -430,5 +462,88 @@ mod tests {
             assert_eq!(value, "value");
             assert_eq!(reason, "reason");
         }
+    }
+
+    #[test]
+    fn test_service_error_display() {
+        let service_err = ServiceError::AuthService {
+            message: "Authentication failed".to_string(),
+        };
+        assert_eq!(
+            format!("{}", service_err),
+            "Authentication service error: Authentication failed"
+        );
+
+        let service_err = ServiceError::ConfigService {
+            message: "Configuration invalid".to_string(),
+        };
+        assert_eq!(
+            format!("{}", service_err),
+            "Configuration service error: Configuration invalid"
+        );
+
+        let service_err = ServiceError::QuestionService {
+            message: "Question execution failed".to_string(),
+        };
+        assert_eq!(
+            format!("{}", service_err),
+            "Question service error: Question execution failed"
+        );
+    }
+
+    #[test]
+    fn test_utils_error_display() {
+        let utils_err = UtilsError::Validation {
+            message: "Invalid URL format".to_string(),
+        };
+        assert_eq!(
+            format!("{}", utils_err),
+            "Validation error: Invalid URL format"
+        );
+
+        let utils_err = UtilsError::Memory {
+            message: "Memory allocation failed".to_string(),
+        };
+        assert_eq!(
+            format!("{}", utils_err),
+            "Memory calculation error: Memory allocation failed"
+        );
+
+        let utils_err = UtilsError::DataProcessing {
+            message: "Data parsing failed".to_string(),
+        };
+        assert_eq!(
+            format!("{}", utils_err),
+            "Data processing error: Data parsing failed"
+        );
+
+        let utils_err = UtilsError::InputProcessing {
+            message: "Input validation failed".to_string(),
+        };
+        assert_eq!(
+            format!("{}", utils_err),
+            "Input processing error: Input validation failed"
+        );
+    }
+
+    #[test]
+    fn test_app_error_service_utils_integration() {
+        let app_err = AppError::Service(ServiceError::AuthService {
+            message: "Authentication failed".to_string(),
+        });
+        assert_eq!(app_err.severity(), ErrorSeverity::High);
+        assert_eq!(
+            format!("{}", app_err),
+            "ServiceError: Authentication service error: Authentication failed"
+        );
+
+        let app_err = AppError::Utils(UtilsError::Validation {
+            message: "Invalid input".to_string(),
+        });
+        assert_eq!(app_err.severity(), ErrorSeverity::Low);
+        assert_eq!(
+            format!("{}", app_err),
+            "UtilsError: Validation error: Invalid input"
+        );
     }
 }
