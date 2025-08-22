@@ -1,10 +1,9 @@
 pub use error::AppError;
 
-/// Main architecture layers (dependency flow: CLI → Core → Storage → Utils)
+/// Main architecture layers (dependency flow: CLI → Core → Storage)
 pub mod cli; // Command-line interface
 pub mod core; // Business logic
 pub mod storage; // Configuration and data persistence
-pub mod utils; // Common utilities
 
 /// Support modules (used across layers)
 pub mod api; // Metabase API client

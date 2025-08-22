@@ -60,18 +60,18 @@ pub struct Collection {
     pub name: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct QueryResult {
     pub data: QueryData,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct QueryData {
     pub cols: Vec<Column>,
     pub rows: Vec<Vec<Value>>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Column {
     pub name: String,
     pub display_name: String,

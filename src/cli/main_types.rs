@@ -93,8 +93,26 @@ pub enum QuestionCommands {
         /// Parameters in key=value format
         #[arg(long, action = clap::ArgAction::Append)]
         param: Vec<String>,
+        /// Output format (table, json, csv)
+        #[arg(short, long, default_value = "table")]
+        format: String,
         /// Limit the number of results
         #[arg(long)]
         limit: Option<u32>,
+        /// Show all results without pagination
+        #[arg(long)]
+        full: bool,
+        /// Disable fullscreen mode for interactive display
+        #[arg(long)]
+        no_fullscreen: bool,
+        /// Offset for starting position (0-based)
+        #[arg(long)]
+        offset: Option<usize>,
+        /// Display specific columns (comma-separated)
+        #[arg(long)]
+        columns: Option<String>,
+        /// Page size for pagination (default: 20)
+        #[arg(long, default_value = "20")]
+        page_size: usize,
     },
 }

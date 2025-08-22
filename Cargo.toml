@@ -20,6 +20,7 @@ keyring = { version = "3.6", features = ["apple-native", "windows-native", "linu
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 crossterm = "0.29"
+atty = "0.2"
 
 [dev-dependencies]
 tokio-test = "0.4"

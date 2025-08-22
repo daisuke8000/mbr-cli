@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .as_ref()
         .map(|dir| PathBuf::from(dir).join("config.toml"));
 
-    let config = match Config::load(config_path) {
+    let mut config = match Config::load(config_path.clone()) {
         Ok(config) => config,
         Err(err) => {
             eprintln!("Error loading config: {}", err);
@@ -29,6 +29,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .or(config.default_profile.clone())
         .unwrap_or_else(|| "default".to_string());
 
+    // Create a default profile if it doesn't exist
+    if config.get_profile(&profile_name).is_none() {
+        if cli.verbose {
+            println!("Creating default profile: {}", profile_name);
+        }
+
+        use mbr_cli::storage::config::Profile;
+        let default_profile = Profile {
+            metabase_url: "http://localhost:3000".to_string(),
+            email: None,
+        };
+
+        config.set_profile(profile_name.clone(), default_profile);
+
+        // Set as default if no default is set
+        if config.default_profile.is_none() {
+            config.default_profile = Some(profile_name.clone());
+        }
+
+        // Save the updated config
+        if let Err(err) = config.save(config_path) {
+            if cli.verbose {
+                println!("Warning: Failed to save config: {}", err);
+            }
+        }
+    }
+
     if cli.verbose {
         println!("Verbose mode is enabled");
         println!("Using profile: {}", profile_name);
@@ -37,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Using config directory: {}", config_dir);
         }
 
-        if cli.api_key.is_some() {
+        if cli.api_key.as_ref().is_some_and(|key| !key.is_empty()) {
             println!("Using API key Provided via env or command line");
         }
     }

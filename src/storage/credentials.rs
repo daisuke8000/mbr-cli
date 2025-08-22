@@ -73,21 +73,42 @@ impl Credentials {
     // use logout
     pub fn clear_session_for_profile(profile_name: &str) -> Result<()> {
         let credentials = Self::new(profile_name.to_string());
-        credentials.save_credentials("session", &None)?;
+        credentials.delete_credentials("session")?;
         Ok(())
     }
 
     #[cfg(not(test))]
     fn save_credentials(&self, key_type: &str, value: &Option<String>) -> Result<()> {
         if let Some(v) = value {
-            let entry = Entry::new("mbr-cli", &format!("{}-{}", key_type, self.profile_name))
+            let key_name = format!("{}-{}", key_type, self.profile_name);
+
+            let entry = Entry::new("mbr-cli", &key_name)
                 .map_err(|e| crate::error::StorageError::KeyringError(e.to_string()))?;
+
             entry
                 .set_password(v)
                 .map_err(|e| crate::error::StorageError::KeyringError(e.to_string()))?;
         }
 
         Ok(())
+    }
+
+    #[cfg(not(test))]
+    fn delete_credentials(&self, key_type: &str) -> Result<()> {
+        let key_name = format!("{}-{}", key_type, self.profile_name);
+
+        let entry = Entry::new("mbr-cli", &key_name)
+            .map_err(|e| crate::error::StorageError::KeyringError(e.to_string()))?;
+
+        // Delete the entry from keychain
+        match entry.delete_credential() {
+            Ok(_) => Ok(()),
+            Err(keyring::Error::NoEntry) => {
+                // Entry doesn't exist, which is fine for logout
+                Ok(())
+            }
+            Err(e) => Err(crate::error::StorageError::KeyringError(e.to_string())),
+        }
     }
 
     #[cfg(test)]
@@ -106,14 +127,23 @@ impl Credentials {
         Ok(()) // Mock implementation for tests
     }
 
+    #[cfg(test)]
+    fn delete_credentials(&self, key_type: &str) -> Result<()> {
+        println!(
+            "MOCK: Deleting {} for profile {}",
+            key_type, self.profile_name
+        );
+        Ok(()) // Mock implementation for tests
+    }
+
     #[cfg(not(test))]
     fn has_api_key() -> bool {
-        env::var("MBR_API_KEY").is_ok()
+        env::var("MBR_API_KEY").is_ok_and(|key| !key.is_empty())
     }
 
     #[cfg(test)]
     fn has_api_key() -> bool {
-        env::var("TEST_MBR_API_KEY").is_ok()
+        env::var("TEST_MBR_API_KEY").is_ok_and(|key| !key.is_empty())
     }
 
     pub fn get_auth_mode(&self) -> AuthMode {
@@ -122,6 +152,10 @@ impl Credentials {
         } else {
             AuthMode::Session
         }
+    }
+
+    pub fn get_session_token(&self) -> Option<String> {
+        self.session_token.clone()
     }
 }
 
@@ -155,7 +189,7 @@ mod tests {
 
     #[test]
     fn test_get_auth_mode_with_api_key() {
-        // 環境変数の初期状態を保存
+        // Save initial state of environment variable
         let original_key = env::var("TEST_MBR_API_KEY").ok();
 
         unsafe {
@@ -164,7 +198,7 @@ mod tests {
         let creds = Credentials::new("test".to_string());
         assert!(matches!(creds.get_auth_mode(), AuthMode::APIKey));
 
-        // 環境変数を元の状態に復元
+        // Restore environment variable to original state
         unsafe {
             match original_key {
                 Some(value) => env::set_var("TEST_MBR_API_KEY", value),
@@ -175,7 +209,7 @@ mod tests {
 
     #[test]
     fn test_get_auth_mode_without_api_key() {
-        // 環境変数の初期状態を保存
+        // Save initial state of environment variable
         let original_key = env::var("TEST_MBR_API_KEY").ok();
 
         unsafe {
@@ -184,7 +218,7 @@ mod tests {
         let creds = Credentials::new("test".to_string());
         assert!(matches!(creds.get_auth_mode(), AuthMode::Session));
 
-        // 環境変数を元の状態に復元
+        // Restore environment variable to original state
         unsafe {
             match original_key {
                 Some(value) => env::set_var("TEST_MBR_API_KEY", value),
