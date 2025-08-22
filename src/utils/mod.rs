@@ -11,3 +11,9 @@ pub mod validation;
 
 /// Common helper functions and utilities
 pub mod helpers;
+
+/// Memory usage estimation and management
+pub mod memory;
+
+/// Data processing and offset management
+pub mod data;

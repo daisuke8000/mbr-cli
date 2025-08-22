@@ -21,7 +21,7 @@ impl OffsetManager {
     ///
     /// # Examples
     /// ```
-    /// use mbr_cli::display::OffsetManager;
+    /// use mbr_cli::utils::data::OffsetManager;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let no_offset = OffsetManager::new(None)?;
