@@ -1,6 +1,8 @@
 use crate::api::client::MetabaseClient;
 use crate::cli::main_types::{AuthCommands, Commands, ConfigCommands, QuestionCommands};
 use crate::core::auth::LoginInput;
+use crate::core::services::auth_service::AuthService;
+use crate::core::services::config_service::ConfigService;
 use crate::display::{
     OffsetManager, OperationStatus, ProgressSpinner, TableDisplay, TableHeaderInfoBuilder,
     display_status,
@@ -128,6 +130,25 @@ impl Dispatcher {
         Ok(client)
     }
 
+    // Helper method to create AuthService with proper credentials and client
+    fn create_auth_service(&self, profile: &Profile) -> Result<AuthService, AppError> {
+        let client = self.create_authenticated_client(profile)?;
+        let credentials = if self.api_key.is_some() {
+            // Use credentials with API key preference
+            self.credentials.clone()
+        } else {
+            // Load latest credentials from storage for session mode
+            Credentials::load(&self.credentials.profile_name).unwrap_or_else(|_| self.credentials.clone())
+        };
+        
+        Ok(AuthService::new(credentials, client))
+    }
+
+    // Helper method to create ConfigService with current configuration
+    fn create_config_service(&self) -> ConfigService {
+        ConfigService::new(self.config.clone())
+    }
+
     pub async fn dispatch(&self, command: Commands) -> Result<(), AppError> {
         match command {
             Commands::Auth { command } => self.handle_auth_command(command).await,
@@ -139,7 +160,7 @@ impl Dispatcher {
     async fn handle_auth_command(&self, commands: AuthCommands) -> Result<(), AppError> {
         match commands {
             AuthCommands::Login { username, password } => {
-                self.log_verbose("Attempting auth login command");
+                self.log_verbose("Attempting auth login command using AuthService");
 
                 // Get a profile to check for stored email
                 let profile = self.get_current_profile()?;
@@ -157,72 +178,53 @@ impl Dispatcher {
                     let default_username = username.or_else(|| profile.email.clone());
                     LoginInput::collect(default_username.as_deref())?
                 };
-                input.validate()?;
 
-                let mut client = self.create_client(profile)?;
-                match client.login(&input.username, &input.password).await {
+                let mut auth_service = self.create_auth_service(profile)?;
+                match auth_service.authenticate(input.clone()).await {
                     Ok(_) => {
-                        self.log_verbose("Login API call succeeded");
-                        if let Some(token) = client.get_session_token() {
-                            self.log_verbose(&format!(
-                                "Session token retrieved: {}...",
-                                &token[..8.min(token.len())]
-                            ));
-                            self.log_verbose(&format!(
-                                "Saving session for profile: {}",
-                                &self.credentials.profile_name
-                            ));
-
-                            match Credentials::save_session_for_profile(
-                                &self.credentials.profile_name,
-                                &token,
-                            ) {
-                                Ok(_) => {
-                                    self.log_verbose("Session saved successfully to keychain");
-                                }
-                                Err(e) => {
-                                    println!(
-                                        "⚠️  Warning: Session login succeeded but failed to save to keychain: {}",
-                                        e
-                                    );
-                                    println!("   You may need to login again in future sessions.");
-                                }
-                            }
-                        } else {
-                            println!(
-                                "⚠️  Warning: Login succeeded but no session token received from server"
-                            );
-                            self.log_verbose("client.get_session_token() returned None");
-                        }
-
+                        self.log_verbose("Authentication via AuthService succeeded");
                         println!("✅ Successfully logged in as {}", input.username);
                         println!("Connected to: {}", profile.metabase_url);
                         Ok(())
                     }
                     Err(e) => {
                         println!("❌ Login failed: {}", e);
-                        Err(AppError::Api(e))
+                        Err(e)
                     }
                 }
             }
             AuthCommands::Logout => {
-                self.log_verbose("Attempting auth logout command");
-                Credentials::clear_session_for_profile(&self.credentials.profile_name)?;
-                println!(
-                    "✅ Successfully logged out from profile: {}",
-                    self.credentials.profile_name
-                );
-                Ok(())
+                self.log_verbose("Attempting auth logout command using AuthService");
+                
+                let profile = self.get_current_profile()?;
+                let mut auth_service = self.create_auth_service(profile)?;
+                
+                match auth_service.logout().await {
+                    Ok(_) => {
+                        println!(
+                            "✅ Successfully logged out from profile: {}",
+                            self.credentials.profile_name
+                        );
+                        Ok(())
+                    }
+                    Err(e) => {
+                        println!("❌ Logout failed: {}", e);
+                        Err(e)
+                    }
+                }
             }
             AuthCommands::Status => {
-                self.log_verbose("Attempting auth status command");
+                self.log_verbose("Attempting auth status command using AuthService");
+
+                let profile = self.get_current_profile()?;
+                let auth_service = self.create_auth_service(profile)?;
+                let auth_status = auth_service.get_auth_status();
 
                 // Show authentication status
                 println!("Authentication Status:");
                 println!("=====================");
 
-                let auth_mode = self.credentials.get_auth_mode();
-                match auth_mode {
+                match auth_status.auth_mode {
                     AuthMode::APIKey => {
                         println!("Authentication Mode: API Key");
                         // API key is set via environment variable
@@ -241,15 +243,8 @@ impl Dispatcher {
                     AuthMode::Session => {
                         println!("Authentication Mode: Session");
 
-                        // Check if session is actually saved
-                        let credentials = Credentials::load(&self.credentials.profile_name)?;
-                        let profile = self.get_current_profile()?;
-
-                        // Try to create a client and set session token
-                        let mut client = self.create_client(profile)?;
-                        if let Some(token) = credentials.get_session_token() {
-                            client.set_session_token(token);
-                            if client.is_authenticated() {
+                        if auth_status.session_active {
+                            if auth_service.is_authenticated() {
                                 println!("Session: ✅ Active session found");
                                 self.log_verbose("Valid session token found in keychain");
                             } else {
@@ -266,7 +261,7 @@ impl Dispatcher {
                 }
 
                 // Profile is determined by the current credentials (runtime profile)
-                println!("\nActive Profile: {}", self.credentials.profile_name);
+                println!("\nActive Profile: {}", auth_status.profile_name);
 
                 Ok(())
             }
@@ -276,7 +271,10 @@ impl Dispatcher {
     async fn handle_config_command(&self, commands: ConfigCommands) -> Result<(), AppError> {
         match commands {
             ConfigCommands::Show => {
-                self.log_verbose("Attempting config show command");
+                self.log_verbose("Attempting config show command using ConfigService");
+
+                let config_service = self.create_config_service();
+                let profiles = config_service.list_profiles();
 
                 // Show the current configuration
                 println!("Current Configuration:");
@@ -289,10 +287,10 @@ impl Dispatcher {
                 }
 
                 println!("\nProfiles:");
-                if self.config.profiles.is_empty() {
+                if profiles.is_empty() {
                     println!("  No profiles configured");
                 } else {
-                    for (name, profile) in &self.config.profiles {
+                    for (name, profile) in profiles {
                         println!("  [{}]", name);
                         println!("    URL: {}", profile.metabase_url);
                         if let Some(email) = &profile.email {
@@ -309,35 +307,30 @@ impl Dispatcher {
                 value,
             } => {
                 self.log_verbose(&format!(
-                    "Attempting config set - profile: {}, field: {}, value: {}",
+                    "Attempting config set using ConfigService - profile: {}, field: {}, value: {}",
                     profile, field, value
                 ));
 
-                // Clone config for modification
-                let mut config = self.config.clone();
+                let mut config_service = self.create_config_service();
 
-                // Get or create a profile
-                let prof = config
-                    .profiles
-                    .entry(profile.to_string())
-                    .or_insert_with(|| Profile {
-                        metabase_url: String::new(),
-                        email: None,
-                    });
+                // Validate URL if setting URL field
+                if field.as_str() == "url" {
+                    crate::utils::validation::validate_url(&value)?;
+                }
 
-                // Set the field
+                // Set the field using ConfigService
+                config_service.set_profile_field(&profile, &field, &value)?;
+
+                // Display success message - ConfigService handles field validation
                 match field.as_str() {
                     "url" => {
-                        // Validate URL using utils::validation
-                        crate::utils::validation::validate_url(&value)?;
-                        prof.metabase_url = value.to_string();
                         println!("✅ Set profile '{}' URL to: {}", profile, value);
                     }
                     "email" => {
-                        prof.email = Some(value.to_string());
                         println!("✅ Set profile '{}' email to: {}", profile, value);
                     }
                     _ => {
+                        // This should not happen as ConfigService validates fields first
                         return Err(AppError::Cli(CliError::InvalidArguments(format!(
                             "Invalid field: {}. Use 'url' or 'email'",
                             field
@@ -345,18 +338,8 @@ impl Dispatcher {
                     }
                 }
 
-                // If this is the first profile or named "default", set it as default
-                if config.profiles.len() == 1 || profile == "default" {
-                    config.default_profile = Some(profile.to_string());
-                }
-
-                // Save the updated config to a file
-                config.save(None).map_err(|e| {
-                    AppError::Cli(CliError::InvalidArguments(format!(
-                        "Failed to save config: {}",
-                        e
-                    )))
-                })?;
+                // Save the updated config
+                config_service.save_config(None)?;
 
                 println!("Configuration saved successfully.");
                 Ok(())
@@ -468,9 +451,9 @@ impl Dispatcher {
 
                 // Apply column filtering if specified
                 let mut final_result = processed_result;
-                if let Some(ref column_filter) = columns {
-                    self.log_verbose(&format!("Applying column filter: {}", column_filter));
-                    // TODO: Implement column filtering logic
+                if let Some(ref _column_filter) = columns {
+                    // Column filtering feature not yet implemented
+                    // Currently ignored - displays all columns
                 }
 
                 // Apply limit to the dataset if specified
@@ -1149,7 +1132,6 @@ mod tests {
     }
 
     // Note: auth login requires interactive input, so we can't easily test the full flow
-    // TODO: Add integration tests with mock stdin for auth login
 
     #[tokio::test]
     async fn test_auth_logout_implemented() {
@@ -1249,6 +1231,67 @@ mod tests {
             }
             Ok(_) => {
                 panic!("Expected error due to test environment");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_dispatcher_creates_auth_service() {
+        let d = create_test_dispatcher(true);
+        let profile = d.get_current_profile().expect("Profile should exist");
+        
+        // Test should pass after refactoring to use AuthService
+        let auth_service = d.create_auth_service(profile);
+        assert!(auth_service.is_ok(), "Should create AuthService successfully");
+        
+        let service = auth_service.unwrap();
+        let status = service.get_auth_status();
+        assert_eq!(status.profile_name, "test");
+    }
+
+    #[tokio::test]
+    async fn test_auth_commands_use_auth_service() {
+        let d = create_test_dispatcher(true);
+        
+        // Test that auth status command uses AuthService
+        let result = d.handle_auth_command(AuthCommands::Status).await;
+        assert!(result.is_ok(), "Auth status should work with AuthService");
+        
+        // Test that logout uses AuthService
+        let result = d.handle_auth_command(AuthCommands::Logout).await;
+        assert!(result.is_ok(), "Auth logout should work with AuthService");
+    }
+
+    #[tokio::test]
+    async fn test_dispatcher_creates_config_service() {
+        let d = create_test_dispatcher(true);
+        
+        // Test should pass after refactoring to use ConfigService
+        let config_service = d.create_config_service();
+        let profiles = config_service.list_profiles();
+        assert_eq!(profiles.len(), 1);
+        assert!(profiles.iter().any(|(name, _)| *name == "test"));
+    }
+
+    #[tokio::test]
+    async fn test_config_commands_use_config_service() {
+        let d = create_test_dispatcher(true);
+        
+        // Test that config show command uses ConfigService
+        let result = d.handle_config_command(ConfigCommands::Show).await;
+        assert!(result.is_ok(), "Config show should work with ConfigService");
+        
+        // Test that config set uses ConfigService
+        let result = d.handle_config_command(ConfigCommands::Set {
+            profile: "test".to_string(),
+            field: "url".to_string(),
+            value: "http://localhost:3000".to_string(),
+        }).await;
+        match &result {
+            Ok(_) => { /* test passes */ }
+            Err(e) => {
+                println!("Config set error: {}", e);
+                panic!("Config set should work with ConfigService: {:?}", e);
             }
         }
     }
