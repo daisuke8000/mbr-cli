@@ -2,7 +2,7 @@
 name = "mbr-cli"
 version = "0.1.0"
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 description = "Rust-based CLI tool for Metabase API interaction"
 repository = "https://github.com/mbr-cli/mbr-cli"
 keywords = ["metabase", "cli", "api", "database", "analytics"]
