@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 description = "Rust-based CLI tool for Metabase API interaction"
-repository = "https://github.com/mbr-cli/mbr-cli"
+repository = "https://github.com/daisuke8000/mbr-cli"
 keywords = ["metabase", "cli", "api", "database", "analytics"]
 categories = ["command-line-utilities", "database"]
 
@@ -20,16 +20,9 @@ toml = "0.8"
 dirs = "6.0"
 rpassword = "7.4"
 unicode-width = "0.1"
-futures = "0.3"
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "linux-native"] }
 chrono = { version = "0.4", features = ["serde"] }
-async-trait = "0.1"
 crossterm = "0.29"
-atty = "0.2"
 
 [dev-dependencies]
-tokio-test = "0.4"
-assert_cmd = "2.0"
-predicates = "3.1"
-wiremock = "0.6"
 tempfile = "3.20"
