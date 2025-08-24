@@ -23,6 +23,7 @@ unicode-width = "0.1"
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "linux-native"] }
 chrono = { version = "0.4", features = ["serde"] }
 crossterm = "0.29"
+atty = "0.2"
 
 [dev-dependencies]
 tempfile = "3.20"
