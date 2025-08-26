@@ -21,7 +21,7 @@ impl QuestionService {
         self.client
             .list_questions(
                 params.search.as_deref(),
-                Some(params.limit),
+                params.limit,
                 params.collection.as_deref(),
             )
             .await

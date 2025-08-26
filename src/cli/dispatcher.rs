@@ -1,5 +1,6 @@
 use crate::api::client::MetabaseClient;
 use crate::cli::command_handlers::{AuthHandler, ConfigHandler, QuestionHandler};
+use crate::cli::dashboard_handler::DashboardHandler;
 use crate::cli::main_types::Commands;
 use crate::core::services::auth_service::AuthService;
 use crate::core::services::config_service::ConfigService;
@@ -191,6 +192,14 @@ impl Dispatcher {
                 let profile = self.get_current_profile()?;
                 let client = self.create_authenticated_client(profile)?;
                 handler.handle(command, client, self.verbose).await
+            }
+            Commands::Dashboard { command } => {
+                let handler = DashboardHandler::new();
+                let profile = self.get_current_profile()?;
+                let client = self.create_authenticated_client(profile)?;
+                handler
+                    .handle_dashboard_commands(&client, &command, self.verbose)
+                    .await
             }
         }
     }

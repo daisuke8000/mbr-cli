@@ -157,7 +157,7 @@ mod tests {
             "updated_at": "2023-01-01T00:00:00Z",
             "dashcards": []
         }"#;
-        
+
         let dashboard: Dashboard = serde_json::from_str(json).unwrap();
         assert_eq!(dashboard.id, 1);
         assert_eq!(dashboard.name, "Test Dashboard");
@@ -174,7 +174,7 @@ mod tests {
             "created_at": "2023-01-01T00:00:00Z",
             "updated_at": "2023-01-01T00:00:00Z"
         }"#;
-        
+
         let dashboard: Dashboard = serde_json::from_str(json).unwrap();
         assert_eq!(dashboard.collection_id, None);
     }
@@ -190,7 +190,7 @@ mod tests {
             "size_x": 4,
             "size_y": 4
         }"#;
-        
+
         let card: DashboardCard = serde_json::from_str(json).unwrap();
         assert_eq!(card.id, 1);
         assert_eq!(card.dashboard_id, 1);

@@ -1,4 +1,4 @@
-use crate::api::models::{QueryResult, Question};
+use crate::api::models::{Dashboard, DashboardCard, QueryResult, Question};
 use crate::error::AppError;
 use comfy_table::{Attribute, Cell, Color, Table, presets};
 use crossterm::terminal;
@@ -618,6 +618,219 @@ impl TableHeaderInfoBuilder {
 impl Default for TableHeaderInfoBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl TableDisplay {
+    /// Render dashboard list in table format with dynamic field-based headers
+    pub fn render_dashboard_list(&self, dashboards: &[Dashboard]) -> Result<String, AppError> {
+        if dashboards.is_empty() {
+            return Ok("No dashboards found.".to_string());
+        }
+
+        let mut table = Table::new();
+        table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
+
+        // Dynamic headers based on Dashboard struct fields
+        let headers = [
+            "ID",
+            "Name",
+            "Description",
+            "Collection ID",
+            "Creator ID",
+            "Created At",
+            "Updated At",
+        ];
+
+        if self.use_colors {
+            let colored_headers: Vec<Cell> = headers
+                .iter()
+                .map(|h| Cell::new(h).add_attribute(Attribute::Bold).fg(Color::Green))
+                .collect();
+            table.set_header(colored_headers);
+        } else {
+            let bold_headers: Vec<Cell> = headers
+                .iter()
+                .map(|h| Cell::new(h).add_attribute(Attribute::Bold))
+                .collect();
+            table.set_header(bold_headers);
+        }
+
+        // Add data rows with field values
+        for dashboard in dashboards {
+            let description = dashboard.description.as_deref().unwrap_or("N/A");
+            let collection_id = dashboard
+                .collection_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "Root".to_string());
+            let creator_id = dashboard
+                .creator_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "N/A".to_string());
+
+            let row = vec![
+                if self.use_colors {
+                    Cell::new(dashboard.id.to_string()).fg(Color::Cyan)
+                } else {
+                    Cell::new(dashboard.id.to_string())
+                },
+                Cell::new(&dashboard.name),
+                Cell::new(description),
+                Cell::new(collection_id),
+                Cell::new(creator_id),
+                Cell::new(self.format_datetime(&dashboard.created_at)),
+                Cell::new(self.format_datetime(&dashboard.updated_at)),
+            ];
+
+            table.add_row(row);
+        }
+
+        Ok(table.to_string())
+    }
+
+    /// Render dashboard details in table format with field-based structure
+    pub fn render_dashboard_details(&self, dashboard: &Dashboard) -> Result<String, AppError> {
+        let mut table = Table::new();
+        table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
+
+        // Two-column layout: Field Name | Value
+        if self.use_colors {
+            table.set_header(vec![
+                Cell::new("Field")
+                    .add_attribute(Attribute::Bold)
+                    .fg(Color::Green),
+                Cell::new("Value")
+                    .add_attribute(Attribute::Bold)
+                    .fg(Color::Green),
+            ]);
+        } else {
+            table.set_header(vec![
+                Cell::new("Field").add_attribute(Attribute::Bold),
+                Cell::new("Value").add_attribute(Attribute::Bold),
+            ]);
+        }
+
+        // Add each field as a row based on Dashboard struct
+        let fields = vec![
+            ("ID", dashboard.id.to_string()),
+            ("Name", dashboard.name.clone()),
+            (
+                "Description",
+                dashboard
+                    .description
+                    .clone()
+                    .unwrap_or_else(|| "N/A".to_string()),
+            ),
+            (
+                "Collection ID",
+                dashboard
+                    .collection_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "Root".to_string()),
+            ),
+            (
+                "Creator ID",
+                dashboard
+                    .creator_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "N/A".to_string()),
+            ),
+            ("Created At", dashboard.created_at.clone()),
+            ("Updated At", dashboard.updated_at.clone()),
+            (
+                "Cards Count",
+                dashboard
+                    .dashcards
+                    .as_ref()
+                    .map(|c| c.len().to_string())
+                    .unwrap_or_else(|| "0".to_string()),
+            ),
+        ];
+
+        for (field_name, field_value) in fields {
+            let row = vec![
+                if self.use_colors {
+                    Cell::new(field_name).fg(Color::Yellow)
+                } else {
+                    Cell::new(field_name)
+                },
+                Cell::new(field_value),
+            ];
+            table.add_row(row);
+        }
+
+        Ok(table.to_string())
+    }
+
+    /// Render dashboard cards in table format with field-based headers
+    pub fn render_dashboard_cards(&self, cards: &[DashboardCard]) -> Result<String, AppError> {
+        if cards.is_empty() {
+            return Ok("No cards found for this dashboard.".to_string());
+        }
+
+        let mut table = Table::new();
+        table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
+
+        // Dynamic headers based on DashboardCard struct fields
+        let headers = [
+            "ID",
+            "Dashboard ID",
+            "Card ID",
+            "Col",
+            "Row",
+            "Size X",
+            "Size Y",
+        ];
+
+        if self.use_colors {
+            let colored_headers: Vec<Cell> = headers
+                .iter()
+                .map(|h| Cell::new(h).add_attribute(Attribute::Bold).fg(Color::Green))
+                .collect();
+            table.set_header(colored_headers);
+        } else {
+            let bold_headers: Vec<Cell> = headers
+                .iter()
+                .map(|h| Cell::new(h).add_attribute(Attribute::Bold))
+                .collect();
+            table.set_header(bold_headers);
+        }
+
+        // Add data rows with field values from DashboardCard struct
+        for card in cards {
+            let card_id = card
+                .card_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "NULL".to_string());
+
+            let row = vec![
+                if self.use_colors {
+                    Cell::new(card.id.to_string()).fg(Color::Cyan)
+                } else {
+                    Cell::new(card.id.to_string())
+                },
+                Cell::new(card.dashboard_id.to_string()),
+                Cell::new(card_id),
+                Cell::new(card.col.to_string()),
+                Cell::new(card.row.to_string()),
+                Cell::new(card.size_x.to_string()),
+                Cell::new(card.size_y.to_string()),
+            ];
+
+            table.add_row(row);
+        }
+
+        Ok(table.to_string())
+    }
+
+    /// Helper to format datetime for dashboard display
+    fn format_datetime(&self, datetime: &str) -> String {
+        // Simple date formatting - extract date part from ISO datetime
+        if let Some(date_part) = datetime.split('T').next() {
+            date_part.to_string()
+        } else {
+            datetime.chars().take(16).collect()
+        }
     }
 }
 
