@@ -1,5 +1,22 @@
+use crate::error::ApiError;
 use crate::storage::credentials::AuthMode;
 use std::collections::HashMap;
+
+/// Service layer error types
+#[derive(Debug, thiserror::Error)]
+pub enum ServiceError {
+    #[error("API error: {0}")]
+    Api(#[from] ApiError),
+
+    #[error("Validation error: {field}: {message}")]
+    Validation { field: String, message: String },
+
+    #[error("Not found: {resource_type} with ID {id}")]
+    NotFound { resource_type: String, id: u32 },
+
+    #[error("Configuration error: {0}")]
+    Config(String),
+}
 
 /// 認証状態情報
 #[derive(Debug, Clone)]
@@ -14,8 +31,9 @@ pub struct AuthStatus {
 #[derive(Debug, Clone)]
 pub struct ListParams {
     pub search: Option<String>,
-    pub limit: u32,
+    pub limit: Option<u32>,
     pub collection: Option<String>,
+    pub offset: Option<u32>,
 }
 
 /// 質問実行パラメータ
@@ -48,11 +66,12 @@ mod tests {
     fn test_list_params_creation() {
         let params = ListParams {
             search: Some("test".to_string()),
-            limit: 10,
+            limit: Some(10),
             collection: None,
+            offset: None,
         };
         assert_eq!(params.search.unwrap(), "test");
-        assert_eq!(params.limit, 10);
+        assert_eq!(params.limit, Some(10));
         assert!(params.collection.is_none());
     }
 

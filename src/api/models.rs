@@ -78,9 +78,203 @@ pub struct Column {
     pub base_type: String,
 }
 
+// Dashboard models
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct Dashboard {
+    pub id: u32,
+    pub name: String,
+    pub description: Option<String>,
+    #[serde(deserialize_with = "deserialize_collection_id", default)]
+    pub collection_id: Option<u32>,
+    pub creator_id: Option<u32>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub dashcards: Option<Vec<DashboardCard>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DashboardCard {
+    pub id: u32,
+    pub dashboard_id: u32,
+    pub card_id: Option<u32>,
+    pub col: i32,
+    pub row: i32,
+    pub size_x: i32,
+    pub size_y: i32,
+}
+
+impl Dashboard {
+    /// Validate dashboard data
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id == 0 {
+            return Err("Dashboard ID must be greater than 0".to_string());
+        }
+        if self.name.trim().is_empty() {
+            return Err("Dashboard name cannot be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl DashboardCard {
+    /// Validate dashboard card data
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id == 0 {
+            return Err("Dashboard card ID must be greater than 0".to_string());
+        }
+        if self.dashboard_id == 0 {
+            return Err("Dashboard ID must be greater than 0".to_string());
+        }
+        if self.col < 0 {
+            return Err("Column position cannot be negative".to_string());
+        }
+        if self.row < 0 {
+            return Err("Row position cannot be negative".to_string());
+        }
+        if self.size_x <= 0 {
+            return Err("Width must be greater than 0".to_string());
+        }
+        if self.size_y <= 0 {
+            return Err("Height must be greater than 0".to_string());
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_dashboard_deserialization() {
+        let json = r#"{
+            "id": 1,
+            "name": "Test Dashboard",
+            "description": "A test dashboard",
+            "collection_id": 123,
+            "creator_id": 1,
+            "created_at": "2023-01-01T00:00:00Z",
+            "updated_at": "2023-01-01T00:00:00Z",
+            "dashcards": []
+        }"#;
+
+        let dashboard: Dashboard = serde_json::from_str(json).unwrap();
+        assert_eq!(dashboard.id, 1);
+        assert_eq!(dashboard.name, "Test Dashboard");
+        assert_eq!(dashboard.collection_id, Some(123));
+    }
+
+    #[test]
+    fn test_dashboard_with_root_collection() {
+        let json = r#"{
+            "id": 2,
+            "name": "Root Dashboard",
+            "collection_id": "root",
+            "creator_id": 1,
+            "created_at": "2023-01-01T00:00:00Z",
+            "updated_at": "2023-01-01T00:00:00Z"
+        }"#;
+
+        let dashboard: Dashboard = serde_json::from_str(json).unwrap();
+        assert_eq!(dashboard.collection_id, None);
+    }
+
+    #[test]
+    fn test_dashboard_card_deserialization() {
+        let json = r#"{
+            "id": 1,
+            "dashboard_id": 1,
+            "card_id": 123,
+            "col": 0,
+            "row": 0,
+            "size_x": 4,
+            "size_y": 4
+        }"#;
+
+        let card: DashboardCard = serde_json::from_str(json).unwrap();
+        assert_eq!(card.id, 1);
+        assert_eq!(card.dashboard_id, 1);
+        assert_eq!(card.card_id, Some(123));
+    }
+
+    #[test]
+    fn test_dashboard_validation() {
+        // Valid dashboard
+        let dashboard = Dashboard {
+            id: 1,
+            name: "Test Dashboard".to_string(),
+            description: None,
+            collection_id: None,
+            creator_id: Some(1),
+            created_at: "2023-01-01T00:00:00Z".to_string(),
+            updated_at: "2023-01-01T00:00:00Z".to_string(),
+            dashcards: None,
+        };
+        assert!(dashboard.validate().is_ok());
+
+        // Invalid: zero ID
+        let mut invalid_dashboard = dashboard.clone();
+        invalid_dashboard.id = 0;
+        assert!(invalid_dashboard.validate().is_err());
+
+        // Invalid: empty name
+        let mut invalid_dashboard = dashboard.clone();
+        invalid_dashboard.name = "".to_string();
+        assert!(invalid_dashboard.validate().is_err());
+
+        // Invalid: whitespace-only name
+        let mut invalid_dashboard = dashboard;
+        invalid_dashboard.name = "   ".to_string();
+        assert!(invalid_dashboard.validate().is_err());
+    }
+
+    #[test]
+    fn test_dashboard_card_validation() {
+        // Valid dashboard card
+        let card = DashboardCard {
+            id: 1,
+            dashboard_id: 1,
+            card_id: Some(123),
+            col: 0,
+            row: 0,
+            size_x: 4,
+            size_y: 4,
+        };
+        assert!(card.validate().is_ok());
+
+        // Invalid: zero ID
+        let mut invalid_card = card.clone();
+        invalid_card.id = 0;
+        assert!(invalid_card.validate().is_err());
+
+        // Invalid: negative position
+        let mut invalid_card = card.clone();
+        invalid_card.col = -1;
+        assert!(invalid_card.validate().is_err());
+
+        // Invalid: zero size
+        let mut invalid_card = card;
+        invalid_card.size_x = 0;
+        assert!(invalid_card.validate().is_err());
+    }
+
+    #[test]
+    fn test_dashboard_serialization() {
+        let dashboard = Dashboard {
+            id: 1,
+            name: "Test Dashboard".to_string(),
+            description: Some("A test dashboard".to_string()),
+            collection_id: Some(123),
+            creator_id: Some(1),
+            created_at: "2023-01-01T00:00:00Z".to_string(),
+            updated_at: "2023-01-01T00:00:00Z".to_string(),
+            dashcards: Some(vec![]),
+        };
+
+        let json = serde_json::to_string(&dashboard).unwrap();
+        assert!(json.contains("Test Dashboard"));
+        assert!(json.contains("A test dashboard"));
+    }
 
     #[test]
     fn test_deserialize_collection_id_with_question() {

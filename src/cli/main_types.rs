@@ -38,6 +38,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: QuestionCommands,
     },
+    /// Dashboard management and viewing
+    Dashboard {
+        #[command(subcommand)]
+        command: DashboardCommands,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -123,5 +128,37 @@ pub enum QuestionCommands {
         /// Page size for pagination (default: 20)
         #[arg(long, default_value = "20")]
         page_size: usize,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum DashboardCommands {
+    /// List dashboards
+    List {
+        /// Search term for dashboard names
+        #[arg(long)]
+        search: Option<String>,
+        /// Limit the number of results
+        #[arg(long, default_value = "20")]
+        limit: u32,
+        /// Output format (table, json)
+        #[arg(short, long, default_value = "table")]
+        format: String,
+    },
+    /// Show dashboard details
+    Show {
+        /// Dashboard ID
+        id: u32,
+        /// Output format (table, json)
+        #[arg(short, long, default_value = "table")]
+        format: String,
+    },
+    /// List dashboard cards
+    Cards {
+        /// Dashboard ID
+        id: u32,
+        /// Output format (table, json)
+        #[arg(short, long, default_value = "table")]
+        format: String,
     },
 }
