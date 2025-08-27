@@ -51,7 +51,10 @@ impl CollectionHandler {
                     })
                 })?;
 
-                Self::print_verbose(verbose, &format!("Retrieved {} collections from service", collections.len()));
+                Self::print_verbose(
+                    verbose,
+                    &format!("Retrieved {} collections from service", collections.len()),
+                );
 
                 spinner.stop(Some("✅ Collections fetched successfully"));
 
@@ -107,12 +110,12 @@ impl CollectionHandler {
                     "json" => {
                         println!(
                             "{}",
-                            serde_json::to_string_pretty(&collection).map_err(|e| AppError::Cli(
-                                CliError::InvalidArguments(format!(
+                            serde_json::to_string_pretty(&collection).map_err(
+                                |e| AppError::Cli(CliError::InvalidArguments(format!(
                                     "JSON serialization error: {}",
                                     e
-                                ))
-                            ))?
+                                )))
+                            )?
                         );
                     }
                     _ => {
@@ -126,10 +129,15 @@ impl CollectionHandler {
                 Ok(())
             }
             CollectionCommands::Stats { id, format } => {
-                Self::print_verbose(verbose, &format!("Fetching statistics for collection ID: {}", id));
+                Self::print_verbose(
+                    verbose,
+                    &format!("Fetching statistics for collection ID: {}", id),
+                );
 
-                let mut spinner =
-                    ProgressSpinner::new(format!("Calculating collection statistics for {}...", id));
+                let mut spinner = ProgressSpinner::new(format!(
+                    "Calculating collection statistics for {}...",
+                    id
+                ));
                 spinner.start();
 
                 let stats = collection_service.get_stats(*id).await.map_err(|e| {

@@ -2,7 +2,10 @@
 // This file will contain the collection service implementation
 // Following the pattern of dashboard_service.rs
 
-use crate::api::{client::MetabaseClient, models::{Collection, CollectionDetail, CollectionStats}};
+use crate::api::{
+    client::MetabaseClient,
+    models::{Collection, CollectionDetail, CollectionStats},
+};
 use crate::core::services::types::ServiceError;
 use std::sync::Arc;
 
@@ -57,10 +60,10 @@ impl CollectionService {
 
         // Get collection items to calculate stats
         let items = self.client.get_collection_items(id).await?;
-        
+
         // Calculate basic stats from items
         let item_count = items.len() as u32;
-        
+
         // For now, return basic stats
         // In real implementation, we'd parse items to categorize questions vs dashboards
         Ok(CollectionStats {
@@ -89,7 +92,7 @@ mod tests {
         assert!(Arc::strong_count(&service.client) >= 1);
     }
 
-    #[test] 
+    #[test]
     fn test_list_method_exists() {
         let service = create_test_service();
         // Just test that method exists - async methods compile properly
@@ -99,7 +102,7 @@ mod tests {
     #[tokio::test]
     async fn test_show_method_validation() {
         let service = create_test_service();
-        
+
         // Test validation: ID cannot be 0
         let result = service.show(0).await;
         assert!(result.is_err());
@@ -108,14 +111,14 @@ mod tests {
         } else {
             panic!("Expected validation error for ID = 0");
         }
-        
+
         // Skip network test for now to avoid timeouts
     }
 
     #[tokio::test]
     async fn test_get_stats_method_validation() {
         let service = create_test_service();
-        
+
         // Test validation: ID cannot be 0
         let result = service.get_stats(0).await;
         assert!(result.is_err());
@@ -124,7 +127,7 @@ mod tests {
         } else {
             panic!("Expected validation error for ID = 0");
         }
-        
+
         // Skip network test for now to avoid timeouts
     }
 }

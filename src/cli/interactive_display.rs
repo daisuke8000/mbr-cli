@@ -1,8 +1,10 @@
-use crate::api::models::{Dashboard, DashboardCard, QueryResult, Question, Collection, CollectionDetail, CollectionStats};
+use crate::api::models::{
+    Collection, CollectionDetail, CollectionStats, Dashboard, DashboardCard, QueryResult, Question,
+};
 use crate::error::AppError;
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
     style::{Color, Print, ResetColor, SetForegroundColor},
     terminal::{self, Clear, ClearType},
@@ -29,15 +31,8 @@ impl InteractiveDisplay {
         question_id: u32,
         question_name: &str,
     ) -> Result<(), AppError> {
-        use crossterm::{
-            cursor, event,
-            event::{Event, KeyCode, KeyEvent, KeyModifiers},
-            execute,
-            style::{Color, Print, ResetColor, SetForegroundColor},
-            terminal::{
-                Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-                enable_raw_mode, size,
-            },
+        use crossterm::terminal::{
+            EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
         };
         use std::io::{self, Write};
 
@@ -284,15 +279,8 @@ impl InteractiveDisplay {
         questions: &[Question],
         page_size: usize,
     ) -> Result<(), AppError> {
-        use crossterm::{
-            cursor, event,
-            event::{Event, KeyCode, KeyEvent, KeyModifiers},
-            execute,
-            style::{Color, Print, ResetColor, SetForegroundColor},
-            terminal::{
-                Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-                enable_raw_mode, size,
-            },
+        use crossterm::terminal::{
+            EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
         };
         use std::io::{self, Write};
 
@@ -520,15 +508,8 @@ impl InteractiveDisplay {
         dashboards: &[Dashboard],
         page_size: usize,
     ) -> Result<(), AppError> {
-        use crossterm::{
-            cursor, event,
-            event::{Event, KeyCode, KeyEvent, KeyModifiers},
-            execute,
-            style::{Color, Print, ResetColor, SetForegroundColor},
-            terminal::{
-                Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-                enable_raw_mode, size,
-            },
+        use crossterm::terminal::{
+            EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
         };
         use std::io::{self, Write};
 
@@ -600,10 +581,12 @@ impl InteractiveDisplay {
                             .map(|id| format!("ID: {}", id))
                             .unwrap_or_else(|| "Personal".to_string());
                         let collection_wrapped = self.wrap_text(&collection_text, 16);
-                        let updated_wrapped = self.wrap_text(&self.format_datetime(&dashboard.updated_at), 16);
+                        let updated_wrapped =
+                            self.wrap_text(&self.format_datetime(&dashboard.updated_at), 16);
 
                         // Find maximum lines needed for this row
-                        let max_lines = name_wrapped.len()
+                        let max_lines = name_wrapped
+                            .len()
                             .max(desc_wrapped.len())
                             .max(collection_wrapped.len())
                             .max(updated_wrapped.len());
@@ -613,10 +596,16 @@ impl InteractiveDisplay {
                             let empty_string = String::new();
                             let name_line = name_wrapped.get(line_idx).unwrap_or(&empty_string);
                             let desc_line = desc_wrapped.get(line_idx).unwrap_or(&empty_string);
-                            let collection_line = collection_wrapped.get(line_idx).unwrap_or(&empty_string);
-                            let updated_line = updated_wrapped.get(line_idx).unwrap_or(&empty_string);
-                            
-                            let id_display = if line_idx == 0 { dashboard.id.to_string() } else { String::new() };
+                            let collection_line =
+                                collection_wrapped.get(line_idx).unwrap_or(&empty_string);
+                            let updated_line =
+                                updated_wrapped.get(line_idx).unwrap_or(&empty_string);
+
+                            let id_display = if line_idx == 0 {
+                                dashboard.id.to_string()
+                            } else {
+                                String::new()
+                            };
 
                             table_lines.push(format!(
                                 "│ {:>4} │ {:31} │ {:31} │ {:16} │ {:16} │",
@@ -787,7 +776,7 @@ impl InteractiveDisplay {
 
         let mut lines = Vec::new();
         let mut current_line = String::new();
-        
+
         for word in text.split_whitespace() {
             // If adding this word would exceed the width
             if current_line.len() + word.len() + 1 > max_width {
@@ -795,7 +784,7 @@ impl InteractiveDisplay {
                     lines.push(current_line);
                     current_line = String::new();
                 }
-                
+
                 // If a single word is longer than max_width, break it
                 if word.len() > max_width {
                     let mut remaining = word;
@@ -816,11 +805,11 @@ impl InteractiveDisplay {
                 current_line.push_str(word);
             }
         }
-        
+
         if !current_line.is_empty() {
             lines.push(current_line);
         }
-        
+
         if lines.is_empty() {
             vec![String::new()]
         } else {
@@ -834,13 +823,6 @@ impl InteractiveDisplay {
     }
 
     async fn show_dashboard_help(&self, _terminal_height: u16) -> Result<(), AppError> {
-        use crossterm::{
-            cursor,
-            event::Event,
-            execute,
-            style::{Color, Print, ResetColor, SetForegroundColor},
-            terminal::{Clear, ClearType},
-        };
         use std::io::{self, Write};
 
         execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
@@ -1207,15 +1189,8 @@ impl InteractiveDisplay {
         collections: &[Collection],
         page_size: usize,
     ) -> Result<(), AppError> {
-        use crossterm::{
-            cursor, event,
-            event::{Event, KeyCode, KeyEvent, KeyModifiers},
-            execute,
-            style::{Color, Print, ResetColor, SetForegroundColor},
-            terminal::{
-                Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-                enable_raw_mode, size,
-            },
+        use crossterm::terminal::{
+            EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
         };
         use std::io::{self, Write};
 
@@ -1268,7 +1243,7 @@ impl InteractiveDisplay {
                         &[]
                     };
 
-                    // Generate collection table lines with text wrapping
+                    // Generate collection table lines (copied from dashboard implementation)
                     let mut table_lines = vec![
                         "┌──────┬─────────────────────────────────┬─────────────────────────────────┬──────────────────┐".to_string(),
                         "│ ID   │ Name                            │ Description                     │ Type             │".to_string(),
@@ -1281,37 +1256,18 @@ impl InteractiveDisplay {
                         } else {
                             "root".to_string()
                         };
-                        let name_wrapped = self.wrap_text(&collection.name, 31);
-                        let description_wrapped = vec!["".to_string()]; // Collection doesn't have description
+                        let name = self.truncate_string(&collection.name, 31);
+                        let description = self.truncate_string("", 31); // Collection doesn't have description
                         let collection_type = if collection.id.is_none() {
                             "Root"
                         } else {
                             "Collection"
                         };
-                        let type_wrapped = self.wrap_text(collection_type, 16);
 
-                        // Find maximum lines needed for this row
-                        let max_lines = name_wrapped.len()
-                            .max(description_wrapped.len())
-                            .max(type_wrapped.len());
-
-                        // Generate multi-line row
-                        for line_idx in 0..max_lines {
-                            let empty_string = String::new();
-                            let name_line = name_wrapped.get(line_idx).unwrap_or(&empty_string);
-                            let desc_line = description_wrapped.get(line_idx).unwrap_or(&empty_string);
-                            let type_line = type_wrapped.get(line_idx).unwrap_or(&empty_string);
-                            
-                            let id_display = if line_idx == 0 { id_str.clone() } else { String::new() };
-
-                            table_lines.push(format!(
-                                "│ {:>4} │ {:31} │ {:31} │ {:16} │",
-                                id_display,
-                                self.pad_string(name_line, 31),
-                                self.pad_string(desc_line, 31),
-                                self.pad_string(type_line, 16)
-                            ));
-                        }
+                        table_lines.push(format!(
+                            "│ {:>4} │ {:31} │ {:31} │ {:16} │",
+                            id_str, name, description, collection_type
+                        ));
                     }
 
                     table_lines.push("└──────┴─────────────────────────────────┴─────────────────────────────────┴──────────────────┘".to_string());
@@ -1454,15 +1410,8 @@ impl InteractiveDisplay {
         &self,
         collection: &CollectionDetail,
     ) -> Result<(), AppError> {
-        use crossterm::{
-            cursor, event,
-            event::{Event, KeyCode, KeyEvent},
-            execute,
-            style::{Color, Print, ResetColor, SetForegroundColor},
-            terminal::{
-                Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-                enable_raw_mode,
-            },
+        use crossterm::terminal::{
+            EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
         };
         use std::io::{self, Write};
 
@@ -1489,53 +1438,64 @@ impl InteractiveDisplay {
                 let _screen_cleanup = ScreenCleanup;
                 loop {
                     // Clear screen and reset cursor
-                    execute!(
-                        io::stdout(),
-                        Clear(ClearType::All),
-                        cursor::MoveTo(0, 0)
-                    ).ok();
+                    execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
 
                     // Print collection details
                     println!("Collection Details | [q]uit | [h]elp");
-                    println!("┌──────────────────┬─────────────────────────────────────────────────────────────┐");
-                    
+                    println!(
+                        "┌──────────────────┬─────────────────────────────────────────────────────────────┐"
+                    );
+
                     let id_str = if let Some(id) = collection.id {
                         format!("{}", id)
                     } else {
                         "root".to_string()
                     };
                     println!("│ ID               │ {:59} │", id_str);
-                    println!("│ Name             │ {:59} │", self.truncate_string(&collection.name, 59));
-                    
+                    println!(
+                        "│ Name             │ {:59} │",
+                        self.truncate_string(&collection.name, 59)
+                    );
+
                     if let Some(description) = &collection.description {
-                        println!("│ Description      │ {:59} │", self.truncate_string(description, 59));
+                        println!(
+                            "│ Description      │ {:59} │",
+                            self.truncate_string(description, 59)
+                        );
                     }
-                    
+
                     if let Some(color) = &collection.color {
                         println!("│ Color            │ {:59} │", color);
                     }
-                    
+
                     if let Some(parent_id) = collection.parent_id {
                         println!("│ Parent ID        │ {:59} │", parent_id);
                     }
-                    
+
                     if let Some(created_at) = &collection.created_at {
-                        println!("│ Created          │ {:59} │", self.truncate_string(created_at, 59));
+                        println!(
+                            "│ Created          │ {:59} │",
+                            self.truncate_string(created_at, 59)
+                        );
                     }
-                    
+
                     if let Some(updated_at) = &collection.updated_at {
-                        println!("│ Updated          │ {:59} │", self.truncate_string(updated_at, 59));
+                        println!(
+                            "│ Updated          │ {:59} │",
+                            self.truncate_string(updated_at, 59)
+                        );
                     }
-                    
-                    println!("└──────────────────┴─────────────────────────────────────────────────────────────┘");
-                    
+
+                    println!(
+                        "└──────────────────┴─────────────────────────────────────────────────────────────┘"
+                    );
+
                     print!("Controls: [q]uit | [h]elp");
                     io::stdout().flush().ok();
 
                     // Handle input
-                    if let Event::Key(KeyEvent {
-                        code, kind, ..
-                    }) = event::read().unwrap_or(Event::Key(KeyEvent::from(KeyCode::Char('q'))))
+                    if let Event::Key(KeyEvent { code, kind, .. }) =
+                        event::read().unwrap_or(Event::Key(KeyEvent::from(KeyCode::Char('q'))))
                     {
                         if kind == KeyEventKind::Press {
                             match code {
@@ -1596,32 +1556,37 @@ impl InteractiveDisplay {
             Ok(_) => {
                 loop {
                     // Clear screen and reset cursor
-                    execute!(
-                        io::stdout(),
-                        Clear(ClearType::All),
-                        cursor::MoveTo(0, 0)
-                    ).ok();
+                    execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
 
                     // Print statistics
-                    println!("Collection Statistics (ID: {}) | [q]uit | [h]elp", collection_id);
-                    println!("┌──────────────────┬─────────────────────────────────────────────────────────────┐");
+                    println!(
+                        "Collection Statistics (ID: {}) | [q]uit | [h]elp",
+                        collection_id
+                    );
+                    println!(
+                        "┌──────────────────┬─────────────────────────────────────────────────────────────┐"
+                    );
                     println!("│ Total Items      │ {:59} │", stats.item_count);
                     println!("│ Questions        │ {:59} │", stats.question_count);
                     println!("│ Dashboards       │ {:59} │", stats.dashboard_count);
-                    
+
                     if let Some(last_updated) = &stats.last_updated {
-                        println!("│ Last Updated     │ {:59} │", self.truncate_string(last_updated, 59));
+                        println!(
+                            "│ Last Updated     │ {:59} │",
+                            self.truncate_string(last_updated, 59)
+                        );
                     }
-                    
-                    println!("└──────────────────┴─────────────────────────────────────────────────────────────┘");
-                    
+
+                    println!(
+                        "└──────────────────┴─────────────────────────────────────────────────────────────┘"
+                    );
+
                     print!("Controls: [q]uit | [h]elp");
                     io::stdout().flush().ok();
 
                     // Handle input
-                    if let Event::Key(KeyEvent {
-                        code, kind, ..
-                    }) = event::read().unwrap_or(Event::Key(KeyEvent::from(KeyCode::Char('q'))))
+                    if let Event::Key(KeyEvent { code, kind, .. }) =
+                        event::read().unwrap_or(Event::Key(KeyEvent::from(KeyCode::Char('q'))))
                     {
                         if kind == KeyEventKind::Press {
                             match code {
@@ -1682,10 +1647,10 @@ impl InteractiveDisplay {
         println!("  - Displays questions and dashboards count");
         println!();
         println!("Press any key to return...");
-        
+
         io::stdout().flush().ok();
         event::read().ok(); // Wait for any key press
-        
+
         Ok(())
     }
 }

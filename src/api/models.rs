@@ -433,7 +433,10 @@ mod tests {
         let collection: CollectionDetail = serde_json::from_str(json).unwrap();
         assert_eq!(collection.id, Some(1));
         assert_eq!(collection.name, "Test Collection");
-        assert_eq!(collection.description, Some("A test collection".to_string()));
+        assert_eq!(
+            collection.description,
+            Some("A test collection".to_string())
+        );
         assert_eq!(collection.parent_id, Some(2));
     }
 

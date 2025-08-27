@@ -1,6 +1,6 @@
 use crate::api::client::MetabaseClient;
-use crate::cli::command_handlers::{AuthHandler, ConfigHandler, QuestionHandler};
 use crate::cli::collection_handler::CollectionHandler;
+use crate::cli::command_handlers::{AuthHandler, ConfigHandler, QuestionHandler};
 use crate::cli::dashboard_handler::DashboardHandler;
 use crate::cli::main_types::Commands;
 use crate::core::services::auth_service::AuthService;

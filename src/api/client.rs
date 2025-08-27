@@ -1,4 +1,6 @@
-use crate::api::models::{Dashboard, DashboardCard, LoginRequest, LoginResponse, Collection, CollectionDetail};
+use crate::api::models::{
+    Collection, CollectionDetail, Dashboard, DashboardCard, LoginRequest, LoginResponse,
+};
 use crate::error::{ApiError, AppError};
 use backoff::{Error as BackoffError, ExponentialBackoff};
 use reqwest::{Client, Method, RequestBuilder, Response};
@@ -679,7 +681,7 @@ mod tests {
 
         // These should compile if methods exist with correct signatures
         // - get_collections(&self, tree: bool)
-        // - get_collection(&self, id: u32)  
+        // - get_collection(&self, id: u32)
         // - get_collection_items(&self, id: u32)
         let _future1 = client.get_collections(true);
         let _future2 = client.get_collection(1);
