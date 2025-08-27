@@ -1,4 +1,4 @@
-use crate::api::models::{Dashboard, DashboardCard, QueryResult, Question};
+use crate::api::models::{Dashboard, DashboardCard, QueryResult, Question, Collection, CollectionDetail, CollectionStats};
 use crate::error::AppError;
 use crossterm::{
     cursor,
@@ -581,7 +581,7 @@ impl InteractiveDisplay {
                         &[]
                     };
 
-                    // Generate dashboard table lines
+                    // Generate dashboard table lines with text wrapping
                     let mut table_lines = vec![
                         "┌──────┬─────────────────────────────────┬─────────────────────────────────┬──────────────────┬──────────────────┐".to_string(),
                         "│ ID   │ Name                            │ Description                     │ Collection       │ Updated          │".to_string(),
@@ -589,22 +589,44 @@ impl InteractiveDisplay {
                     ];
 
                     for dashboard in page_dashboards {
-                        let name = self.truncate_string(&dashboard.name, 31);
-                        let desc = dashboard
+                        let name_wrapped = self.wrap_text(&dashboard.name, 31);
+                        let desc_wrapped = dashboard
                             .description
                             .as_ref()
-                            .map(|d| self.truncate_string(d, 31))
-                            .unwrap_or_else(|| "None".to_string());
-                        let collection = dashboard
+                            .map(|d| self.wrap_text(d, 31))
+                            .unwrap_or_else(|| vec!["".to_string()]);
+                        let collection_text = dashboard
                             .collection_id
                             .map(|id| format!("ID: {}", id))
                             .unwrap_or_else(|| "Personal".to_string());
-                        let updated = self.format_datetime(&dashboard.updated_at);
+                        let collection_wrapped = self.wrap_text(&collection_text, 16);
+                        let updated_wrapped = self.wrap_text(&self.format_datetime(&dashboard.updated_at), 16);
 
-                        table_lines.push(format!(
-                            "│ {:4} │ {:31} │ {:31} │ {:16} │ {:16} │",
-                            dashboard.id, name, desc, collection, updated
-                        ));
+                        // Find maximum lines needed for this row
+                        let max_lines = name_wrapped.len()
+                            .max(desc_wrapped.len())
+                            .max(collection_wrapped.len())
+                            .max(updated_wrapped.len());
+
+                        // Generate multi-line row
+                        for line_idx in 0..max_lines {
+                            let empty_string = String::new();
+                            let name_line = name_wrapped.get(line_idx).unwrap_or(&empty_string);
+                            let desc_line = desc_wrapped.get(line_idx).unwrap_or(&empty_string);
+                            let collection_line = collection_wrapped.get(line_idx).unwrap_or(&empty_string);
+                            let updated_line = updated_wrapped.get(line_idx).unwrap_or(&empty_string);
+                            
+                            let id_display = if line_idx == 0 { dashboard.id.to_string() } else { String::new() };
+
+                            table_lines.push(format!(
+                                "│ {:>4} │ {:31} │ {:31} │ {:16} │ {:16} │",
+                                id_display,
+                                self.pad_string(name_line, 31),
+                                self.pad_string(desc_line, 31),
+                                self.pad_string(collection_line, 16),
+                                self.pad_string(updated_line, 16)
+                            ));
+                        }
                     }
 
                     table_lines.push("└──────┴─────────────────────────────────┴─────────────────────────────────┴──────────────────┴──────────────────┘".to_string());
@@ -755,6 +777,60 @@ impl InteractiveDisplay {
         } else {
             datetime.chars().take(16).collect()
         }
+    }
+
+    /// Wrap text to fit within specified width, breaking at word boundaries
+    fn wrap_text(&self, text: &str, max_width: usize) -> Vec<String> {
+        if text.is_empty() {
+            return vec![String::new()];
+        }
+
+        let mut lines = Vec::new();
+        let mut current_line = String::new();
+        
+        for word in text.split_whitespace() {
+            // If adding this word would exceed the width
+            if current_line.len() + word.len() + 1 > max_width {
+                if !current_line.is_empty() {
+                    lines.push(current_line);
+                    current_line = String::new();
+                }
+                
+                // If a single word is longer than max_width, break it
+                if word.len() > max_width {
+                    let mut remaining = word;
+                    while remaining.len() > max_width {
+                        lines.push(remaining[..max_width].to_string());
+                        remaining = &remaining[max_width..];
+                    }
+                    if !remaining.is_empty() {
+                        current_line = remaining.to_string();
+                    }
+                } else {
+                    current_line = word.to_string();
+                }
+            } else {
+                if !current_line.is_empty() {
+                    current_line.push(' ');
+                }
+                current_line.push_str(word);
+            }
+        }
+        
+        if !current_line.is_empty() {
+            lines.push(current_line);
+        }
+        
+        if lines.is_empty() {
+            vec![String::new()]
+        } else {
+            lines
+        }
+    }
+
+    /// Pad string to exact width with spaces
+    fn pad_string(&self, text: &str, width: usize) -> String {
+        format!("{:width$}", text, width = width)
     }
 
     async fn show_dashboard_help(&self, _terminal_height: u16) -> Result<(), AppError> {
@@ -939,9 +1015,8 @@ impl InteractiveDisplay {
             }
         }
 
-        // Restore terminal
+        // Restore terminal only if RAW mode was enabled
         terminal::disable_raw_mode().ok();
-        execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
 
         Ok(())
     }
@@ -1119,10 +1194,498 @@ impl InteractiveDisplay {
             }
         }
 
-        // Restore terminal
+        // Restore terminal only if RAW mode was enabled
         terminal::disable_raw_mode().ok();
+
+        Ok(())
+    }
+
+    /// Display collection list with interactive pagination
+    /// RAW mode + Alternate Screen + pagination display for Collection List
+    pub async fn display_collection_list_pagination(
+        &self,
+        collections: &[Collection],
+        page_size: usize,
+    ) -> Result<(), AppError> {
+        use crossterm::{
+            cursor, event,
+            event::{Event, KeyCode, KeyEvent, KeyModifiers},
+            execute,
+            style::{Color, Print, ResetColor, SetForegroundColor},
+            terminal::{
+                Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
+                enable_raw_mode, size,
+            },
+        };
+        use std::io::{self, Write};
+
+        // RAII cleanup structures
+        struct RawModeCleanup;
+        impl Drop for RawModeCleanup {
+            fn drop(&mut self) {
+                let _ = disable_raw_mode();
+            }
+        }
+
+        struct ScreenCleanup;
+        impl Drop for ScreenCleanup {
+            fn drop(&mut self) {
+                let _ = execute!(io::stdout(), LeaveAlternateScreen);
+            }
+        }
+
+        // Full screen mode - RAW mode + Alternate Screen + scroll
+        match enable_raw_mode() {
+            Ok(()) => {
+                let _cleanup = RawModeCleanup;
+                execute!(io::stdout(), EnterAlternateScreen).ok();
+                let _screen_cleanup = ScreenCleanup;
+
+                // Get terminal size
+                let (_terminal_width, terminal_height) = size().unwrap_or((80, 24));
+
+                // Pagination state
+                let total_collections = collections.len();
+                let total_pages = if total_collections == 0 {
+                    1
+                } else {
+                    total_collections.div_ceil(page_size)
+                };
+                let mut current_page = 1;
+
+                // Scroll state (for scrolling within table)
+                let mut scroll_offset = 0;
+                // Reserve 8 lines: header space (5 lines) + prompt space (3 lines)
+                let available_height = terminal_height.saturating_sub(8) as usize;
+
+                loop {
+                    // Get current page data
+                    let start_idx = (current_page - 1) * page_size;
+                    let end_idx = (start_idx + page_size).min(total_collections);
+                    let page_collections = if start_idx < total_collections {
+                        &collections[start_idx..end_idx]
+                    } else {
+                        &[]
+                    };
+
+                    // Generate collection table lines with text wrapping
+                    let mut table_lines = vec![
+                        "┌──────┬─────────────────────────────────┬─────────────────────────────────┬──────────────────┐".to_string(),
+                        "│ ID   │ Name                            │ Description                     │ Type             │".to_string(),
+                        "├──────┼─────────────────────────────────┼─────────────────────────────────┼──────────────────┤".to_string(),
+                    ];
+
+                    for collection in page_collections {
+                        let id_str = if let Some(id) = collection.id {
+                            format!("{}", id)
+                        } else {
+                            "root".to_string()
+                        };
+                        let name_wrapped = self.wrap_text(&collection.name, 31);
+                        let description_wrapped = vec!["".to_string()]; // Collection doesn't have description
+                        let collection_type = if collection.id.is_none() {
+                            "Root"
+                        } else {
+                            "Collection"
+                        };
+                        let type_wrapped = self.wrap_text(collection_type, 16);
+
+                        // Find maximum lines needed for this row
+                        let max_lines = name_wrapped.len()
+                            .max(description_wrapped.len())
+                            .max(type_wrapped.len());
+
+                        // Generate multi-line row
+                        for line_idx in 0..max_lines {
+                            let empty_string = String::new();
+                            let name_line = name_wrapped.get(line_idx).unwrap_or(&empty_string);
+                            let desc_line = description_wrapped.get(line_idx).unwrap_or(&empty_string);
+                            let type_line = type_wrapped.get(line_idx).unwrap_or(&empty_string);
+                            
+                            let id_display = if line_idx == 0 { id_str.clone() } else { String::new() };
+
+                            table_lines.push(format!(
+                                "│ {:>4} │ {:31} │ {:31} │ {:16} │",
+                                id_display,
+                                self.pad_string(name_line, 31),
+                                self.pad_string(desc_line, 31),
+                                self.pad_string(type_line, 16)
+                            ));
+                        }
+                    }
+
+                    table_lines.push("└──────┴─────────────────────────────────┴─────────────────────────────────┴──────────────────┘".to_string());
+
+                    // Clear entire screen
+                    execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
+
+                    // Display header (fixed)
+                    execute!(
+                        io::stdout(),
+                        SetForegroundColor(Color::Cyan),
+                        Print("Collection List"),
+                        ResetColor,
+                        Print("\r\n"),
+                        SetForegroundColor(Color::Yellow),
+                        Print(format!(
+                            "Page {}/{} | Showing collections {}-{} of {} total | Page size: {}",
+                            current_page,
+                            total_pages,
+                            start_idx + 1,
+                            end_idx,
+                            total_collections,
+                            page_size
+                        )),
+                        ResetColor,
+                        Print("\r\n\r\n")
+                    )
+                    .ok();
+
+                    // Display content within scroll range
+                    let total_lines = table_lines.len();
+                    let start_line = scroll_offset.min(total_lines);
+                    let end_line = (start_line + available_height).min(total_lines);
+
+                    if start_line < total_lines {
+                        let display_lines = &table_lines[start_line..end_line];
+                        for line in display_lines {
+                            println!("{}\r", line);
+                        }
+                    }
+
+                    // Clear bottom of screen
+                    execute!(io::stdout(), Clear(ClearType::FromCursorDown)).ok();
+
+                    // Display prompt (fixed at bottom)
+                    execute!(
+                        io::stdout(),
+                        cursor::MoveTo(0, terminal_height - 2),
+                        SetForegroundColor(Color::Green),
+                        Print("Controls: ↑↓/jk=scroll | n/p=page | Home/End | q=quit | h=help"),
+                        ResetColor
+                    )
+                    .ok();
+
+                    io::stdout().flush().ok();
+
+                    // Key input processing
+                    if let Ok(Event::Key(KeyEvent {
+                        code, modifiers, ..
+                    })) = event::read()
+                    {
+                        match code {
+                            // Exit
+                            KeyCode::Char('q') | KeyCode::Char('Q') => break,
+                            KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                                break;
+                            }
+                            KeyCode::Esc => break,
+
+                            // Scroll (line by line)
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                scroll_offset = scroll_offset.saturating_sub(1);
+                            }
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                let max_offset = total_lines.saturating_sub(available_height);
+                                scroll_offset = (scroll_offset + 1).min(max_offset);
+                            }
+
+                            // Page navigation
+                            KeyCode::Char('n') => {
+                                if current_page < total_pages {
+                                    current_page += 1;
+                                    scroll_offset = 0;
+                                }
+                            }
+                            KeyCode::Char('p') => {
+                                if current_page > 1 {
+                                    current_page -= 1;
+                                    scroll_offset = 0;
+                                }
+                            }
+
+                            // Scroll movement
+                            KeyCode::PageUp => {
+                                scroll_offset = scroll_offset.saturating_sub(available_height / 2);
+                            }
+                            KeyCode::PageDown => {
+                                let max_offset = total_lines.saturating_sub(available_height);
+                                scroll_offset =
+                                    (scroll_offset + available_height / 2).min(max_offset);
+                            }
+                            KeyCode::Home => {
+                                scroll_offset = 0;
+                            }
+                            KeyCode::End => {
+                                scroll_offset = total_lines.saturating_sub(available_height);
+                            }
+
+                            // Help
+                            KeyCode::Char('h') => {
+                                self.show_collection_help(terminal_height).await?;
+                            }
+
+                            _ => {} // Ignore other keys
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                // Fallback when RAW mode fails
+                println!("Warning: Could not enable full-screen mode, falling back to simple mode");
+                println!("Collection List ({} found):", collections.len());
+                for collection in collections {
+                    let id_str = if let Some(id) = collection.id {
+                        format!("{}", id)
+                    } else {
+                        "root".to_string()
+                    };
+                    println!("  ID: {}, Name: {}", id_str, collection.name);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Display collection details interactively
+    /// RAW mode + Alternate Screen for Collection Details
+    pub async fn display_collection_details_interactive(
+        &self,
+        collection: &CollectionDetail,
+    ) -> Result<(), AppError> {
+        use crossterm::{
+            cursor, event,
+            event::{Event, KeyCode, KeyEvent},
+            execute,
+            style::{Color, Print, ResetColor, SetForegroundColor},
+            terminal::{
+                Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
+                enable_raw_mode,
+            },
+        };
+        use std::io::{self, Write};
+
+        // RAII cleanup structures
+        struct RawModeCleanup;
+        impl Drop for RawModeCleanup {
+            fn drop(&mut self) {
+                let _ = disable_raw_mode();
+            }
+        }
+
+        struct ScreenCleanup;
+        impl Drop for ScreenCleanup {
+            fn drop(&mut self) {
+                let _ = execute!(io::stdout(), LeaveAlternateScreen);
+            }
+        }
+
+        // Full screen mode - RAW mode + Alternate Screen
+        match enable_raw_mode() {
+            Ok(_) => {
+                let _cleanup = RawModeCleanup;
+                execute!(io::stdout(), EnterAlternateScreen).ok();
+                let _screen_cleanup = ScreenCleanup;
+                loop {
+                    // Clear screen and reset cursor
+                    execute!(
+                        io::stdout(),
+                        Clear(ClearType::All),
+                        cursor::MoveTo(0, 0)
+                    ).ok();
+
+                    // Print collection details
+                    println!("Collection Details | [q]uit | [h]elp");
+                    println!("┌──────────────────┬─────────────────────────────────────────────────────────────┐");
+                    
+                    let id_str = if let Some(id) = collection.id {
+                        format!("{}", id)
+                    } else {
+                        "root".to_string()
+                    };
+                    println!("│ ID               │ {:59} │", id_str);
+                    println!("│ Name             │ {:59} │", self.truncate_string(&collection.name, 59));
+                    
+                    if let Some(description) = &collection.description {
+                        println!("│ Description      │ {:59} │", self.truncate_string(description, 59));
+                    }
+                    
+                    if let Some(color) = &collection.color {
+                        println!("│ Color            │ {:59} │", color);
+                    }
+                    
+                    if let Some(parent_id) = collection.parent_id {
+                        println!("│ Parent ID        │ {:59} │", parent_id);
+                    }
+                    
+                    if let Some(created_at) = &collection.created_at {
+                        println!("│ Created          │ {:59} │", self.truncate_string(created_at, 59));
+                    }
+                    
+                    if let Some(updated_at) = &collection.updated_at {
+                        println!("│ Updated          │ {:59} │", self.truncate_string(updated_at, 59));
+                    }
+                    
+                    println!("└──────────────────┴─────────────────────────────────────────────────────────────┘");
+                    
+                    print!("Controls: [q]uit | [h]elp");
+                    io::stdout().flush().ok();
+
+                    // Handle input
+                    if let Event::Key(KeyEvent {
+                        code, kind, ..
+                    }) = event::read().unwrap_or(Event::Key(KeyEvent::from(KeyCode::Char('q'))))
+                    {
+                        if kind == KeyEventKind::Press {
+                            match code {
+                                KeyCode::Char('q') => break,
+                                KeyCode::Char('h') => {
+                                    let (_, terminal_height) = terminal::size().unwrap_or((80, 24));
+                                    self.show_collection_help(terminal_height).await?;
+                                }
+                                _ => {} // Ignore other keys
+                            }
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                // Fallback when RAW mode fails
+                println!("Warning: Could not enable full-screen mode, falling back to simple mode");
+                let id_str = if let Some(id) = collection.id {
+                    format!("{}", id)
+                } else {
+                    "root".to_string()
+                };
+                println!("Collection Details:");
+                println!("  ID: {}", id_str);
+                println!("  Name: {}", collection.name);
+                if let Some(description) = &collection.description {
+                    println!("  Description: {}", description);
+                }
+                if let Some(color) = &collection.color {
+                    println!("  Color: {}", color);
+                }
+                if let Some(parent_id) = collection.parent_id {
+                    println!("  Parent ID: {}", parent_id);
+                }
+                if let Some(created_at) = &collection.created_at {
+                    println!("  Created: {}", created_at);
+                }
+                if let Some(updated_at) = &collection.updated_at {
+                    println!("  Updated: {}", updated_at);
+                }
+            }
+        }
+
+        // Restore terminal only if RAW mode was enabled
+        terminal::disable_raw_mode().ok();
+
+        Ok(())
+    }
+
+    /// Display collection statistics interactively
+    pub async fn display_collection_stats_interactive(
+        &self,
+        stats: &CollectionStats,
+        collection_id: u32,
+    ) -> Result<(), AppError> {
+        // Try to enable RAW mode for full-screen display
+        match terminal::enable_raw_mode() {
+            Ok(_) => {
+                loop {
+                    // Clear screen and reset cursor
+                    execute!(
+                        io::stdout(),
+                        Clear(ClearType::All),
+                        cursor::MoveTo(0, 0)
+                    ).ok();
+
+                    // Print statistics
+                    println!("Collection Statistics (ID: {}) | [q]uit | [h]elp", collection_id);
+                    println!("┌──────────────────┬─────────────────────────────────────────────────────────────┐");
+                    println!("│ Total Items      │ {:59} │", stats.item_count);
+                    println!("│ Questions        │ {:59} │", stats.question_count);
+                    println!("│ Dashboards       │ {:59} │", stats.dashboard_count);
+                    
+                    if let Some(last_updated) = &stats.last_updated {
+                        println!("│ Last Updated     │ {:59} │", self.truncate_string(last_updated, 59));
+                    }
+                    
+                    println!("└──────────────────┴─────────────────────────────────────────────────────────────┘");
+                    
+                    print!("Controls: [q]uit | [h]elp");
+                    io::stdout().flush().ok();
+
+                    // Handle input
+                    if let Event::Key(KeyEvent {
+                        code, kind, ..
+                    }) = event::read().unwrap_or(Event::Key(KeyEvent::from(KeyCode::Char('q'))))
+                    {
+                        if kind == KeyEventKind::Press {
+                            match code {
+                                KeyCode::Char('q') => break,
+                                KeyCode::Char('h') => {
+                                    let (_, terminal_height) = terminal::size().unwrap_or((80, 24));
+                                    self.show_collection_help(terminal_height).await?;
+                                }
+                                _ => {} // Ignore other keys
+                            }
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                // Fallback when RAW mode fails
+                println!("Warning: Could not enable full-screen mode, falling back to simple mode");
+                println!("Collection Statistics (ID: {}):", collection_id);
+                println!("  Total Items: {}", stats.item_count);
+                println!("  Questions: {}", stats.question_count);
+                println!("  Dashboards: {}", stats.dashboard_count);
+                if let Some(last_updated) = &stats.last_updated {
+                    println!("  Last Updated: {}", last_updated);
+                }
+            }
+        }
+
+        // Restore terminal only if RAW mode was enabled
+        terminal::disable_raw_mode().ok();
+
+        Ok(())
+    }
+
+    /// Show collection help screen
+    async fn show_collection_help(&self, _terminal_height: u16) -> Result<(), AppError> {
         execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
 
+        println!("Collection Display Help");
+        println!("=======================");
+        println!();
+        println!("Navigation:");
+        println!("  q       - Quit and return to command line");
+        println!("  n       - Next page (collection list only)");
+        println!("  p       - Previous page (collection list only)");
+        println!("  h       - Show this help");
+        println!();
+        println!("Collection List View:");
+        println!("  - Shows ID, Name, Description, and Type");
+        println!("  - Use 'n' and 'p' to navigate between pages");
+        println!("  - Root collection shows as 'root' ID");
+        println!();
+        println!("Collection Details View:");
+        println!("  - Shows full collection information");
+        println!("  - Includes creation/modification dates");
+        println!();
+        println!("Collection Statistics View:");
+        println!("  - Shows item counts and statistics");
+        println!("  - Displays questions and dashboards count");
+        println!();
+        println!("Press any key to return...");
+        
+        io::stdout().flush().ok();
+        event::read().ok(); // Wait for any key press
+        
         Ok(())
     }
 }

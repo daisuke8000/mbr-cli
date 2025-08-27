@@ -1,4 +1,4 @@
-use crate::api::models::{Dashboard, DashboardCard, LoginRequest, LoginResponse};
+use crate::api::models::{Dashboard, DashboardCard, LoginRequest, LoginResponse, Collection, CollectionDetail};
 use crate::error::{ApiError, AppError};
 use backoff::{Error as BackoffError, ExponentialBackoff};
 use reqwest::{Client, Method, RequestBuilder, Response};
@@ -387,6 +387,57 @@ impl MetabaseClient {
         .await
     }
 
+    /// Get all collections with tree structure support
+    /// Includes automatic retry on transient failures
+    pub async fn get_collections(&self, tree: bool) -> Result<Vec<Collection>, ApiError> {
+        let mut endpoint = "/api/collection".to_string();
+        if tree {
+            endpoint.push_str("?tree=true");
+        }
+
+        self.execute_with_retry(|| async {
+            let request = self.build_request(Method::GET, &endpoint);
+            let response = request.send().await.map_err(|_e| ApiError::Timeout {
+                timeout_secs: DEFAULT_TIMEOUT_SECS,
+                endpoint: endpoint.clone(),
+            })?;
+            Self::handle_response(response, &endpoint).await
+        })
+        .await
+    }
+
+    /// Get a specific collection by ID with detailed information
+    /// Includes automatic retry on transient failures  
+    pub async fn get_collection(&self, id: u32) -> Result<CollectionDetail, ApiError> {
+        let endpoint = format!("/api/collection/{}", id);
+
+        self.execute_with_retry(|| async {
+            let request = self.build_request(Method::GET, &endpoint);
+            let response = request.send().await.map_err(|_e| ApiError::Timeout {
+                timeout_secs: DEFAULT_TIMEOUT_SECS,
+                endpoint: endpoint.clone(),
+            })?;
+            Self::handle_response(response, &endpoint).await
+        })
+        .await
+    }
+
+    /// Get items (questions and dashboards) within a specific collection
+    /// Includes automatic retry on transient failures
+    pub async fn get_collection_items(&self, id: u32) -> Result<Vec<serde_json::Value>, ApiError> {
+        let endpoint = format!("/api/collection/{}/items", id);
+
+        self.execute_with_retry(|| async {
+            let request = self.build_request(Method::GET, &endpoint);
+            let response = request.send().await.map_err(|_e| ApiError::Timeout {
+                timeout_secs: DEFAULT_TIMEOUT_SECS,
+                endpoint: endpoint.clone(),
+            })?;
+            Self::handle_response(response, &endpoint).await
+        })
+        .await
+    }
+
     pub async fn handle_response<T>(response: Response, endpoint: &str) -> Result<T, ApiError>
     where
         T: serde::de::DeserializeOwned,
@@ -618,5 +669,20 @@ mod tests {
                 .unwrap(),
             "session_abc"
         );
+    }
+
+    #[test]
+    fn test_collection_api_methods_exist() {
+        // Test that collection methods exist with correct signature
+        let client =
+            MetabaseClient::new("http://example.test".to_string()).expect("client creation failed");
+
+        // These should compile if methods exist with correct signatures
+        // - get_collections(&self, tree: bool)
+        // - get_collection(&self, id: u32)  
+        // - get_collection_items(&self, id: u32)
+        let _future1 = client.get_collections(true);
+        let _future2 = client.get_collection(1);
+        let _future3 = client.get_collection_items(1);
     }
 }

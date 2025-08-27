@@ -53,7 +53,7 @@ pub struct Question {
     pub collection: Option<Collection>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Collection {
     #[serde(deserialize_with = "deserialize_collection_id", default)]
     pub id: Option<u32>,
@@ -137,6 +137,47 @@ impl DashboardCard {
         if self.size_y <= 0 {
             return Err("Height must be greater than 0".to_string());
         }
+        Ok(())
+    }
+}
+
+// Collection models - Extended structures for API implementation
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CollectionDetail {
+    #[serde(deserialize_with = "deserialize_collection_id", default)]
+    pub id: Option<u32>,
+    pub name: String,
+    pub description: Option<String>,
+    pub color: Option<String>,
+    pub parent_id: Option<u32>,
+    pub creator_id: Option<u32>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub children: Option<Vec<Collection>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CollectionStats {
+    pub item_count: u32,
+    pub question_count: u32,
+    pub dashboard_count: u32,
+    pub last_updated: Option<String>,
+}
+
+impl CollectionDetail {
+    /// Validate collection detail data
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("Collection name cannot be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl CollectionStats {
+    /// Validate collection stats data
+    pub fn validate(&self) -> Result<(), String> {
+        // Stats are always valid as they are computed values
         Ok(())
     }
 }
@@ -374,5 +415,93 @@ mod tests {
         assert_eq!(result.data.rows.len(), 2);
         assert_eq!(result.data.cols[0].name, "id");
         assert_eq!(result.data.cols[1].display_name, "Name");
+    }
+
+    #[test]
+    fn test_collection_detail_deserialization() {
+        let json = r#"{
+            "id": 1,
+            "name": "Test Collection",
+            "description": "A test collection", 
+            "parent_id": 2,
+            "creator_id": 1,
+            "created_at": "2023-01-01T00:00:00Z",
+            "updated_at": "2023-01-01T00:00:00Z",
+            "children": []
+        }"#;
+
+        let collection: CollectionDetail = serde_json::from_str(json).unwrap();
+        assert_eq!(collection.id, Some(1));
+        assert_eq!(collection.name, "Test Collection");
+        assert_eq!(collection.description, Some("A test collection".to_string()));
+        assert_eq!(collection.parent_id, Some(2));
+    }
+
+    #[test]
+    fn test_collection_detail_with_root_id() {
+        let json = r#"{
+            "id": "root",
+            "name": "Our Analytics",
+            "description": null
+        }"#;
+
+        let collection: CollectionDetail = serde_json::from_str(json).unwrap();
+        assert_eq!(collection.id, None);
+        assert_eq!(collection.name, "Our Analytics");
+        assert_eq!(collection.description, None);
+    }
+
+    #[test]
+    fn test_collection_stats_deserialization() {
+        let json = r#"{
+            "item_count": 15,
+            "question_count": 10,
+            "dashboard_count": 5,
+            "last_updated": "2023-01-01T00:00:00Z"
+        }"#;
+
+        let stats: CollectionStats = serde_json::from_str(json).unwrap();
+        assert_eq!(stats.item_count, 15);
+        assert_eq!(stats.question_count, 10);
+        assert_eq!(stats.dashboard_count, 5);
+        assert_eq!(stats.last_updated, Some("2023-01-01T00:00:00Z".to_string()));
+    }
+
+    #[test]
+    fn test_collection_detail_validation() {
+        // Valid collection
+        let collection = CollectionDetail {
+            id: Some(1),
+            name: "Test Collection".to_string(),
+            description: None,
+            color: None,
+            parent_id: None,
+            creator_id: Some(1),
+            created_at: None,
+            updated_at: None,
+            children: None,
+        };
+        assert!(collection.validate().is_ok());
+
+        // Invalid: empty name
+        let mut invalid_collection = collection.clone();
+        invalid_collection.name = "".to_string();
+        assert!(invalid_collection.validate().is_err());
+
+        // Invalid: whitespace-only name
+        let mut invalid_collection = collection;
+        invalid_collection.name = "   ".to_string();
+        assert!(invalid_collection.validate().is_err());
+    }
+
+    #[test]
+    fn test_collection_stats_validation() {
+        let stats = CollectionStats {
+            item_count: 10,
+            question_count: 5,
+            dashboard_count: 5,
+            last_updated: None,
+        };
+        assert!(stats.validate().is_ok());
     }
 }
