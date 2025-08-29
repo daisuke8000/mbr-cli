@@ -997,8 +997,6 @@ impl InteractiveDisplay {
             }
         }
 
-        // Restore terminal only if RAW mode was enabled
-        terminal::disable_raw_mode().ok();
 
         Ok(())
     }
@@ -1176,8 +1174,6 @@ impl InteractiveDisplay {
             }
         }
 
-        // Restore terminal only if RAW mode was enabled
-        terminal::disable_raw_mode().ok();
 
         Ok(())
     }
@@ -1411,7 +1407,7 @@ impl InteractiveDisplay {
         collection: &CollectionDetail,
     ) -> Result<(), AppError> {
         use crossterm::terminal::{
-            EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+            EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
         };
         use std::io::{self, Write};
 
@@ -1432,7 +1428,7 @@ impl InteractiveDisplay {
 
         // Full screen mode - RAW mode + Alternate Screen
         match enable_raw_mode() {
-            Ok(_) => {
+            Ok(()) => {
                 let _cleanup = RawModeCleanup;
                 execute!(io::stdout(), EnterAlternateScreen).ok();
                 let _screen_cleanup = ScreenCleanup;
@@ -1440,8 +1436,26 @@ impl InteractiveDisplay {
                     // Clear screen and reset cursor
                     execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
 
-                    // Print collection details
-                    println!("Collection Details | [q]uit | [h]elp");
+                    // Get terminal size for proper display
+                    let (_terminal_width, _terminal_height) = size().unwrap_or((80, 24));
+
+                    // Header with colored title (similar to query results)
+                    execute!(
+                        io::stdout(),
+                        SetForegroundColor(Color::Cyan),
+                        Print("Collection Details"),
+                        ResetColor,
+                        Print("\r\n"),
+                        SetForegroundColor(Color::Yellow),
+                        Print(format!(
+                            "ID: {} | Name: {}",
+                            collection.id.map_or("root".to_string(), |id| id.to_string()),
+                            collection.name
+                        )),
+                        ResetColor,
+                        Print("\r\n\r\n")
+                    ).ok();
+
                     println!(
                         "┌──────────────────┬─────────────────────────────────────────────────────────────┐"
                     );
@@ -1490,7 +1504,14 @@ impl InteractiveDisplay {
                         "└──────────────────┴─────────────────────────────────────────────────────────────┘"
                     );
 
-                    print!("Controls: [q]uit | [h]elp");
+                    // Control instructions with color (similar to query results)
+                    execute!(
+                        io::stdout(),
+                        SetForegroundColor(Color::Green),
+                        Print("Controls: [q]uit | [h]elp"),
+                        ResetColor
+                    ).ok();
+
                     io::stdout().flush().ok();
 
                     // Handle input
@@ -1499,7 +1520,7 @@ impl InteractiveDisplay {
                     {
                         if kind == KeyEventKind::Press {
                             match code {
-                                KeyCode::Char('q') => break,
+                                KeyCode::Char('q') | KeyCode::Esc => break,
                                 KeyCode::Char('h') => {
                                     let (_, terminal_height) = terminal::size().unwrap_or((80, 24));
                                     self.show_collection_help(terminal_height).await?;
@@ -1539,8 +1560,6 @@ impl InteractiveDisplay {
             }
         }
 
-        // Restore terminal only if RAW mode was enabled
-        terminal::disable_raw_mode().ok();
 
         Ok(())
     }
@@ -1581,7 +1600,14 @@ impl InteractiveDisplay {
                         "└──────────────────┴─────────────────────────────────────────────────────────────┘"
                     );
 
-                    print!("Controls: [q]uit | [h]elp");
+                    // Control instructions with color (similar to query results)
+                    execute!(
+                        io::stdout(),
+                        SetForegroundColor(Color::Green),
+                        Print("Controls: [q]uit | [h]elp"),
+                        ResetColor
+                    ).ok();
+
                     io::stdout().flush().ok();
 
                     // Handle input
@@ -1590,7 +1616,7 @@ impl InteractiveDisplay {
                     {
                         if kind == KeyEventKind::Press {
                             match code {
-                                KeyCode::Char('q') => break,
+                                KeyCode::Char('q') | KeyCode::Esc => break,
                                 KeyCode::Char('h') => {
                                     let (_, terminal_height) = terminal::size().unwrap_or((80, 24));
                                     self.show_collection_help(terminal_height).await?;
@@ -1614,8 +1640,6 @@ impl InteractiveDisplay {
             }
         }
 
-        // Restore terminal only if RAW mode was enabled
-        terminal::disable_raw_mode().ok();
 
         Ok(())
     }
