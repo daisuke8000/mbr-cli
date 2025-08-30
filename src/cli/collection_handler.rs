@@ -85,7 +85,7 @@ impl CollectionHandler {
                             // Interactive table format for consistency with dashboard list
                             let interactive_display = InteractiveDisplay::new();
                             interactive_display
-                                .display_collection_list_pagination(&collections, 20)
+                                .display_collection_list_fullscreen(&collections, 20)
                                 .await?;
                         }
                     }
@@ -119,10 +119,10 @@ impl CollectionHandler {
                         );
                     }
                     _ => {
-                        // Interactive table format for consistency with other commands
+                        // Fullscreen display with proper terminal handling
                         let interactive_display = InteractiveDisplay::new();
                         interactive_display
-                            .display_collection_details_interactive(&collection)
+                            .display_collection_details_fullscreen(&collection)
                             .await?;
                     }
                 }
