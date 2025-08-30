@@ -43,6 +43,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: DashboardCommands,
     },
+    /// Collection management and viewing
+    Collection {
+        #[command(subcommand)]
+        command: CollectionCommands,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -156,6 +161,35 @@ pub enum DashboardCommands {
     /// List dashboard cards
     Cards {
         /// Dashboard ID
+        id: u32,
+        /// Output format (table, json)
+        #[arg(short, long, default_value = "table")]
+        format: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CollectionCommands {
+    /// List collections
+    List {
+        /// Display as tree structure
+        #[arg(long)]
+        tree: bool,
+        /// Output format (table, json)
+        #[arg(short, long, default_value = "table")]
+        format: String,
+    },
+    /// Show collection details
+    Show {
+        /// Collection ID
+        id: u32,
+        /// Output format (table, json)
+        #[arg(short, long, default_value = "table")]
+        format: String,
+    },
+    /// Show collection statistics
+    Stats {
+        /// Collection ID
         id: u32,
         /// Output format (table, json)
         #[arg(short, long, default_value = "table")]
