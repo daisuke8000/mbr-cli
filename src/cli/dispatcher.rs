@@ -8,6 +8,7 @@ use crate::core::services::config_service::ConfigService;
 use crate::error::{AppError, CliError};
 use crate::storage::config::{Config, Profile};
 use crate::storage::credentials::{AuthMode, Credentials};
+use crate::utils::logging::print_verbose;
 
 pub struct Dispatcher {
     config: Config,
@@ -17,16 +18,8 @@ pub struct Dispatcher {
 }
 
 impl Dispatcher {
-    // Static helper function for verbose logging (used before self exists)
-    fn print_verbose(verbose: bool, msg: &str) {
-        if verbose {
-            println!("Verbose: {}", msg);
-        }
-    }
-
-    // Instance method for verbose logging
     fn log_verbose(&self, msg: &str) {
-        Self::print_verbose(self.verbose, msg);
+        print_verbose(self.verbose, msg);
     }
 
     pub fn new(
@@ -36,16 +29,14 @@ impl Dispatcher {
         api_key: Option<String>,
         config_path: Option<std::path::PathBuf>,
     ) -> Self {
-        // Session auto-restoration logic
-        // Skip if an API key is set (an API key has priority)
         let has_valid_api_key = api_key.as_ref().is_some_and(|key| !key.is_empty());
         if matches!(credentials.get_auth_mode(), AuthMode::Session) && !has_valid_api_key {
-            Self::print_verbose(verbose, "Checking for saved session token...");
+            print_verbose(verbose, "Checking for saved session token...");
 
             match Credentials::load(&credentials.profile_name) {
                 Ok(loaded_creds) => {
                     credentials = loaded_creds;
-                    Self::print_verbose(
+                    print_verbose(
                         verbose,
                         &format!(
                             "Session credentials loaded for profile: {}",
@@ -54,7 +45,7 @@ impl Dispatcher {
                     );
                 }
                 Err(_) => {
-                    Self::print_verbose(
+                    print_verbose(
                         verbose,
                         &format!(
                             "No saved session token found for profile: {}",
@@ -64,12 +55,11 @@ impl Dispatcher {
                 }
             }
         } else {
-            Self::print_verbose(verbose, "API key is set, skipping session restoration");
+            print_verbose(verbose, "API key is set, skipping session restoration");
         }
 
-        // Create default profile if it doesn't exist
         if config.get_profile(&credentials.profile_name).is_none() {
-            Self::print_verbose(
+            print_verbose(
                 verbose,
                 &format!("Creating default profile: {}", credentials.profile_name),
             );
@@ -82,11 +72,10 @@ impl Dispatcher {
 
             config.set_profile(credentials.profile_name.clone(), default_profile);
 
-            // Save the updated config
             if let Err(err) = config.save(config_path) {
-                Self::print_verbose(verbose, &format!("Warning: Failed to save config: {}", err));
+                print_verbose(verbose, &format!("Warning: Failed to save config: {}", err));
             } else {
-                Self::print_verbose(verbose, "Successfully saved config file");
+                print_verbose(verbose, "Successfully saved config file");
             }
         }
 

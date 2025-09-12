@@ -11,21 +11,14 @@ use crate::error::{AppError, CliError};
 use crate::storage::config::Profile;
 use crate::storage::credentials::AuthMode;
 use crate::utils::data::OffsetManager;
+use crate::utils::logging::print_verbose;
 
-/// Handler for authentication commands
 #[derive(Default)]
 pub struct AuthHandler;
 
 impl AuthHandler {
     pub fn new() -> Self {
         Self
-    }
-
-    /// Print verbose message if verbose mode is enabled
-    fn print_verbose(verbose: bool, msg: &str) {
-        if verbose {
-            println!("Verbose: {}", msg);
-        }
     }
 
     pub async fn handle(
@@ -37,17 +30,15 @@ impl AuthHandler {
     ) -> Result<(), AppError> {
         match command {
             AuthCommands::Login { username, password } => {
-                Self::print_verbose(verbose, "Attempting auth login command using AuthService");
+                print_verbose(verbose, "Attempting auth login command using AuthService");
 
-                // Use new method that supports environment variables
-                // Priority: CLI args > environment variables > profile email > interactive input
                 let default_username = username.clone().or_else(|| profile.email.clone());
                 let input =
                     LoginInput::from_args_or_env(username, password, default_username.as_deref())?;
 
                 match auth_service.authenticate(input.clone()).await {
                     Ok(_) => {
-                        Self::print_verbose(verbose, "Authentication via AuthService succeeded");
+                        print_verbose(verbose, "Authentication via AuthService succeeded");
                         println!("✅ Successfully logged in as {}", input.username);
                         println!("Connected to: {}", profile.url);
                         Ok(())
@@ -59,7 +50,7 @@ impl AuthHandler {
                 }
             }
             AuthCommands::Logout => {
-                Self::print_verbose(verbose, "Attempting auth logout command using AuthService");
+                print_verbose(verbose, "Attempting auth logout command using AuthService");
 
                 match auth_service.logout().await {
                     Ok(_) => {
@@ -76,7 +67,7 @@ impl AuthHandler {
                 }
             }
             AuthCommands::Status => {
-                Self::print_verbose(verbose, "Attempting auth status command using AuthService");
+                print_verbose(verbose, "Attempting auth status command using AuthService");
 
                 let auth_status = auth_service.get_auth_status();
 
@@ -87,9 +78,7 @@ impl AuthHandler {
                 match auth_status.auth_mode {
                     AuthMode::APIKey => {
                         println!("Authentication Mode: API Key");
-                        // API key is set via environment variable
                         if let Ok(key) = std::env::var("MBR_API_KEY") {
-                            // Mask the API key for security
                             let masked = if key.len() > 8 {
                                 format!("{}...{}", &key[..4], &key[key.len() - 4..])
                             } else {
@@ -106,27 +95,20 @@ impl AuthHandler {
                         if auth_status.session_active {
                             if auth_service.is_authenticated() {
                                 println!("Session: ✅ Active session found");
-                                Self::print_verbose(
-                                    verbose,
-                                    "Valid session token found in keychain",
-                                );
+                                print_verbose(verbose, "Valid session token found in keychain");
                             } else {
                                 println!("Session: ❌ Session token invalid or expired");
-                                Self::print_verbose(
-                                    verbose,
-                                    "Session token found but appears invalid",
-                                );
+                                print_verbose(verbose, "Session token found but appears invalid");
                             }
                         } else {
                             println!(
                                 "Session: ❌ No active session (use 'auth login' to authenticate)"
                             );
-                            Self::print_verbose(verbose, "No session token found in keychain");
+                            print_verbose(verbose, "No session token found in keychain");
                         }
                     }
                 }
 
-                // Profile is determined by the current credentials (runtime profile)
                 println!("\nActive Profile: {}", auth_status.profile_name);
 
                 Ok(())
@@ -135,20 +117,12 @@ impl AuthHandler {
     }
 }
 
-/// Handler for configuration commands
 #[derive(Default)]
 pub struct ConfigHandler;
 
 impl ConfigHandler {
     pub fn new() -> Self {
         Self
-    }
-
-    /// Print verbose message if verbose mode is enabled
-    fn print_verbose(verbose: bool, msg: &str) {
-        if verbose {
-            println!("Verbose: {}", msg);
-        }
     }
 
     pub async fn handle(
@@ -159,7 +133,7 @@ impl ConfigHandler {
     ) -> Result<(), AppError> {
         match command {
             ConfigCommands::Show => {
-                Self::print_verbose(
+                print_verbose(
                     verbose,
                     "Attempting config show command using ConfigService",
                 );
@@ -194,7 +168,7 @@ impl ConfigHandler {
                 url,
                 email,
             } => {
-                Self::print_verbose(
+                print_verbose(
                     verbose,
                     &format!(
                         "Attempting config set using ConfigService - profile: {}, field: {:?}, value: {:?}, url: {:?}, email: {:?}",
@@ -255,7 +229,6 @@ impl ConfigHandler {
                     println!("✅ Set profile '{}' {}", profile, updated_fields.join(", "));
                 }
 
-                // Save the updated config
                 config_service.save_config(None)?;
 
                 println!("Configuration saved successfully.");
@@ -265,20 +238,12 @@ impl ConfigHandler {
     }
 }
 
-/// Handler for question commands
 #[derive(Default)]
 pub struct QuestionHandler;
 
 impl QuestionHandler {
     pub fn new() -> Self {
         Self
-    }
-
-    /// Print verbose message if verbose mode is enabled
-    fn print_verbose(verbose: bool, msg: &str) {
-        if verbose {
-            println!("Verbose: {}", msg);
-        }
     }
 
     pub async fn handle(
@@ -299,7 +264,7 @@ impl QuestionHandler {
                 columns,
                 page_size,
             } => {
-                Self::print_verbose(
+                print_verbose(
                     verbose,
                     &format!(
                         "Attempting question execute command - ID: {}, Params: {:?}, Format: {}, Limit: {:?}, Full: {}, Offset: {:?}, Page size: {}",
@@ -346,7 +311,7 @@ impl QuestionHandler {
                     if offset_val > 0 {
                         let offset_manager = OffsetManager::new(Some(offset_val))?;
                         processed_result = offset_manager.apply_offset(&processed_result)?;
-                        Self::print_verbose(
+                        print_verbose(
                             verbose,
                             &format!(
                                 "Applied offset: {}, remaining rows: {}",
@@ -360,15 +325,12 @@ impl QuestionHandler {
                 // Create table display
                 let table_display = TableDisplay::new();
 
-                // Always show comprehensive header (no longer optional)
                 let display_start = offset.map(|o| o + 1).unwrap_or(1);
-                // Calculate actual displayed rows (minimum of limit and remaining rows after offset)
                 let actual_displayed_rows = if let Some(limit_val) = limit {
                     processed_result.data.rows.len().min(limit_val as usize)
                 } else {
                     processed_result.data.rows.len()
                 };
-                // Calculate display_end by adding actual displayed rows to start position (same as start if zero rows)
                 let display_end = if actual_displayed_rows > 0 {
                     display_start + actual_displayed_rows - 1
                 } else {
@@ -388,14 +350,9 @@ impl QuestionHandler {
                     table_display.render_comprehensive_header(&header_info)
                 );
 
-                // Apply column filtering if specified
                 let mut final_result = processed_result;
-                if let Some(ref _column_filter) = columns {
-                    // Column filtering feature not yet implemented
-                    // Currently ignored - displays all columns
-                }
+                if let Some(ref _column_filter) = columns {}
 
-                // Apply limit to the dataset if specified
                 if let Some(limit_val) = limit {
                     final_result.data.rows = final_result
                         .data
@@ -405,24 +362,20 @@ impl QuestionHandler {
                         .collect();
                 }
 
-                // Output based on format
                 match format.as_str() {
-                    "json" => {
-                        // JSON output - serialize and print
-                        match serde_json::to_string_pretty(&final_result) {
-                            Ok(json_output) => println!("{}", json_output),
-                            Err(e) => {
-                                eprintln!("Error serializing to JSON: {}", e);
-                                return Err(AppError::Cli(CliError::InvalidArguments(format!(
-                                    "Failed to serialize result to JSON: {}",
-                                    e
-                                ))));
-                            }
+                    "json" => match serde_json::to_string_pretty(&final_result) {
+                        Ok(json_output) => println!("{}", json_output),
+                        Err(e) => {
+                            eprintln!("Error serializing to JSON: {}", e);
+                            return Err(AppError::Cli(CliError::InvalidArguments(format!(
+                                "Failed to serialize result to JSON: {}",
+                                e
+                            ))));
                         }
-                    }
+                    },
                     "csv" => {
                         // CSV output
-                        Self::print_verbose(verbose, "Rendering CSV output");
+                        print_verbose(verbose, "Rendering CSV output");
 
                         // Print CSV header
                         let headers: Vec<String> = final_result
@@ -446,22 +399,19 @@ impl QuestionHandler {
                         // Table output (default)
                         if full {
                             // Full display without pagination
-                            Self::print_verbose(verbose, "Using full display mode");
+                            print_verbose(verbose, "Using full display mode");
                             let rendered_table =
                                 table_display.render_query_result(&final_result)?;
                             println!("{}", rendered_table);
                         } else if no_fullscreen {
                             // Simple pagination without interactive features
-                            Self::print_verbose(verbose, "Using simple pagination mode");
+                            print_verbose(verbose, "Using simple pagination mode");
                             let rendered_table = table_display
                                 .render_query_result_with_limit(&final_result, Some(page_size))?;
                             println!("{}", rendered_table);
                         } else {
                             // Interactive mode - Full interactive display based on original implementation
-                            Self::print_verbose(
-                                verbose,
-                                "Using full interactive mode with crossterm",
-                            );
+                            print_verbose(verbose, "Using full interactive mode with crossterm");
 
                             let interactive_display = InteractiveDisplay::new();
                             interactive_display
@@ -485,7 +435,7 @@ impl QuestionHandler {
                 limit,
                 collection,
             } => {
-                Self::print_verbose(
+                print_verbose(
                     verbose,
                     &format!(
                         "Attempting question list command - Search: {:?}, Limit: {}, Collection: {:?}",
