@@ -36,35 +36,35 @@ impl AuthHandler {
                 let input =
                     LoginInput::from_args_or_env(username, password, default_username.as_deref())?;
 
-                match auth_service.authenticate(input.clone()).await {
+                let result = auth_service.authenticate(input.clone()).await;
+                match &result {
                     Ok(_) => {
                         print_verbose(verbose, "Authentication via AuthService succeeded");
                         println!("✅ Successfully logged in as {}", input.username);
                         println!("Connected to: {}", profile.url);
-                        Ok(())
                     }
                     Err(e) => {
                         println!("❌ Login failed: {}", e);
-                        Err(e)
                     }
                 }
+                result.map(|_| ())
             }
             AuthCommands::Logout => {
                 print_verbose(verbose, "Attempting auth logout command using AuthService");
 
-                match auth_service.logout().await {
+                let result = auth_service.logout().await;
+                match &result {
                     Ok(_) => {
                         println!(
                             "✅ Successfully logged out from profile: {}",
                             auth_service.get_auth_status().profile_name
                         );
-                        Ok(())
                     }
                     Err(e) => {
                         println!("❌ Logout failed: {}", e);
-                        Err(e)
                     }
                 }
+                result.map(|_| ())
             }
             AuthCommands::Status => {
                 print_verbose(verbose, "Attempting auth status command using AuthService");

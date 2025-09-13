@@ -392,8 +392,8 @@ impl TableDisplay {
     fn extract_collection_name(&self, question: &Question) -> String {
         if let Some(ref collection) = question.collection {
             collection.name.clone()
-        } else if question.collection_id.is_some() {
-            format!("ID: {}", question.collection_id.unwrap())
+        } else if let Some(collection_id) = question.collection_id {
+            format!("ID: {}", collection_id)
         } else {
             "Root".to_string()
         }
@@ -950,7 +950,7 @@ mod tests {
         let result = display.render_question_list(&questions);
         assert!(result.is_ok());
 
-        let table_str = result.unwrap();
+        let table_str = result.expect("Failed to render question list");
         assert!(table_str.contains("Test Question 1"));
         assert!(table_str.contains("Test Question 2"));
         // Collection names are truncated, so check with partial match
@@ -965,7 +965,7 @@ mod tests {
         let rendered = display.render_query_result(&result);
         assert!(rendered.is_ok());
 
-        let table_str = rendered.unwrap();
+        let table_str = rendered.expect("Failed to render query result");
         assert!(table_str.contains("ID"));
         assert!(table_str.contains("Name"));
         assert!(table_str.contains("Alice"));

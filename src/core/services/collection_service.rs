@@ -1,7 +1,5 @@
-// TODO: Collection service implementation
-// This file will contain the collection service implementation
-// Following the pattern of dashboard_service.rs
-
+/// Collection service for managing Metabase collections
+/// Provides methods for listing, showing, and getting statistics of collections
 use crate::api::{
     client::MetabaseClient,
     models::{Collection, CollectionDetail, CollectionStats},
@@ -13,7 +11,6 @@ pub struct CollectionService {
     client: Arc<MetabaseClient>,
 }
 
-// TODO: Implement methods
 impl CollectionService {
     pub fn new(client: Arc<MetabaseClient>) -> Self {
         Self { client }

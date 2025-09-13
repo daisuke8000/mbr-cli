@@ -36,7 +36,7 @@ impl ProgressSpinner {
 
             while running.load(Ordering::Relaxed) {
                 print!("\r{} {}", spinner_chars[index], message);
-                io::stdout().flush().unwrap_or_default();
+                let _ = io::stdout().flush(); // Ignore flush errors to continue operation
 
                 index = (index + 1) % spinner_chars.len();
                 thread::sleep(Duration::from_millis(100));
@@ -44,7 +44,7 @@ impl ProgressSpinner {
 
             // Clear line properly for emoji support
             print!("\r{:<100}\r", "");
-            io::stdout().flush().unwrap_or_default();
+            let _ = io::stdout().flush(); // Ignore flush errors to continue operation
         });
 
         self.handle = Some(handle);
@@ -55,13 +55,13 @@ impl ProgressSpinner {
         self.running.store(false, Ordering::Relaxed);
 
         if let Some(handle) = self.handle.take() {
-            handle.join().unwrap_or_default();
+            let _ = handle.join(); // Ignore thread join errors
         }
 
         if let Some(msg) = completion_message {
             // Add space before emoji to prevent terminal clipping
             println!(" {}", msg);
-            io::stdout().flush().unwrap_or_default();
+            let _ = io::stdout().flush(); // Ignore flush errors
         }
     }
 
@@ -145,7 +145,7 @@ pub fn show_progress_bar(current: usize, total: usize, width: usize) {
     print!("{}", "░".repeat(empty));
     print!("] {:.1}% ({}/{})", progress * 100.0, current, total);
 
-    io::stdout().flush().unwrap_or_default();
+    let _ = io::stdout().flush(); // Ignore flush errors
 
     if current == total {
         println!(); // New line on completion
@@ -163,6 +163,26 @@ pub fn display_status(operation: &str, status: OperationStatus) {
 
     // Add space before emoji to prevent terminal clipping
     println!(" {} {}", symbol, message);
+}
+
+/// Display authentication result with consistent formatting
+pub fn display_auth_result<T, E: std::fmt::Display>(result: Result<T, E>, success_message: &str) {
+    match result {
+        Ok(_) => println!("✅ {}", success_message),
+        Err(e) => println!("❌ Authentication failed: {}", e),
+    }
+}
+
+/// Display operation result with consistent formatting
+pub fn display_operation_result<T, E: std::fmt::Display>(
+    result: Result<T, E>,
+    success_message: &str,
+    error_prefix: &str,
+) {
+    match result {
+        Ok(_) => println!("✅ {}", success_message),
+        Err(e) => println!("❌ {}: {}", error_prefix, e),
+    }
 }
 
 /// Types of operation status
