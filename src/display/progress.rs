@@ -6,6 +6,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
+// Constants for display configuration
+const SPINNER_UPDATE_INTERVAL_MS: u64 = 100;
+const CLEAR_LINE_WIDTH: usize = 100;
+
 /// Simple spinner to show progress of asynchronous operations
 pub struct ProgressSpinner {
     message: String,
@@ -39,11 +43,11 @@ impl ProgressSpinner {
                 let _ = io::stdout().flush(); // Ignore flush errors to continue operation
 
                 index = (index + 1) % spinner_chars.len();
-                thread::sleep(Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(SPINNER_UPDATE_INTERVAL_MS));
             }
 
             // Clear line properly for emoji support
-            print!("\r{:<100}\r", "");
+            print!("\r{:<width$}\r", "", width = CLEAR_LINE_WIDTH);
             let _ = io::stdout().flush(); // Ignore flush errors to continue operation
         });
 
@@ -182,6 +186,22 @@ pub fn display_operation_result<T, E: std::fmt::Display>(
     match result {
         Ok(_) => println!("✅ {}", success_message),
         Err(e) => println!("❌ {}: {}", error_prefix, e),
+    }
+}
+
+/// Common error message templates
+pub mod error_messages {
+    pub const AUTHENTICATION_FAILED: &str = "Authentication failed";
+    pub const CONNECTION_FAILED: &str = "Connection failed";
+    pub const INVALID_INPUT: &str = "Invalid input";
+    pub const RESOURCE_NOT_FOUND: &str = "Resource not found";
+    pub const PERMISSION_DENIED: &str = "Permission denied";
+    pub const TIMEOUT: &str = "Operation timed out";
+    pub const INVALID_CONFIGURATION: &str = "Invalid configuration";
+
+    /// Format error message with context
+    pub fn with_context(template: &str, context: &str) -> String {
+        format!("{}: {}", template, context)
     }
 }
 

@@ -36,11 +36,12 @@ impl AuthHandler {
                 let input =
                     LoginInput::from_args_or_env(username, password, default_username.as_deref())?;
 
-                let result = auth_service.authenticate(input.clone()).await;
+                let username_display = input.username.clone();
+                let result = auth_service.authenticate(input).await;
                 match &result {
                     Ok(_) => {
                         print_verbose(verbose, "Authentication via AuthService succeeded");
-                        println!("✅ Successfully logged in as {}", input.username);
+                        println!("✅ Successfully logged in as {}", username_display);
                         println!("Connected to: {}", profile.url);
                     }
                     Err(e) => {

@@ -775,14 +775,14 @@ impl InteractiveDisplay {
         }
 
         let mut lines = Vec::new();
-        let mut current_line = String::new();
+        let mut current_line = String::with_capacity(max_width); // Pre-allocate for line capacity
 
         for word in text.split_whitespace() {
             // If adding this word would exceed the width
             if current_line.len() + word.len() + 1 > max_width {
                 if !current_line.is_empty() {
                     lines.push(current_line);
-                    current_line = String::new();
+                    current_line = String::with_capacity(max_width); // Pre-allocate for new line
                 }
 
                 // If a single word is longer than max_width, break it

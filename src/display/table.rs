@@ -4,6 +4,10 @@ use comfy_table::{Attribute, Cell, Color, Table, presets};
 use crossterm::terminal;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+// Constants for string capacity pre-allocation
+const HEADER_CAPACITY: usize = 256;
+const COMPREHENSIVE_HEADER_CAPACITY: usize = 512;
+
 /// Parameters for question header display
 pub struct QuestionHeaderParams<'a> {
     pub question_id: u32,
@@ -261,7 +265,7 @@ impl TableDisplay {
 
     /// Extended display including question header and result information
     pub fn render_question_header_with_results(&self, params: &QuestionHeaderParams) -> String {
-        let mut header = String::new();
+        let mut header = String::with_capacity(HEADER_CAPACITY); // Pre-allocate for typical header size
 
         // Question information
         header.push_str(&format!(
@@ -312,7 +316,7 @@ impl TableDisplay {
     /// - Offset information
     /// - Filter application status
     pub fn render_comprehensive_header(&self, info: &TableHeaderInfo) -> String {
-        let mut header = String::new();
+        let mut header = String::with_capacity(COMPREHENSIVE_HEADER_CAPACITY); // Pre-allocate for comprehensive header
 
         // Data source information
         if let Some(id) = info.source_id {
