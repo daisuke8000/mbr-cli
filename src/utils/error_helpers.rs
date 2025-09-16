@@ -67,7 +67,8 @@ macro_rules! map_json_error {
 #[macro_export]
 macro_rules! map_display_error {
     ($result:expr, $operation:expr) => {
-        $result.map_err(|e| $crate::utils::error_helpers::convert_io_to_display_error(e, $operation))
+        $result
+            .map_err(|e| $crate::utils::error_helpers::convert_io_to_display_error(e, $operation))
     };
 }
 
@@ -87,7 +88,10 @@ mod tests {
     fn test_convert_timeout_error_simple() {
         let api_error = convert_timeout_error("/test", 30);
         match api_error {
-            ApiError::Timeout { endpoint, timeout_secs } => {
+            ApiError::Timeout {
+                endpoint,
+                timeout_secs,
+            } => {
                 assert_eq!(endpoint, "/test");
                 assert_eq!(timeout_secs, 30);
             }
@@ -100,10 +104,13 @@ mod tests {
         let api_error = convert_timeout_error("/test", 30);
 
         match api_error {
-            ApiError::Timeout { endpoint, timeout_secs } => {
+            ApiError::Timeout {
+                endpoint,
+                timeout_secs,
+            } => {
                 assert_eq!(endpoint, "/test");
                 assert_eq!(timeout_secs, 30);
-            },
+            }
             _ => panic!("Expected Timeout error"),
         }
     }

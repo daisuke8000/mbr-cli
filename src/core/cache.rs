@@ -161,9 +161,9 @@ impl ApiResponseCache {
     /// Create a new API response cache with sensible defaults
     pub fn new() -> Self {
         Self {
-            questions: TtlCache::new(Duration::from_secs(300)),      // 5 minutes
-            dashboards: TtlCache::new(Duration::from_secs(600)),    // 10 minutes
-            collections: TtlCache::new(Duration::from_secs(1800)),  // 30 minutes
+            questions: TtlCache::new(Duration::from_secs(300)), // 5 minutes
+            dashboards: TtlCache::new(Duration::from_secs(600)), // 10 minutes
+            collections: TtlCache::new(Duration::from_secs(1800)), // 30 minutes
         }
     }
 
@@ -267,8 +267,16 @@ mod tests {
     fn test_custom_ttl() {
         let cache = TtlCache::new(Duration::from_secs(1));
 
-        cache.insert_with_ttl("short".to_string(), "value".to_string(), Duration::from_millis(10));
-        cache.insert_with_ttl("long".to_string(), "value".to_string(), Duration::from_secs(10));
+        cache.insert_with_ttl(
+            "short".to_string(),
+            "value".to_string(),
+            Duration::from_millis(10),
+        );
+        cache.insert_with_ttl(
+            "long".to_string(),
+            "value".to_string(),
+            Duration::from_secs(10),
+        );
 
         thread::sleep(Duration::from_millis(20));
 
@@ -285,8 +293,14 @@ mod tests {
         cache.cache_collection("list".to_string(), "collection_list".to_string());
 
         assert_eq!(cache.get_question(1), Some("question_response".to_string()));
-        assert_eq!(cache.get_dashboard(1), Some("dashboard_response".to_string()));
-        assert_eq!(cache.get_collection("list"), Some("collection_list".to_string()));
+        assert_eq!(
+            cache.get_dashboard(1),
+            Some("dashboard_response".to_string())
+        );
+        assert_eq!(
+            cache.get_collection("list"),
+            Some("collection_list".to_string())
+        );
 
         let stats = cache.stats();
         assert_eq!(stats["questions"].active_entries, 1);

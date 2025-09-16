@@ -1,5 +1,5 @@
-use backoff::{backoff::Backoff, ExponentialBackoff};
 use crate::error::ApiError;
+use backoff::{ExponentialBackoff, backoff::Backoff};
 use std::future::Future;
 use std::time::Duration;
 
@@ -65,7 +65,6 @@ impl RetryExecutor {
         Self { config }
     }
 
-
     /// Execute an async operation with retry logic
     pub async fn execute<F, Fut, T>(&self, operation: F) -> Result<T, ApiError>
     where
@@ -98,7 +97,10 @@ impl RetryExecutor {
                         log::debug!("Retrying operation after {:?} (attempt {})", delay, attempt);
                         tokio::time::sleep(delay).await;
                     } else {
-                        log::warn!("Max retry attempts reached ({}), giving up", self.config.max_retries);
+                        log::warn!(
+                            "Max retry attempts reached ({}), giving up",
+                            self.config.max_retries
+                        );
                         return Err(error);
                     }
                 }
@@ -114,11 +116,15 @@ impl RetryExecutor {
 
         match error {
             // Always retry on server errors and timeouts
-            ApiError::Http { status: 500..=599, .. } => true,
+            ApiError::Http {
+                status: 500..=599, ..
+            } => true,
             ApiError::Timeout { .. } => true,
 
             // Retry on client errors only if configured
-            ApiError::Http { status: 400..=499, .. } => self.config.retry_client_errors,
+            ApiError::Http {
+                status: 400..=499, ..
+            } => self.config.retry_client_errors,
 
             // Don't retry on authentication errors
             ApiError::Unauthorized { .. } => false,
@@ -152,14 +158,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_retry_success_immediate() {
         let executor = RetryExecutor::new(RetryConfig::default());
 
-        let result = executor.execute(|| async {
-            Ok::<i32, ApiError>(42)
-        }).await;
+        let result = executor.execute(|| async { Ok::<i32, ApiError>(42) }).await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 42);
@@ -169,13 +173,15 @@ mod tests {
     async fn test_retry_gives_up_on_auth_error() {
         let executor = RetryExecutor::new(RetryConfig::default());
 
-        let result: Result<String, ApiError> = executor.execute(|| async {
-            Err(ApiError::Unauthorized {
-                status: 401,
-                endpoint: "/test".to_string(),
-                server_message: "Unauthorized".to_string(),
+        let result: Result<String, ApiError> = executor
+            .execute(|| async {
+                Err(ApiError::Unauthorized {
+                    status: 401,
+                    endpoint: "/test".to_string(),
+                    server_message: "Unauthorized".to_string(),
+                })
             })
-        }).await;
+            .await;
 
         assert!(result.is_err());
     }
@@ -197,9 +203,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_convenience_functions() {
-        let result = with_retry(|| async {
-            Ok::<String, ApiError>("success".to_string())
-        }).await;
+        let result = with_retry(|| async { Ok::<String, ApiError>("success".to_string()) }).await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "success");

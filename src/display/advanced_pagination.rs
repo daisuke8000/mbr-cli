@@ -89,24 +89,20 @@ impl AdvancedPaginationManager {
         // (Always respond to interactive mode requests)
 
         // Enter alternate screen
-        execute!(io::stdout(), EnterAlternateScreen).map_err(|e| {
-            AppError::Display(convert_crossterm_error(e, "enter alternate screen"))
-        })?;
+        execute!(io::stdout(), EnterAlternateScreen)
+            .map_err(|e| AppError::Display(convert_crossterm_error(e, "enter alternate screen")))?;
 
-        terminal::enable_raw_mode().map_err(|e| {
-            AppError::Display(convert_crossterm_error(e, "enable raw mode"))
-        })?;
+        terminal::enable_raw_mode()
+            .map_err(|e| AppError::Display(convert_crossterm_error(e, "enable raw mode")))?;
 
         let result = self.interactive_loop(items, renderer);
 
         // Restore original state
-        terminal::disable_raw_mode().map_err(|e| {
-            AppError::Display(convert_crossterm_error(e, "disable raw mode"))
-        })?;
+        terminal::disable_raw_mode()
+            .map_err(|e| AppError::Display(convert_crossterm_error(e, "disable raw mode")))?;
 
-        execute!(io::stdout(), LeaveAlternateScreen).map_err(|e| {
-            AppError::Display(convert_crossterm_error(e, "leave alternate screen"))
-        })?;
+        execute!(io::stdout(), LeaveAlternateScreen)
+            .map_err(|e| AppError::Display(convert_crossterm_error(e, "leave alternate screen")))?;
 
         result
     }
@@ -188,9 +184,9 @@ impl AdvancedPaginationManager {
 
     /// Read keyboard input and convert to actions
     fn read_input(&self) -> Result<InputAction, AppError> {
-        match event::read().map_err(|e| {
-            AppError::Display(convert_crossterm_error(e, "read key event"))
-        })? {
+        match event::read()
+            .map_err(|e| AppError::Display(convert_crossterm_error(e, "read key event")))?
+        {
             Event::Key(KeyEvent {
                 code, modifiers, ..
             }) => {
@@ -246,9 +242,8 @@ impl AdvancedPaginationManager {
         let page_items = &items[start..end];
 
         // Clear screen
-        execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).map_err(|e| {
-            AppError::Display(convert_crossterm_error(e, "clear screen"))
-        })?;
+        execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0))
+            .map_err(|e| AppError::Display(convert_crossterm_error(e, "clear screen")))?;
 
         // Table display
         let table_content = renderer(page_items);
@@ -293,9 +288,9 @@ impl AdvancedPaginationManager {
         // Navigation information and status display
         self.display_status(start, end)?;
 
-        io::stdout().flush().map_err(|e| {
-            AppError::Display(convert_crossterm_error(e, "flush stdout"))
-        })?;
+        io::stdout()
+            .flush()
+            .map_err(|e| AppError::Display(convert_crossterm_error(e, "flush stdout")))?;
 
         Ok(())
     }
@@ -306,9 +301,8 @@ impl AdvancedPaginationManager {
 
         // Move to bottom of screen
         let status_row = self.terminal_height.saturating_sub(2);
-        execute!(io::stdout(), cursor::MoveTo(0, status_row)).map_err(|e| {
-            AppError::Display(convert_crossterm_error(e, "move cursor"))
-        })?;
+        execute!(io::stdout(), cursor::MoveTo(0, status_row))
+            .map_err(|e| AppError::Display(convert_crossterm_error(e, "move cursor")))?;
 
         let separator = "─".repeat(self.terminal_width as usize);
         println!("{}", separator);
@@ -336,9 +330,8 @@ impl AdvancedPaginationManager {
 
     /// Display help message
     fn show_help(&self) -> Result<(), AppError> {
-        execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).map_err(|e| {
-            AppError::Display(convert_crossterm_error(e, "clear screen for help"))
-        })?;
+        execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0))
+            .map_err(|e| AppError::Display(convert_crossterm_error(e, "clear screen for help")))?;
 
         println!("📖 Interactive Pagination Operation Guide");
         println!("═══════════════════════════════════════════════");
@@ -376,9 +369,8 @@ impl AdvancedPaginationManager {
         })?;
 
         // Wait for key input
-        event::read().map_err(|e| {
-            AppError::Display(convert_crossterm_error(e, "read key event"))
-        })?;
+        event::read()
+            .map_err(|e| AppError::Display(convert_crossterm_error(e, "read key event")))?;
 
         Ok(())
     }

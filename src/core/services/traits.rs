@@ -50,7 +50,11 @@ pub trait DeleteService {
 /// Combined CRUD trait for full resource management
 #[async_trait]
 pub trait CrudService<T, CreateInput, UpdateInput>:
-    ListService<T> + GetService<T> + CreateService<T, CreateInput> + UpdateService<T, UpdateInput> + DeleteService
+    ListService<T>
+    + GetService<T>
+    + CreateService<T, CreateInput>
+    + UpdateService<T, UpdateInput>
+    + DeleteService
 {
 }
 
@@ -76,7 +80,8 @@ macro_rules! impl_list_service {
         impl ListService<$item_type> for $service {
             async fn list(&self, params: ListParams) -> Result<Vec<$item_type>, ServiceError> {
                 // Use the service's existing list method with parameter mapping
-                self.list_items(params.search.as_deref(), params.limit, params.offset).await
+                self.list_items(params.search.as_deref(), params.limit, params.offset)
+                    .await
             }
         }
     };
