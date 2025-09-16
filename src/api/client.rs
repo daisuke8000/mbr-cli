@@ -2,6 +2,8 @@ use crate::api::models::{
     Collection, CollectionDetail, Dashboard, DashboardCard, LoginRequest, LoginResponse,
 };
 use crate::error::{ApiError, AppError};
+use crate::utils::error_helpers::*;
+use crate::map_api_error;
 use backoff::{Error as BackoffError, ExponentialBackoff};
 use reqwest::{Client, Method, RequestBuilder, Response};
 use std::collections::HashMap;
@@ -25,11 +27,7 @@ impl MetabaseClient {
             .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
             .user_agent(USER_AGENT)
             .build()
-            .map_err(|e| ApiError::Http {
-                status: 0,
-                endpoint: "client_init".to_string(),
-                message: format!("Failed to create HTTP client: {}", e),
-            })?;
+            .map_err(|e| convert_request_error(e, "client_init"))?;
 
         Ok(MetabaseClient {
             client,
@@ -77,16 +75,13 @@ impl MetabaseClient {
             password: password.to_string(),
         };
 
-        let response = self
-            .build_request(Method::POST, "/api/session")
-            .json(&login_req)
-            .send()
-            .await
-            .map_err(|e| ApiError::Http {
-                status: 0,
-                endpoint: "/api/session".to_string(),
-                message: format!("Request failed: {}", e),
-            })?;
+        let response = map_api_error!(
+            self.build_request(Method::POST, "/api/session")
+                .json(&login_req)
+                .send()
+                .await,
+            "/api/session"
+        )?;
 
         let login_resp: LoginResponse = Self::handle_response(response, "/api/session").await?;
         self.session_token = Some(login_resp.id);
@@ -99,15 +94,12 @@ impl MetabaseClient {
             return Ok(());
         }
 
-        let response = self
-            .build_request(Method::DELETE, "/api/session")
-            .send()
-            .await
-            .map_err(|e| ApiError::Http {
-                status: 0,
-                endpoint: "/api/session".to_string(),
-                message: format!("Request failed: {}", e),
-            })?;
+        let response = map_api_error!(
+            self.build_request(Method::DELETE, "/api/session")
+                .send()
+                .await,
+            "/api/session"
+        )?;
 
         // Metabase returns 204 No Content on successful logout
         let status = response.status();
@@ -165,26 +157,14 @@ impl MetabaseClient {
             .build_request(Method::GET, &endpoint)
             .send()
             .await
-            .map_err(|e| {
-                AppError::Api(ApiError::Http {
-                    status: 0, // Network error, no status available
-                    endpoint: endpoint.clone(),
-                    message: format!("Network error: {}", e),
-                })
-            })?;
+            .map_err(|e| AppError::Api(convert_request_error(e, &endpoint)))?;
 
         let status = response.status();
 
         if status.is_success() {
             // Parse response as Vec<Question>
             let mut questions: Vec<crate::api::models::Question> =
-                response.json().await.map_err(|e| {
-                    AppError::Api(ApiError::Http {
-                        status: 200, // Success status but parsing failed
-                        endpoint: endpoint.clone(),
-                        message: format!("Failed to parse JSON response: {}", e),
-                    })
-                })?;
+                response.json().await.map_err(|e| AppError::Api(convert_json_error(e, &endpoint)))?;
 
             // Apply limit if specified
             if let Some(limit_value) = limit {
@@ -249,13 +229,7 @@ impl MetabaseClient {
         if status.is_success() {
             // Parse response as QueryResult
             let query_result: crate::api::models::QueryResult =
-                response.json().await.map_err(|e| {
-                    AppError::Api(ApiError::Http {
-                        status: 200, // Success status but parsing failed
-                        endpoint: endpoint.clone(),
-                        message: format!("Failed to parse query result JSON: {}", e),
-                    })
-                })?;
+                response.json().await.map_err(|e| AppError::Api(convert_json_error(e, &endpoint)))?;
 
             Ok(query_result)
         } else if status == reqwest::StatusCode::NOT_FOUND {
@@ -309,10 +283,7 @@ impl MetabaseClient {
 
         self.execute_with_retry(|| async {
             let request = self.build_request(Method::GET, &endpoint);
-            let response = request.send().await.map_err(|_e| ApiError::Timeout {
-                timeout_secs: DEFAULT_TIMEOUT_SECS,
-                endpoint: endpoint.clone(),
-            })?;
+            let response = request.send().await.map_err(|_e| convert_timeout_error(&endpoint, DEFAULT_TIMEOUT_SECS))?;
             Self::handle_response(response, &endpoint).await
         })
         .await
@@ -341,10 +312,7 @@ impl MetabaseClient {
                 }
                 Err(ApiError::Timeout { .. }) => {
                     // Retry on timeouts
-                    Err(BackoffError::transient(ApiError::Timeout {
-                        timeout_secs: DEFAULT_TIMEOUT_SECS,
-                        endpoint: "retry".to_string(),
-                    }))
+                    Err(BackoffError::transient(convert_timeout_error("retry", DEFAULT_TIMEOUT_SECS)))
                 }
                 Err(other) => {
                     // Don't retry on client errors (4xx)
@@ -362,10 +330,7 @@ impl MetabaseClient {
 
         self.execute_with_retry(|| async {
             let request = self.build_request(Method::GET, &endpoint);
-            let response = request.send().await.map_err(|_e| ApiError::Timeout {
-                timeout_secs: DEFAULT_TIMEOUT_SECS,
-                endpoint: endpoint.clone(),
-            })?;
+            let response = request.send().await.map_err(|_e| convert_timeout_error(&endpoint, DEFAULT_TIMEOUT_SECS))?;
             Self::handle_response(response, &endpoint).await
         })
         .await
@@ -378,10 +343,7 @@ impl MetabaseClient {
 
         self.execute_with_retry(|| async {
             let request = self.build_request(Method::GET, &endpoint);
-            let response = request.send().await.map_err(|_e| ApiError::Timeout {
-                timeout_secs: DEFAULT_TIMEOUT_SECS,
-                endpoint: endpoint.clone(),
-            })?;
+            let response = request.send().await.map_err(|_e| convert_timeout_error(&endpoint, DEFAULT_TIMEOUT_SECS))?;
             // Dashboard response includes dashcards field
             let dashboard: Dashboard = Self::handle_response(response, &endpoint).await?;
             Ok(dashboard.dashcards.unwrap_or_default())
@@ -399,10 +361,7 @@ impl MetabaseClient {
 
         self.execute_with_retry(|| async {
             let request = self.build_request(Method::GET, &endpoint);
-            let response = request.send().await.map_err(|_e| ApiError::Timeout {
-                timeout_secs: DEFAULT_TIMEOUT_SECS,
-                endpoint: endpoint.clone(),
-            })?;
+            let response = request.send().await.map_err(|_e| convert_timeout_error(&endpoint, DEFAULT_TIMEOUT_SECS))?;
             Self::handle_response(response, &endpoint).await
         })
         .await
@@ -415,10 +374,7 @@ impl MetabaseClient {
 
         self.execute_with_retry(|| async {
             let request = self.build_request(Method::GET, &endpoint);
-            let response = request.send().await.map_err(|_e| ApiError::Timeout {
-                timeout_secs: DEFAULT_TIMEOUT_SECS,
-                endpoint: endpoint.clone(),
-            })?;
+            let response = request.send().await.map_err(|_e| convert_timeout_error(&endpoint, DEFAULT_TIMEOUT_SECS))?;
             Self::handle_response(response, &endpoint).await
         })
         .await
@@ -431,10 +387,7 @@ impl MetabaseClient {
 
         self.execute_with_retry(|| async {
             let request = self.build_request(Method::GET, &endpoint);
-            let response = request.send().await.map_err(|_e| ApiError::Timeout {
-                timeout_secs: DEFAULT_TIMEOUT_SECS,
-                endpoint: endpoint.clone(),
-            })?;
+            let response = request.send().await.map_err(|_e| convert_timeout_error(&endpoint, DEFAULT_TIMEOUT_SECS))?;
             Self::handle_response(response, &endpoint).await
         })
         .await

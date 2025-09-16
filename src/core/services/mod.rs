@@ -3,6 +3,7 @@ pub mod collection_service;
 pub mod config_service;
 pub mod dashboard_service;
 pub mod question_service;
+pub mod traits;
 pub mod types;
 
 #[cfg(test)]

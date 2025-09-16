@@ -2,6 +2,7 @@
 
 // use crate::api::models::{QueryResult, QueryData};
 use crate::error::AppError;
+use crate::utils::error_helpers::convert_crossterm_error;
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
@@ -89,34 +90,22 @@ impl AdvancedPaginationManager {
 
         // Enter alternate screen
         execute!(io::stdout(), EnterAlternateScreen).map_err(|e| {
-            AppError::Display(crate::error::DisplayError::TerminalOutput(format!(
-                "Failed to enter alternate screen: {}",
-                e
-            )))
+            AppError::Display(convert_crossterm_error(e, "enter alternate screen"))
         })?;
 
         terminal::enable_raw_mode().map_err(|e| {
-            AppError::Display(crate::error::DisplayError::TerminalOutput(format!(
-                "Failed to enable raw mode: {}",
-                e
-            )))
+            AppError::Display(convert_crossterm_error(e, "enable raw mode"))
         })?;
 
         let result = self.interactive_loop(items, renderer);
 
         // Restore original state
         terminal::disable_raw_mode().map_err(|e| {
-            AppError::Display(crate::error::DisplayError::TerminalOutput(format!(
-                "Failed to disable raw mode: {}",
-                e
-            )))
+            AppError::Display(convert_crossterm_error(e, "disable raw mode"))
         })?;
 
         execute!(io::stdout(), LeaveAlternateScreen).map_err(|e| {
-            AppError::Display(crate::error::DisplayError::TerminalOutput(format!(
-                "Failed to leave alternate screen: {}",
-                e
-            )))
+            AppError::Display(convert_crossterm_error(e, "leave alternate screen"))
         })?;
 
         result
@@ -200,10 +189,7 @@ impl AdvancedPaginationManager {
     /// Read keyboard input and convert to actions
     fn read_input(&self) -> Result<InputAction, AppError> {
         match event::read().map_err(|e| {
-            AppError::Display(crate::error::DisplayError::TerminalOutput(format!(
-                "Failed to read key event: {}",
-                e
-            )))
+            AppError::Display(convert_crossterm_error(e, "read key event"))
         })? {
             Event::Key(KeyEvent {
                 code, modifiers, ..
@@ -261,10 +247,7 @@ impl AdvancedPaginationManager {
 
         // Clear screen
         execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).map_err(|e| {
-            AppError::Display(crate::error::DisplayError::TerminalOutput(format!(
-                "Failed to clear screen: {}",
-                e
-            )))
+            AppError::Display(convert_crossterm_error(e, "clear screen"))
         })?;
 
         // Table display
@@ -311,10 +294,7 @@ impl AdvancedPaginationManager {
         self.display_status(start, end)?;
 
         io::stdout().flush().map_err(|e| {
-            AppError::Display(crate::error::DisplayError::TerminalOutput(format!(
-                "Failed to flush stdout: {}",
-                e
-            )))
+            AppError::Display(convert_crossterm_error(e, "flush stdout"))
         })?;
 
         Ok(())
@@ -327,10 +307,7 @@ impl AdvancedPaginationManager {
         // Move to bottom of screen
         let status_row = self.terminal_height.saturating_sub(2);
         execute!(io::stdout(), cursor::MoveTo(0, status_row)).map_err(|e| {
-            AppError::Display(crate::error::DisplayError::TerminalOutput(format!(
-                "Failed to move cursor: {}",
-                e
-            )))
+            AppError::Display(convert_crossterm_error(e, "move cursor"))
         })?;
 
         let separator = "─".repeat(self.terminal_width as usize);
@@ -360,10 +337,7 @@ impl AdvancedPaginationManager {
     /// Display help message
     fn show_help(&self) -> Result<(), AppError> {
         execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).map_err(|e| {
-            AppError::Display(crate::error::DisplayError::TerminalOutput(format!(
-                "Failed to clear screen for help: {}",
-                e
-            )))
+            AppError::Display(convert_crossterm_error(e, "clear screen for help"))
         })?;
 
         println!("📖 Interactive Pagination Operation Guide");
@@ -403,10 +377,7 @@ impl AdvancedPaginationManager {
 
         // Wait for key input
         event::read().map_err(|e| {
-            AppError::Display(crate::error::DisplayError::TerminalOutput(format!(
-                "Failed to read key event: {}",
-                e
-            )))
+            AppError::Display(convert_crossterm_error(e, "read key event"))
         })?;
 
         Ok(())
