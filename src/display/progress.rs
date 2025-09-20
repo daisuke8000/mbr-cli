@@ -6,6 +6,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
+// Constants for display configuration
+const SPINNER_UPDATE_INTERVAL_MS: u64 = 100;
+const CLEAR_LINE_WIDTH: usize = 100;
+
 /// Simple spinner to show progress of asynchronous operations
 pub struct ProgressSpinner {
     message: String,
@@ -36,15 +40,15 @@ impl ProgressSpinner {
 
             while running.load(Ordering::Relaxed) {
                 print!("\r{} {}", spinner_chars[index], message);
-                io::stdout().flush().unwrap_or_default();
+                let _ = io::stdout().flush(); // Ignore flush errors to continue operation
 
                 index = (index + 1) % spinner_chars.len();
-                thread::sleep(Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(SPINNER_UPDATE_INTERVAL_MS));
             }
 
             // Clear line properly for emoji support
-            print!("\r{:<100}\r", "");
-            io::stdout().flush().unwrap_or_default();
+            print!("\r{:<width$}\r", "", width = CLEAR_LINE_WIDTH);
+            let _ = io::stdout().flush(); // Ignore flush errors to continue operation
         });
 
         self.handle = Some(handle);
@@ -55,13 +59,13 @@ impl ProgressSpinner {
         self.running.store(false, Ordering::Relaxed);
 
         if let Some(handle) = self.handle.take() {
-            handle.join().unwrap_or_default();
+            let _ = handle.join(); // Ignore thread join errors
         }
 
         if let Some(msg) = completion_message {
             // Add space before emoji to prevent terminal clipping
             println!(" {}", msg);
-            io::stdout().flush().unwrap_or_default();
+            let _ = io::stdout().flush(); // Ignore flush errors
         }
     }
 
@@ -145,7 +149,7 @@ pub fn show_progress_bar(current: usize, total: usize, width: usize) {
     print!("{}", "░".repeat(empty));
     print!("] {:.1}% ({}/{})", progress * 100.0, current, total);
 
-    io::stdout().flush().unwrap_or_default();
+    let _ = io::stdout().flush(); // Ignore flush errors
 
     if current == total {
         println!(); // New line on completion
@@ -163,6 +167,42 @@ pub fn display_status(operation: &str, status: OperationStatus) {
 
     // Add space before emoji to prevent terminal clipping
     println!(" {} {}", symbol, message);
+}
+
+/// Display authentication result with consistent formatting
+pub fn display_auth_result<T, E: std::fmt::Display>(result: Result<T, E>, success_message: &str) {
+    match result {
+        Ok(_) => println!("✅ {}", success_message),
+        Err(e) => println!("❌ Authentication failed: {}", e),
+    }
+}
+
+/// Display operation result with consistent formatting
+pub fn display_operation_result<T, E: std::fmt::Display>(
+    result: Result<T, E>,
+    success_message: &str,
+    error_prefix: &str,
+) {
+    match result {
+        Ok(_) => println!("✅ {}", success_message),
+        Err(e) => println!("❌ {}: {}", error_prefix, e),
+    }
+}
+
+/// Common error message templates
+pub mod error_messages {
+    pub const AUTHENTICATION_FAILED: &str = "Authentication failed";
+    pub const CONNECTION_FAILED: &str = "Connection failed";
+    pub const INVALID_INPUT: &str = "Invalid input";
+    pub const RESOURCE_NOT_FOUND: &str = "Resource not found";
+    pub const PERMISSION_DENIED: &str = "Permission denied";
+    pub const TIMEOUT: &str = "Operation timed out";
+    pub const INVALID_CONFIGURATION: &str = "Invalid configuration";
+
+    /// Format error message with context
+    pub fn with_context(template: &str, context: &str) -> String {
+        format!("{}: {}", template, context)
+    }
 }
 
 /// Types of operation status

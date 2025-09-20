@@ -1,3 +1,4 @@
+pub mod collection_handler;
 pub mod command_handlers;
 pub mod dashboard_handler;
 pub mod dispatcher;

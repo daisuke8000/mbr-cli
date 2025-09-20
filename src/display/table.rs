@@ -4,6 +4,10 @@ use comfy_table::{Attribute, Cell, Color, Table, presets};
 use crossterm::terminal;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+// Constants for string capacity pre-allocation
+const HEADER_CAPACITY: usize = 256;
+const COMPREHENSIVE_HEADER_CAPACITY: usize = 512;
+
 /// Parameters for question header display
 pub struct QuestionHeaderParams<'a> {
     pub question_id: u32,
@@ -261,7 +265,7 @@ impl TableDisplay {
 
     /// Extended display including question header and result information
     pub fn render_question_header_with_results(&self, params: &QuestionHeaderParams) -> String {
-        let mut header = String::new();
+        let mut header = String::with_capacity(HEADER_CAPACITY); // Pre-allocate for typical header size
 
         // Question information
         header.push_str(&format!(
@@ -312,7 +316,7 @@ impl TableDisplay {
     /// - Offset information
     /// - Filter application status
     pub fn render_comprehensive_header(&self, info: &TableHeaderInfo) -> String {
-        let mut header = String::new();
+        let mut header = String::with_capacity(COMPREHENSIVE_HEADER_CAPACITY); // Pre-allocate for comprehensive header
 
         // Data source information
         if let Some(id) = info.source_id {
@@ -392,8 +396,8 @@ impl TableDisplay {
     fn extract_collection_name(&self, question: &Question) -> String {
         if let Some(ref collection) = question.collection {
             collection.name.clone()
-        } else if question.collection_id.is_some() {
-            format!("ID: {}", question.collection_id.unwrap())
+        } else if let Some(collection_id) = question.collection_id {
+            format!("ID: {}", collection_id)
         } else {
             "Root".to_string()
         }
@@ -950,7 +954,7 @@ mod tests {
         let result = display.render_question_list(&questions);
         assert!(result.is_ok());
 
-        let table_str = result.unwrap();
+        let table_str = result.expect("Failed to render question list");
         assert!(table_str.contains("Test Question 1"));
         assert!(table_str.contains("Test Question 2"));
         // Collection names are truncated, so check with partial match
@@ -965,7 +969,7 @@ mod tests {
         let rendered = display.render_query_result(&result);
         assert!(rendered.is_ok());
 
-        let table_str = rendered.unwrap();
+        let table_str = rendered.expect("Failed to render query result");
         assert!(table_str.contains("ID"));
         assert!(table_str.contains("Name"));
         assert!(table_str.contains("Alice"));

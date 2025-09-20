@@ -21,10 +21,11 @@ dirs = "6.0"
 rpassword = "7.4"
 unicode-width = "0.1"
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "linux-native"] }
-chrono = { version = "0.4", features = ["serde"] }
 backoff = { version = "0.4", features = ["futures", "tokio"] }
 crossterm = "0.29"
 atty = "0.2"
+async-trait = "0.1"
+log = "0.4"
 
 [dev-dependencies]
 tempfile = "3.20"
