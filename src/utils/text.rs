@@ -1,5 +1,82 @@
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+/// Format ISO datetime string to simple date format
+///
+/// # Examples
+/// ```
+/// let datetime = "2023-12-25T10:30:00.000Z";
+/// assert_eq!(format_datetime(datetime), "2023-12-25");
+/// ```
+pub fn format_datetime(datetime: &str) -> String {
+    if let Some(date_part) = datetime.split('T').next() {
+        date_part.to_string()
+    } else {
+        datetime.chars().take(16).collect()
+    }
+}
+
+/// Wrap text to fit within specified width, breaking at word boundaries
+///
+/// # Examples
+/// ```
+/// let text = "This is a long text that needs wrapping";
+/// let wrapped = wrap_text(text, 10);
+/// assert_eq!(wrapped[0], "This is a");
+/// ```
+pub fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
+    if text.is_empty() {
+        return vec![String::new()];
+    }
+
+    let mut lines = Vec::new();
+    let mut current_line = String::with_capacity(max_width);
+
+    for word in text.split_whitespace() {
+        // If adding this word would exceed the width
+        if current_line.len() + word.len() + 1 > max_width {
+            if !current_line.is_empty() {
+                lines.push(current_line);
+                current_line = String::with_capacity(max_width);
+            }
+
+            // If a single word is longer than max_width, break it
+            if word.len() > max_width {
+                let mut remaining = word;
+                while remaining.len() > max_width {
+                    lines.push(remaining[..max_width].to_string());
+                    remaining = &remaining[max_width..];
+                }
+                if !remaining.is_empty() {
+                    current_line = remaining.to_string();
+                }
+            } else {
+                current_line = word.to_string();
+            }
+        } else {
+            if !current_line.is_empty() {
+                current_line.push(' ');
+            }
+            current_line.push_str(word);
+        }
+    }
+
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+
+    if lines.is_empty() {
+        vec![String::new()]
+    } else {
+        lines
+    }
+}
+
+/// Truncate text with unicode support (main truncate function)
+/// Alias for truncate_text_unicode for backward compatibility
+pub fn truncate_text(text: &str, max_width: usize) -> String {
+    truncate_text_unicode(text, max_width)
+}
+
 pub fn truncate_text_unicode(text: &str, max_width: usize) -> String {
     if text.width() <= max_width {
         return text.to_string();
@@ -69,6 +146,42 @@ pub fn center_text(text: &str, width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_format_datetime() {
+        assert_eq!(format_datetime("2023-12-25T10:30:00.000Z"), "2023-12-25");
+        assert_eq!(format_datetime("2023-12-25"), "2023-12-25");
+        assert_eq!(format_datetime("invalid"), "invalid");
+        assert_eq!(format_datetime(""), "");
+    }
+
+    #[test]
+    fn test_wrap_text() {
+        let text = "This is a long text that needs wrapping";
+        let wrapped = wrap_text(text, 10);
+        assert_eq!(wrapped.len(), 4);
+        assert_eq!(wrapped[0], "This is a");
+        assert_eq!(wrapped[1], "long text");
+        assert_eq!(wrapped[2], "that needs");
+        assert_eq!(wrapped[3], "wrapping");
+
+        // Test empty text
+        assert_eq!(wrap_text("", 10), vec![""]);
+
+        // Test single word longer than max width
+        let long_word = "superlongword";
+        let wrapped = wrap_text(long_word, 5);
+        assert_eq!(wrapped[0], "super");
+        assert_eq!(wrapped[1], "longw");
+        assert_eq!(wrapped[2], "ord");
+    }
+
+    #[test]
+    fn test_truncate_text() {
+        // Test alias function
+        assert_eq!(truncate_text("Hello", 10), "Hello");
+        assert_eq!(truncate_text("Hello World!", 8), "Hello...");
+    }
 
     #[test]
     fn test_truncate_text_unicode() {
