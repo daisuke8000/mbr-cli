@@ -137,14 +137,13 @@ impl Credentials {
         Ok(()) // Mock implementation for tests
     }
 
-    #[cfg(not(test))]
     fn has_api_key() -> bool {
-        env::var("MBR_API_KEY").is_ok_and(|key| !key.is_empty())
-    }
+        #[cfg(test)]
+        let key = env::var("TEST_MBR_API_KEY");
+        #[cfg(not(test))]
+        let key = env::var("MBR_API_KEY");
 
-    #[cfg(test)]
-    fn has_api_key() -> bool {
-        env::var("TEST_MBR_API_KEY").is_ok_and(|key| !key.is_empty())
+        key.is_ok_and(|k| !k.is_empty())
     }
 
     pub fn get_auth_mode(&self) -> AuthMode {
