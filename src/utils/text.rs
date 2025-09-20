@@ -4,6 +4,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 ///
 /// # Examples
 /// ```
+/// use mbr_cli::utils::text::format_datetime;
 /// let datetime = "2023-12-25T10:30:00.000Z";
 /// assert_eq!(format_datetime(datetime), "2023-12-25");
 /// ```
@@ -19,6 +20,7 @@ pub fn format_datetime(datetime: &str) -> String {
 ///
 /// # Examples
 /// ```
+/// use mbr_cli::utils::text::wrap_text;
 /// let text = "This is a long text that needs wrapping";
 /// let wrapped = wrap_text(text, 10);
 /// assert_eq!(wrapped[0], "This is a");
