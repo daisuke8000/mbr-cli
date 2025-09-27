@@ -2,6 +2,7 @@ use crate::api::models::{
     Collection, CollectionDetail, CollectionStats, Dashboard, DashboardCard, QueryResult, Question,
 };
 use crate::error::AppError;
+use crate::utils::text::{format_datetime, pad_to_width, truncate_text, wrap_text};
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
@@ -570,19 +571,19 @@ impl InteractiveDisplay {
                     ];
 
                     for dashboard in page_dashboards {
-                        let name_wrapped = self.wrap_text(&dashboard.name, 31);
+                        let name_wrapped = wrap_text(&dashboard.name, 31);
                         let desc_wrapped = dashboard
                             .description
                             .as_ref()
-                            .map(|d| self.wrap_text(d, 31))
+                            .map(|d| wrap_text(d, 31))
                             .unwrap_or_else(|| vec!["".to_string()]);
                         let collection_text = dashboard
                             .collection_id
                             .map(|id| format!("ID: {}", id))
                             .unwrap_or_else(|| "Personal".to_string());
-                        let collection_wrapped = self.wrap_text(&collection_text, 16);
+                        let collection_wrapped = wrap_text(&collection_text, 16);
                         let updated_wrapped =
-                            self.wrap_text(&self.format_datetime(&dashboard.updated_at), 16);
+                            wrap_text(&format_datetime(&dashboard.updated_at), 16);
 
                         // Find maximum lines needed for this row
                         let max_lines = name_wrapped
@@ -610,10 +611,10 @@ impl InteractiveDisplay {
                             table_lines.push(format!(
                                 "│ {:>4} │ {:31} │ {:31} │ {:16} │ {:16} │",
                                 id_display,
-                                self.pad_string(name_line, 31),
-                                self.pad_string(desc_line, 31),
-                                self.pad_string(collection_line, 16),
-                                self.pad_string(updated_line, 16)
+                                pad_to_width(name_line, 31),
+                                pad_to_width(desc_line, 31),
+                                pad_to_width(collection_line, 16),
+                                pad_to_width(updated_line, 16)
                             ));
                         }
                     }
@@ -750,77 +751,7 @@ impl InteractiveDisplay {
         Ok(())
     }
 
-    // Helper methods for dashboard display
-    fn truncate_string(&self, s: &str, max_len: usize) -> String {
-        if s.len() <= max_len {
-            format!("{:width$}", s, width = max_len)
-        } else {
-            format!("{}…", &s[..max_len.saturating_sub(1)])
-        }
-    }
-
-    fn format_datetime(&self, datetime: &str) -> String {
-        // Simple date formatting - extract date part from ISO datetime
-        if let Some(date_part) = datetime.split('T').next() {
-            date_part.to_string()
-        } else {
-            datetime.chars().take(16).collect()
-        }
-    }
-
-    /// Wrap text to fit within specified width, breaking at word boundaries
-    fn wrap_text(&self, text: &str, max_width: usize) -> Vec<String> {
-        if text.is_empty() {
-            return vec![String::new()];
-        }
-
-        let mut lines = Vec::new();
-        let mut current_line = String::with_capacity(max_width); // Pre-allocate for line capacity
-
-        for word in text.split_whitespace() {
-            // If adding this word would exceed the width
-            if current_line.len() + word.len() + 1 > max_width {
-                if !current_line.is_empty() {
-                    lines.push(current_line);
-                    current_line = String::with_capacity(max_width); // Pre-allocate for new line
-                }
-
-                // If a single word is longer than max_width, break it
-                if word.len() > max_width {
-                    let mut remaining = word;
-                    while remaining.len() > max_width {
-                        lines.push(remaining[..max_width].to_string());
-                        remaining = &remaining[max_width..];
-                    }
-                    if !remaining.is_empty() {
-                        current_line = remaining.to_string();
-                    }
-                } else {
-                    current_line = word.to_string();
-                }
-            } else {
-                if !current_line.is_empty() {
-                    current_line.push(' ');
-                }
-                current_line.push_str(word);
-            }
-        }
-
-        if !current_line.is_empty() {
-            lines.push(current_line);
-        }
-
-        if lines.is_empty() {
-            vec![String::new()]
-        } else {
-            lines
-        }
-    }
-
-    /// Pad string to exact width with spaces
-    fn pad_string(&self, text: &str, width: usize) -> String {
-        format!("{:width$}", text, width = width)
-    }
+    // Helper methods for dashboard display are now imported from utils::text
 
     async fn show_dashboard_help(&self, _terminal_height: u16) -> Result<(), AppError> {
         use std::io::{self, Write};
@@ -1291,8 +1222,8 @@ impl InteractiveDisplay {
                     // Display collection rows
                     let table_lines: Vec<String> = page_collections.iter().map(|collection| {
                         let id_str = collection.id.map_or("root".to_string(), |id| id.to_string());
-                        let name = self.truncate_string(&collection.name, name_width);
-                        let description = self.truncate_string("", desc_width); // Collections don't have descriptions
+                        let name = truncate_text(&collection.name, name_width);
+                        let description = truncate_text("", desc_width); // Collections don't have descriptions
                         let collection_type = if collection.id.is_none() { "Root" } else { "Collection" };
                         format!("│{:id$}│{:name$}│{:desc$}│{:type$}│", 
                                 id_str, name, description, collection_type,
@@ -1387,7 +1318,7 @@ impl InteractiveDisplay {
                         "{:3}. ID: {:8} | Name: {:25} | Type: {}",
                         i + 1,
                         id_str,
-                        self.truncate_string(&collection.name, 25),
+                        truncate_text(&collection.name, 25),
                         collection_type
                     );
                 }
@@ -1538,8 +1469,8 @@ impl InteractiveDisplay {
 
                     // Helper closure to print table row
                     let print_row = |field: &str, value: &str| {
-                        let truncated_field = self.truncate_string(field, field_width);
-                        let truncated_value = self.truncate_string(value, value_width);
+                        let truncated_field = truncate_text(field, field_width);
+                        let truncated_value = truncate_text(value, value_width);
                         execute!(
                             io::stdout(),
                             Print(format!(
@@ -1699,7 +1630,7 @@ impl InteractiveDisplay {
                     if let Some(last_updated) = &stats.last_updated {
                         println!(
                             "│ Last Updated     │ {:59} │",
-                            self.truncate_string(last_updated, 59)
+                            truncate_text(last_updated, 59)
                         );
                     }
 

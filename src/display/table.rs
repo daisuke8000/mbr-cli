@@ -1,8 +1,8 @@
 use crate::api::models::{Dashboard, DashboardCard, QueryResult, Question};
 use crate::error::AppError;
+use crate::utils::text::{format_datetime, truncate_text};
 use comfy_table::{Attribute, Cell, Color, Table, presets};
 use crossterm::terminal;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 // Constants for string capacity pre-allocation
 const HEADER_CAPACITY: usize = 256;
@@ -153,12 +153,12 @@ impl TableDisplay {
                 } else {
                     Cell::new(question.id.to_string())
                 },
-                Cell::new(self.truncate_text(&question.name, name_width)),
-                Cell::new(self.truncate_text(&collection_name, collection_width)),
+                Cell::new(truncate_text(&question.name, name_width)),
+                Cell::new(truncate_text(&collection_name, collection_width)),
                 if self.use_colors {
-                    Cell::new(self.truncate_text(description, desc_width)).fg(Color::DarkGrey)
+                    Cell::new(truncate_text(description, desc_width)).fg(Color::DarkGrey)
                 } else {
-                    Cell::new(self.truncate_text(description, desc_width))
+                    Cell::new(truncate_text(description, desc_width))
                 },
             ];
 
@@ -439,35 +439,7 @@ impl TableDisplay {
         }
     }
 
-    /// Truncate text to specified width and add ellipsis
-    fn truncate_text(&self, text: &str, max_width: usize) -> String {
-        if text.width() <= max_width {
-            return text.to_string();
-        }
-
-        let ellipsis = "...";
-        let ellipsis_width = ellipsis.width();
-
-        if max_width <= ellipsis_width {
-            return ellipsis[..max_width].to_string();
-        }
-
-        let target_width = max_width - ellipsis_width;
-        let mut result = String::new();
-        let mut current_width = 0;
-
-        for ch in text.chars() {
-            let ch_width = ch.width().unwrap_or(0);
-            if current_width + ch_width > target_width {
-                break;
-            }
-            result.push(ch);
-            current_width += ch_width;
-        }
-
-        result.push_str(ellipsis);
-        result
-    }
+    // truncate_text is now imported from utils::text
 
     /// Format cell value
     pub fn format_cell_value(&self, value: &serde_json::Value) -> String {
@@ -478,7 +450,7 @@ impl TableDisplay {
             serde_json::Value::String(s) => {
                 // Long strings are automatically truncated
                 if s.len() > 100 {
-                    self.truncate_text(s, 100)
+                    truncate_text(s, 100)
                 } else {
                     s.clone()
                 }
@@ -502,34 +474,7 @@ impl TableDisplay {
         }
     }
 
-    /// Pad text to specified width
-    pub fn pad_to_width(&self, text: &str, width: usize) -> String {
-        let text_width = text.width();
-        if text_width >= width {
-            text.to_string()
-        } else {
-            format!("{}{}", text, " ".repeat(width - text_width))
-        }
-    }
-
-    /// Center-align text
-    pub fn center_text(&self, text: &str, width: usize) -> String {
-        let text_width = text.width();
-        if text_width >= width {
-            return text.to_string();
-        }
-
-        let padding = width - text_width;
-        let left_padding = padding / 2;
-        let right_padding = padding - left_padding;
-
-        format!(
-            "{}{}{}",
-            " ".repeat(left_padding),
-            text,
-            " ".repeat(right_padding)
-        )
-    }
+    // pad_to_width and center_text are now imported from utils::text
 }
 
 impl Default for TableDisplay {
@@ -682,8 +627,8 @@ impl TableDisplay {
                 Cell::new(description),
                 Cell::new(collection_id),
                 Cell::new(creator_id),
-                Cell::new(self.format_datetime(&dashboard.created_at)),
-                Cell::new(self.format_datetime(&dashboard.updated_at)),
+                Cell::new(format_datetime(&dashboard.created_at)),
+                Cell::new(format_datetime(&dashboard.updated_at)),
             ];
 
             table.add_row(row);
@@ -827,21 +772,14 @@ impl TableDisplay {
         Ok(table.to_string())
     }
 
-    /// Helper to format datetime for dashboard display
-    fn format_datetime(&self, datetime: &str) -> String {
-        // Simple date formatting - extract date part from ISO datetime
-        if let Some(date_part) = datetime.split('T').next() {
-            date_part.to_string()
-        } else {
-            datetime.chars().take(16).collect()
-        }
-    }
+    // format_datetime is now imported from utils::text
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::api::models::{Collection, Column, QueryData, QueryResult, Question};
+    use crate::utils::text::{center_text, pad_to_width};
     use serde_json::json;
 
     fn create_test_question(id: u32, name: &str) -> Question {
@@ -894,43 +832,37 @@ mod tests {
 
     #[test]
     fn test_truncate_text() {
-        let display = TableDisplay::new();
-
         // Short text remains unchanged
-        assert_eq!(display.truncate_text("Hello", 10), "Hello");
+        assert_eq!(truncate_text("Hello", 10), "Hello");
 
         // Long text is truncated
-        assert_eq!(display.truncate_text("Hello World", 8), "Hello...");
+        assert_eq!(truncate_text("Hello World", 8), "Hello...");
 
         // Unicode character processing (Japanese characters = 2 width per character)
         // "Hello World Example" = 14 width, target 8 width so "Hello..." = 7 width
-        assert_eq!(display.truncate_text("Hello World!", 8), "Hello...");
+        assert_eq!(truncate_text("Hello World!", 8), "Hello...");
     }
 
     #[test]
     fn test_pad_to_width() {
-        let display = TableDisplay::new();
-
-        assert_eq!(display.pad_to_width("Hello", 10), "Hello     ");
-        assert_eq!(display.pad_to_width("Hello World", 5), "Hello World");
+        assert_eq!(pad_to_width("Hello", 10), "Hello     ");
+        assert_eq!(pad_to_width("Hello World", 5), "Hello World");
 
         // "Wide Text" = 9 width, so no change for width 8
-        assert_eq!(display.pad_to_width("Wide Text", 8), "Wide Text");
+        assert_eq!(pad_to_width("Wide Text", 8), "Wide Text");
         // "Text" = 4 width, so add 6 spaces for width 10
-        assert_eq!(display.pad_to_width("Text", 10), "Text      ");
+        assert_eq!(pad_to_width("Text", 10), "Text      ");
     }
 
     #[test]
     fn test_center_text() {
-        let display = TableDisplay::new();
-
-        assert_eq!(display.center_text("Hi", 6), "  Hi  ");
-        assert_eq!(display.center_text("Hello", 5), "Hello");
+        assert_eq!(center_text("Hi", 6), "  Hi  ");
+        assert_eq!(center_text("Hello", 5), "Hello");
 
         // "Long Text" = 9 width, so no change for width 8
-        assert_eq!(display.center_text("Long Text", 8), "Long Text");
+        assert_eq!(center_text("Long Text", 8), "Long Text");
         // "Hi" = 2 width, 5+5 padding for width 12
-        assert_eq!(display.center_text("Hi", 12), "     Hi     ");
+        assert_eq!(center_text("Hi", 12), "     Hi     ");
     }
 
     #[test]

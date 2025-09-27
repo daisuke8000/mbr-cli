@@ -159,7 +159,8 @@ impl PaginationManager {
 
 impl Default for PaginationManager {
     fn default() -> Self {
-        Self::new(20, 0, 0, DisplayMode::Paginated).unwrap()
+        Self::new(20, 0, 0, DisplayMode::Paginated)
+            .expect("Failed to create default PaginationManager with valid parameters")
     }
 }
 
@@ -169,7 +170,8 @@ mod tests {
 
     #[test]
     fn test_pagination_manager_creation() {
-        let manager = PaginationManager::new(10, 100, 0, DisplayMode::Paginated).unwrap();
+        let manager = PaginationManager::new(10, 100, 0, DisplayMode::Paginated)
+            .expect("Failed to create PaginationManager for test");
         assert_eq!(manager.config.page_size, 10);
         assert_eq!(manager.state.total_records, 100);
         assert_eq!(manager.state.current_offset, 0);
@@ -179,7 +181,8 @@ mod tests {
 
     #[test]
     fn test_page_navigation() {
-        let mut manager = PaginationManager::new(10, 25, 0, DisplayMode::Paginated).unwrap();
+        let mut manager = PaginationManager::new(10, 25, 0, DisplayMode::Paginated)
+            .expect("Failed to create PaginationManager for navigation test");
 
         // First page
         let (current, total, start, end) = manager.get_page_info();
