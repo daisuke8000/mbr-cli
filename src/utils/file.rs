@@ -26,21 +26,21 @@ mod tests {
 
     #[test]
     fn test_ensure_directory_exists_creates_new_directory() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let test_path = temp_dir.path().join("new_directory");
 
         assert!(!test_path.exists());
-        ensure_directory_exists(&test_path).unwrap();
+        ensure_directory_exists(&test_path).expect("Failed to create new directory");
         assert!(test_path.exists());
         assert!(test_path.is_dir());
     }
 
     #[test]
     fn test_ensure_directory_exists_handles_existing_directory() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let test_path = temp_dir.path();
 
         // Should not error on existing directory
-        ensure_directory_exists(test_path).unwrap();
+        ensure_directory_exists(test_path).expect("Should handle existing directory without error");
     }
 }

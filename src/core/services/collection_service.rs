@@ -78,7 +78,8 @@ mod tests {
     use crate::api::client::MetabaseClient;
 
     fn create_test_service() -> CollectionService {
-        let client = MetabaseClient::new("http://test.example".to_string()).unwrap();
+        let client = MetabaseClient::new("http://test.example".to_string())
+            .expect("Failed to create test MetabaseClient");
         CollectionService::new(Arc::new(client))
     }
 
