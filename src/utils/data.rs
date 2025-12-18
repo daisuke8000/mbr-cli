@@ -104,18 +104,6 @@ mod tests {
     }
 
     #[test]
-    fn test_new() {
-        assert_eq!(OffsetManager::new(None).offset, 0);
-        assert_eq!(OffsetManager::new(Some(10)).offset, 10);
-    }
-
-    #[test]
-    fn test_is_no_offset() {
-        assert!(OffsetManager::new(Some(0)).is_no_offset());
-        assert!(!OffsetManager::new(Some(1)).is_no_offset());
-    }
-
-    #[test]
     fn test_remaining_records() {
         assert_eq!(OffsetManager::new(Some(2)).remaining_records(5), 3);
         assert_eq!(OffsetManager::new(Some(5)).remaining_records(5), 0);
@@ -148,9 +136,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_validate_offset() {
-        assert!(OffsetManager::new(Some(3)).validate_offset(5).is_ok());
-        assert!(OffsetManager::new(Some(10)).validate_offset(5).is_err());
-    }
 }

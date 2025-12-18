@@ -1,6 +1,6 @@
 use crate::api::client::MetabaseClient;
 use crate::cli::interactive_display::InteractiveDisplay;
-use crate::cli::main_types::{AuthCommands, ConfigCommands, QuestionCommands};
+use crate::cli::main_types::{AuthCommands, ConfigCommands, QueryArgs};
 use crate::core::auth::LoginInput;
 use crate::core::services::auth_service::AuthService;
 use crate::core::services::config_service::ConfigService;
@@ -164,74 +164,40 @@ impl ConfigHandler {
             }
             ConfigCommands::Set {
                 profile,
-                field,
-                value,
                 url,
                 email,
             } => {
                 print_verbose(
                     verbose,
                     &format!(
-                        "Attempting config set using ConfigService - profile: {}, field: {:?}, value: {:?}, url: {:?}, email: {:?}",
-                        profile, field, value, url, email
+                        "Attempting config set using ConfigService - profile: {}, url: {:?}, email: {:?}",
+                        profile, url, email
                     ),
                 );
 
-                // Handle different input modes
-                if let (Some(field), Some(value)) = (field, value) {
-                    // Legacy mode: explicit field/value arguments
-                    println!("Using explicit field/value arguments");
+                let mut updated_fields = Vec::new();
 
-                    // Validate URL if setting URL field
-                    if field.as_str() == "url" {
-                        crate::utils::validation::validate_url(&value)?;
-                    }
-
-                    // Set the field using ConfigService
-                    config_service.set_profile_field(&profile, &field, &value)?;
-
-                    // Display success message
-                    match field.as_str() {
-                        "url" => println!("✅ Set profile '{}' URL to: {}", profile, value),
-                        "email" => println!("✅ Set profile '{}' email to: {}", profile, value),
-                        _ => {
-                            return Err(AppError::Cli(crate::error::CliError::InvalidArguments(
-                                format!("Invalid field: {}. Use 'url' or 'email'", field),
-                            )));
-                        }
-                    }
-                } else {
-                    // Environment variable mode: use --url and --email flags (with env var fallback)
-                    let mut updated_fields = Vec::new();
-
-                    // Handle URL setting
-                    if let Some(url_value) = url {
-                        println!("Using URL from --url argument or MBR_URL environment variable");
-                        crate::utils::validation::validate_url(&url_value)?;
-                        config_service.set_profile_field(&profile, "url", &url_value)?;
-                        updated_fields.push(format!("URL to: {}", url_value));
-                    }
-
-                    // Handle email setting
-                    if let Some(email_value) = email {
-                        println!(
-                            "Using email from --email argument or MBR_USERNAME environment variable"
-                        );
-                        config_service.set_profile_field(&profile, "email", &email_value)?;
-                        updated_fields.push(format!("email to: {}", email_value));
-                    }
-
-                    if updated_fields.is_empty() {
-                        return Err(AppError::Cli(crate::error::CliError::InvalidArguments(
-                            "No configuration values provided. Use --field/--value, --url, --email, or set MBR_URL/MBR_USERNAME environment variables".to_string(),
-                        )));
-                    }
-
-                    println!("✅ Set profile '{}' {}", profile, updated_fields.join(", "));
+                // Handle URL setting
+                if let Some(url_value) = url {
+                    crate::utils::validation::validate_url(&url_value)?;
+                    config_service.set_profile_field(&profile, "url", &url_value)?;
+                    updated_fields.push(format!("URL to: {}", url_value));
                 }
 
-                config_service.save_config(None)?;
+                // Handle email setting
+                if let Some(email_value) = email {
+                    config_service.set_profile_field(&profile, "email", &email_value)?;
+                    updated_fields.push(format!("email to: {}", email_value));
+                }
 
+                if updated_fields.is_empty() {
+                    return Err(AppError::Cli(crate::error::CliError::InvalidArguments(
+                        "No configuration values provided. Use --url and/or --email, or set MBR_URL/MBR_USERNAME environment variables".to_string(),
+                    )));
+                }
+
+                println!("✅ Set profile '{}' {}", profile, updated_fields.join(", "));
+                config_service.save_config(None)?;
                 println!("Configuration saved successfully.");
                 Ok(())
             }
@@ -240,239 +206,238 @@ impl ConfigHandler {
 }
 
 #[derive(Default)]
-pub struct QuestionHandler;
+pub struct QueryHandler;
 
-impl QuestionHandler {
+impl QueryHandler {
     pub fn new() -> Self {
         Self
     }
 
     pub async fn handle(
         &self,
-        command: QuestionCommands,
+        args: QueryArgs,
         client: MetabaseClient,
         verbose: bool,
     ) -> Result<(), AppError> {
-        match command {
-            QuestionCommands::Execute {
-                id,
-                param,
-                format,
-                limit,
-                full,
-                no_fullscreen,
-                offset,
-                columns,
-                page_size,
-            } => {
-                print_verbose(
-                    verbose,
-                    &format!(
-                        "Attempting question execute command - ID: {}, Params: {:?}, Format: {}, Limit: {:?}, Full: {}, Offset: {:?}, Page size: {}",
-                        id, param, format, limit, full, offset, page_size
-                    ),
-                );
+        // Determine mode: list vs execute
+        if args.list {
+            // List mode
+            self.handle_list(&args, client, verbose).await
+        } else if let Some(id) = args.id {
+            // Execute mode
+            self.handle_execute(id, &args, client, verbose).await
+        } else {
+            // No ID and no --list flag
+            Err(AppError::Cli(CliError::InvalidArguments(
+                "Please provide a question ID to execute, or use --list to show available questions".to_string(),
+            )))
+        }
+    }
 
-                // Convert parameters from Vec<String> to HashMap<String, String>
-                let parameters = if param.is_empty() {
-                    None
+    async fn handle_list(
+        &self,
+        args: &QueryArgs,
+        client: MetabaseClient,
+        verbose: bool,
+    ) -> Result<(), AppError> {
+        print_verbose(
+            verbose,
+            &format!(
+                "Listing questions - Search: {:?}, Limit: {}, Collection: {:?}",
+                args.search, args.limit, args.collection
+            ),
+        );
+
+        let mut spinner = ProgressSpinner::new("Fetching questions...".to_string());
+        spinner.start();
+
+        let questions = client
+            .list_questions(
+                args.search.as_deref(),
+                Some(args.limit),
+                args.collection.as_deref(),
+            )
+            .await?;
+
+        spinner.stop(Some("✅ Questions fetched successfully"));
+
+        if questions.is_empty() {
+            display_status("Question search", OperationStatus::Warning);
+            println!("No questions found matching the criteria.");
+        } else {
+            display_status(
+                &format!("Retrieved {} questions", questions.len()),
+                OperationStatus::Success,
+            );
+
+            let interactive_display = InteractiveDisplay::new();
+            interactive_display
+                .display_question_list_pagination(&questions, args.limit as usize)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn handle_execute(
+        &self,
+        id: u32,
+        args: &QueryArgs,
+        client: MetabaseClient,
+        verbose: bool,
+    ) -> Result<(), AppError> {
+        print_verbose(
+            verbose,
+            &format!(
+                "Executing question {} - Params: {:?}, Format: {}, Limit: {}, Full: {}, Offset: {:?}, Page size: {}",
+                id, args.param, args.format, args.limit, args.full, args.offset, args.page_size
+            ),
+        );
+
+        // Convert parameters from Vec<String> to HashMap<String, String>
+        let parameters = if args.param.is_empty() {
+            None
+        } else {
+            let mut param_map = std::collections::HashMap::new();
+            for param_str in &args.param {
+                if let Some((key, value)) = param_str.split_once('=') {
+                    param_map.insert(key.to_string(), value.to_string());
                 } else {
-                    let mut param_map = std::collections::HashMap::new();
-                    for param_str in param {
-                        // Parse parameter string (expected format: key=value)
-                        if let Some((key, value)) = param_str.split_once('=') {
-                            param_map.insert(key.to_string(), value.to_string());
-                        } else {
-                            println!(
-                                "Warning: Invalid parameter format '{}'. Expected 'key=value'",
-                                param_str
-                            );
-                        }
-                    }
-                    if param_map.is_empty() {
-                        None
-                    } else {
-                        Some(param_map)
-                    }
-                };
-
-                // Show progress while executing question
-                let mut spinner = ProgressSpinner::new(format!("Executing question {}...", id));
-                spinner.start();
-
-                // Execute the question
-                let result = client.execute_question(id, parameters).await?;
-                spinner.stop(Some("✅ Question execution completed"));
-
-                let original_row_count = result.data.rows.len();
-                let mut processed_result = result;
-
-                // Apply offset if specified
-                if let Some(offset_val) = offset
-                    && offset_val > 0
-                {
-                    let offset_manager = OffsetManager::new(Some(offset_val));
-                    processed_result = offset_manager.apply_offset(&processed_result)?;
-                    print_verbose(
-                        verbose,
-                        &format!(
-                            "Applied offset: {}, remaining rows: {}",
-                            offset_val,
-                            processed_result.data.rows.len()
-                        ),
+                    println!(
+                        "Warning: Invalid parameter format '{}'. Expected 'key=value'",
+                        param_str
                     );
                 }
-
-                // Create table display
-                let table_display = TableDisplay::new();
-
-                let display_start = offset.map(|o| o + 1).unwrap_or(1);
-                let actual_displayed_rows = if let Some(limit_val) = limit {
-                    processed_result.data.rows.len().min(limit_val as usize)
-                } else {
-                    processed_result.data.rows.len()
-                };
-                let display_end = if actual_displayed_rows > 0 {
-                    display_start + actual_displayed_rows - 1
-                } else {
-                    display_start
-                };
-
-                let header_info = TableHeaderInfoBuilder::new()
-                    .data_source("Question execution result".to_string())
-                    .source_id(id)
-                    .total_records(original_row_count)
-                    .display_range(display_start, display_end)
-                    .offset(offset.unwrap_or(0))
-                    .build();
-
-                print!(
-                    "{}",
-                    table_display.render_comprehensive_header(&header_info)
-                );
-
-                let mut final_result = processed_result;
-                if let Some(ref _column_filter) = columns {}
-
-                if let Some(limit_val) = limit {
-                    final_result.data.rows = final_result
-                        .data
-                        .rows
-                        .into_iter()
-                        .take(limit_val as usize)
-                        .collect();
-                }
-
-                match format.as_str() {
-                    "json" => match serde_json::to_string_pretty(&final_result) {
-                        Ok(json_output) => println!("{}", json_output),
-                        Err(e) => {
-                            eprintln!("Error serializing to JSON: {}", e);
-                            return Err(AppError::Cli(CliError::InvalidArguments(format!(
-                                "Failed to serialize result to JSON: {}",
-                                e
-                            ))));
-                        }
-                    },
-                    "csv" => {
-                        // CSV output
-                        print_verbose(verbose, "Rendering CSV output");
-
-                        // Print CSV header
-                        let headers: Vec<String> = final_result
-                            .data
-                            .cols
-                            .iter()
-                            .map(|col| col.display_name.clone())
-                            .collect();
-                        println!("{}", headers.join(","));
-
-                        // Print CSV rows
-                        for row in &final_result.data.rows {
-                            let csv_row: Vec<String> = row
-                                .iter()
-                                .map(|cell| table_display.format_cell_value(cell))
-                                .collect();
-                            println!("{}", csv_row.join(","));
-                        }
-                    }
-                    _ => {
-                        // Table output (default)
-                        if full {
-                            // Full display without pagination
-                            print_verbose(verbose, "Using full display mode");
-                            let rendered_table =
-                                table_display.render_query_result(&final_result)?;
-                            println!("{}", rendered_table);
-                        } else if no_fullscreen {
-                            // Simple pagination without interactive features
-                            print_verbose(verbose, "Using simple pagination mode");
-                            let rendered_table = table_display
-                                .render_query_result_with_limit(&final_result, Some(page_size))?;
-                            println!("{}", rendered_table);
-                        } else {
-                            // Interactive mode - Full interactive display based on original implementation
-                            print_verbose(verbose, "Using full interactive mode with crossterm");
-
-                            let interactive_display = InteractiveDisplay::new();
-                            interactive_display
-                                .display_query_result_pagination(
-                                    &final_result,
-                                    page_size,
-                                    offset,
-                                    no_fullscreen,
-                                    id,
-                                    &format!("Question {}", id),
-                                )
-                                .await?;
-                        }
-                    }
-                }
-
-                Ok(())
             }
-            QuestionCommands::List {
-                search,
-                limit,
-                collection,
-            } => {
-                print_verbose(
-                    verbose,
-                    &format!(
-                        "Attempting question list command - Search: {:?}, Limit: {}, Collection: {:?}",
-                        search, limit, collection
-                    ),
-                );
+            if param_map.is_empty() {
+                None
+            } else {
+                Some(param_map)
+            }
+        };
 
-                // Show progress while fetching questions
-                let mut spinner = ProgressSpinner::new("Fetching questions...".to_string());
-                spinner.start();
+        let mut spinner = ProgressSpinner::new(format!("Executing question {}...", id));
+        spinner.start();
 
-                // Call list_questions with optional parameters
-                let questions = client
-                    .list_questions(search.as_deref(), Some(limit), collection.as_deref())
-                    .await?;
+        let result = client.execute_question(id, parameters).await?;
+        spinner.stop(Some("✅ Question execution completed"));
 
-                spinner.stop(Some("✅ Questions fetched successfully"));
+        let original_row_count = result.data.rows.len();
+        let mut processed_result = result;
 
-                // Display results using TableDisplay
-                if questions.is_empty() {
-                    display_status("Question search", OperationStatus::Warning);
-                    println!("No questions found matching the criteria.");
+        // Apply offset if specified
+        if let Some(offset_val) = args.offset
+            && offset_val > 0
+        {
+            let offset_manager = OffsetManager::new(Some(offset_val));
+            processed_result = offset_manager.apply_offset(&processed_result)?;
+            print_verbose(
+                verbose,
+                &format!(
+                    "Applied offset: {}, remaining rows: {}",
+                    offset_val,
+                    processed_result.data.rows.len()
+                ),
+            );
+        }
+
+        let table_display = TableDisplay::new();
+
+        let display_start = args.offset.map(|o| o + 1).unwrap_or(1);
+        let limit_for_display = if args.full { None } else { Some(args.limit) };
+        let actual_displayed_rows = if let Some(limit_val) = limit_for_display {
+            processed_result.data.rows.len().min(limit_val as usize)
+        } else {
+            processed_result.data.rows.len()
+        };
+        let display_end = if actual_displayed_rows > 0 {
+            display_start + actual_displayed_rows - 1
+        } else {
+            display_start
+        };
+
+        let header_info = TableHeaderInfoBuilder::new()
+            .data_source("Question execution result".to_string())
+            .source_id(id)
+            .total_records(original_row_count)
+            .display_range(display_start, display_end)
+            .offset(args.offset.unwrap_or(0))
+            .build();
+
+        print!(
+            "{}",
+            table_display.render_comprehensive_header(&header_info)
+        );
+
+        let mut final_result = processed_result;
+        if let Some(ref _column_filter) = args.columns {}
+
+        if !args.full {
+            final_result.data.rows = final_result
+                .data
+                .rows
+                .into_iter()
+                .take(args.limit as usize)
+                .collect();
+        }
+
+        match args.format.as_str() {
+            "json" => match serde_json::to_string_pretty(&final_result) {
+                Ok(json_output) => println!("{}", json_output),
+                Err(e) => {
+                    eprintln!("Error serializing to JSON: {}", e);
+                    return Err(AppError::Cli(CliError::InvalidArguments(format!(
+                        "Failed to serialize result to JSON: {}",
+                        e
+                    ))));
+                }
+            },
+            "csv" => {
+                print_verbose(verbose, "Rendering CSV output");
+
+                let headers: Vec<String> = final_result
+                    .data
+                    .cols
+                    .iter()
+                    .map(|col| col.display_name.clone())
+                    .collect();
+                println!("{}", headers.join(","));
+
+                for row in &final_result.data.rows {
+                    let csv_row: Vec<String> = row
+                        .iter()
+                        .map(|cell| table_display.format_cell_value(cell))
+                        .collect();
+                    println!("{}", csv_row.join(","));
+                }
+            }
+            _ => {
+                if args.full {
+                    print_verbose(verbose, "Using full display mode");
+                    let rendered_table = table_display.render_query_result(&final_result)?;
+                    println!("{}", rendered_table);
+                } else if args.no_fullscreen {
+                    print_verbose(verbose, "Using simple pagination mode");
+                    let rendered_table = table_display
+                        .render_query_result_with_limit(&final_result, Some(args.page_size))?;
+                    println!("{}", rendered_table);
                 } else {
-                    display_status(
-                        &format!("Retrieved {} questions", questions.len()),
-                        OperationStatus::Success,
-                    );
+                    print_verbose(verbose, "Using full interactive mode with crossterm");
 
-                    // Interactive mode for question list
                     let interactive_display = InteractiveDisplay::new();
                     interactive_display
-                        .display_question_list_pagination(&questions, limit as usize)
+                        .display_query_result_pagination(
+                            &final_result,
+                            args.page_size,
+                            args.offset,
+                            args.no_fullscreen,
+                            id,
+                            &format!("Question {}", id),
+                        )
                         .await?;
                 }
-                Ok(())
             }
         }
+
+        Ok(())
     }
 }

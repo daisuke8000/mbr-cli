@@ -198,13 +198,13 @@ impl AppError {
                 Some("'mbr-cli auth login' try again".to_string())
             }
             AppError::Config(ConfigError::FileNotFound { .. }) => {
-                Some("config set <field> <value> to set a configuration value".to_string())
+                Some("'mbr-cli config set --url <url>' to set configuration".to_string())
             }
             AppError::Api(ApiError::Timeout { .. }) => {
                 Some("Check your internet or Metabase connection and try again".to_string())
             }
             AppError::Question(QuestionError::NotFound { .. }) => {
-                Some("'mbr-cli question list' to see a list of available questions".to_string())
+                Some("'mbr-cli query --list' to see a list of available questions".to_string())
             }
             _ => None,
         }

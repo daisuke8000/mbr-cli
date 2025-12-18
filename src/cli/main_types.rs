@@ -1,19 +1,30 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "mbr-cli")]
 #[command(about = "Command line interface tool for interacting with Metabase APIs")]
 #[command(version)]
+#[command(after_help = "Examples:
+  mbr-cli auth login                    # Login to Metabase
+  mbr-cli query --list                  # List available questions
+  mbr-cli query --list --limit 10       # List first 10 questions
+  mbr-cli query 123                     # Execute question ID 123
+  mbr-cli query 123 --format json       # Execute and output as JSON
+  mbr-cli config show                   # Show current configuration")]
 pub struct Cli {
+    /// Enable verbose output for debugging
     #[arg(short, long, global = true)]
     pub verbose: bool,
 
+    /// Profile name to use (default: 'default')
     #[arg(short, long, global = true)]
     pub profile: Option<String>,
 
+    /// Custom configuration directory path
     #[arg(long, global = true)]
     pub config_dir: Option<String>,
 
+    /// Metabase API key for authentication
     #[arg(long, global = true, env = "MBR_API_KEY")]
     pub api_key: Option<String>,
 
@@ -23,47 +34,37 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Authentication commands
+    /// Authentication commands (login, logout, status)
     Auth {
         #[command(subcommand)]
         command: AuthCommands,
     },
-    /// Configuration management
+    /// Configuration management (show, set)
     Config {
         #[command(subcommand)]
         command: ConfigCommands,
     },
-    /// Question management and execution
-    Question {
-        #[command(subcommand)]
-        command: QuestionCommands,
-    },
-    /// Dashboard management and viewing
-    Dashboard {
-        #[command(subcommand)]
-        command: DashboardCommands,
-    },
-    /// Collection management and viewing
-    Collection {
-        #[command(subcommand)]
-        command: CollectionCommands,
-    },
+    /// Query Metabase questions (execute or list)
+    Query(QueryArgs),
 }
 
 #[derive(Subcommand, Debug)]
 pub enum AuthCommands {
-    /// Login to Metabase
+    /// Login to Metabase server
+    #[command(after_help = "Examples:
+  mbr-cli auth login                              # Interactive login
+  mbr-cli auth login --username user@example.com  # Login with username")]
     Login {
-        /// Username for login (optional, will use MBR_USERNAME env var or prompt if not provided)
+        /// Username for login (uses MBR_USERNAME env var if not provided)
         #[arg(long, env = "MBR_USERNAME")]
         username: Option<String>,
-        /// Password for login (optional, will use MBR_PASSWORD env var or prompt if not provided)
+        /// Password for login (uses MBR_PASSWORD env var if not provided)
         #[arg(long, env = "MBR_PASSWORD")]
         password: Option<String>,
     },
     /// Logout and clear the session
     Logout,
-    /// Show authentication status
+    /// Show current authentication status
     Status,
 }
 
@@ -71,128 +72,78 @@ pub enum AuthCommands {
 pub enum ConfigCommands {
     /// Show the current configuration
     Show,
-    /// Set configuration value
+    /// Set configuration values for a profile
+    #[command(after_help = "Examples:
+  mbr-cli config set --url http://localhost:3000
+  mbr-cli config set --profile prod --url https://metabase.example.com
+  mbr-cli config set --email user@example.com")]
     Set {
-        /// Profile name (optional, defaults to 'default')
+        /// Profile name to configure
         #[arg(long, default_value = "default")]
         profile: String,
-        /// Field to set (url or email) - optional when using environment variables
-        #[arg(long)]
-        field: Option<String>,
-        /// Value to set - optional when using environment variables
-        #[arg(long)]
-        value: Option<String>,
-        /// URL for profile (will use MBR_URL env var if not provided)
+        /// Metabase server URL
         #[arg(long, env = "MBR_URL")]
         url: Option<String>,
-        /// Email for profile (will use MBR_USERNAME env var if not provided)
+        /// Email address for this profile
         #[arg(long, env = "MBR_USERNAME")]
         email: Option<String>,
     },
 }
 
-#[derive(Subcommand, Debug)]
-pub enum QuestionCommands {
-    /// List questions
-    List {
-        /// Search term
-        #[arg(long)]
-        search: Option<String>,
-        /// Limit the number of results
-        #[arg(long, default_value = "20")]
-        limit: u32,
-        /// Collection filter
-        #[arg(long)]
-        collection: Option<String>,
-    },
-    /// Execute a question
-    Execute {
-        /// Question ID
-        id: u32,
-        /// Parameters in key=value format
-        #[arg(long, action = clap::ArgAction::Append)]
-        param: Vec<String>,
-        /// Output format (table, json, csv)
-        #[arg(short, long, default_value = "table")]
-        format: String,
-        /// Limit the number of results
-        #[arg(long)]
-        limit: Option<u32>,
-        /// Show all results without pagination
-        #[arg(long)]
-        full: bool,
-        /// Disable fullscreen mode for interactive display
-        #[arg(long)]
-        no_fullscreen: bool,
-        /// Offset for starting position (0-based)
-        #[arg(long)]
-        offset: Option<usize>,
-        /// Display specific columns (comma-separated)
-        #[arg(long)]
-        columns: Option<String>,
-        /// Page size for pagination (default: 20)
-        #[arg(long, default_value = "20")]
-        page_size: usize,
-    },
-}
+/// Query arguments for executing or listing questions
+#[derive(Args, Debug)]
+#[command(after_help = "Examples:
+  mbr-cli query --list                  # List all questions
+  mbr-cli query --list --search sales   # Search questions
+  mbr-cli query 123                     # Execute question 123
+  mbr-cli query 123 --format json       # Output as JSON
+  mbr-cli query 123 --format csv        # Output as CSV
+  mbr-cli query 123 --param date=2024-01-01  # With parameters")]
+pub struct QueryArgs {
+    /// Question ID to execute (omit with --list to show questions)
+    pub id: Option<u32>,
 
-#[derive(Subcommand, Debug)]
-pub enum DashboardCommands {
-    /// List dashboards
-    List {
-        /// Search term for dashboard names
-        #[arg(long)]
-        search: Option<String>,
-        /// Limit the number of results
-        #[arg(long, default_value = "20")]
-        limit: u32,
-        /// Output format (table, json)
-        #[arg(short, long, default_value = "table")]
-        format: String,
-    },
-    /// Show dashboard details
-    Show {
-        /// Dashboard ID
-        id: u32,
-        /// Output format (table, json)
-        #[arg(short, long, default_value = "table")]
-        format: String,
-    },
-    /// List dashboard cards
-    Cards {
-        /// Dashboard ID
-        id: u32,
-        /// Output format (table, json)
-        #[arg(short, long, default_value = "table")]
-        format: String,
-    },
-}
+    /// List available questions instead of executing
+    #[arg(long, short = 'l', help_heading = "List Options")]
+    pub list: bool,
 
-#[derive(Subcommand, Debug)]
-pub enum CollectionCommands {
-    /// List collections
-    List {
-        /// Display as tree structure
-        #[arg(long)]
-        tree: bool,
-        /// Output format (table, json)
-        #[arg(short, long, default_value = "table")]
-        format: String,
-    },
-    /// Show collection details
-    Show {
-        /// Collection ID
-        id: u32,
-        /// Output format (table, json)
-        #[arg(short, long, default_value = "table")]
-        format: String,
-    },
-    /// Show collection statistics
-    Stats {
-        /// Collection ID
-        id: u32,
-        /// Output format (table, json)
-        #[arg(short, long, default_value = "table")]
-        format: String,
-    },
+    /// Search term to filter questions (only with --list)
+    #[arg(long, help_heading = "List Options")]
+    pub search: Option<String>,
+
+    /// Filter by collection ID (only with --list)
+    #[arg(long, help_heading = "List Options")]
+    pub collection: Option<String>,
+
+    /// Query parameters in key=value format (can be repeated)
+    #[arg(long, action = clap::ArgAction::Append, help_heading = "Execution Options")]
+    pub param: Vec<String>,
+
+    /// Output format: table, json, or csv
+    #[arg(short, long, default_value = "table", help_heading = "Output Options")]
+    pub format: String,
+
+    /// Maximum number of results to return
+    #[arg(long, default_value = "20", help_heading = "Output Options")]
+    pub limit: u32,
+
+    /// Show all results without pagination
+    #[arg(long, help_heading = "Output Options")]
+    pub full: bool,
+
+    /// Disable fullscreen interactive mode
+    #[arg(long, help_heading = "Display Options")]
+    pub no_fullscreen: bool,
+
+    /// Skip first N rows (0-based offset)
+    #[arg(long, help_heading = "Output Options")]
+    pub offset: Option<usize>,
+
+    /// Display only specified columns (comma-separated names)
+    #[arg(long, help_heading = "Output Options")]
+    pub columns: Option<String>,
+
+    /// Number of rows per page in interactive mode
+    #[arg(long, default_value = "20", help_heading = "Display Options")]
+    pub page_size: usize,
 }
