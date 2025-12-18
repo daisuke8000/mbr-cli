@@ -308,19 +308,19 @@ impl QuestionHandler {
                 let mut processed_result = result;
 
                 // Apply offset if specified
-                if let Some(offset_val) = offset {
-                    if offset_val > 0 {
-                        let offset_manager = OffsetManager::new(Some(offset_val))?;
-                        processed_result = offset_manager.apply_offset(&processed_result)?;
-                        print_verbose(
-                            verbose,
-                            &format!(
-                                "Applied offset: {}, remaining rows: {}",
-                                offset_val,
-                                processed_result.data.rows.len()
-                            ),
-                        );
-                    }
+                if let Some(offset_val) = offset
+                    && offset_val > 0
+                {
+                    let offset_manager = OffsetManager::new(Some(offset_val));
+                    processed_result = offset_manager.apply_offset(&processed_result)?;
+                    print_verbose(
+                        verbose,
+                        &format!(
+                            "Applied offset: {}, remaining rows: {}",
+                            offset_val,
+                            processed_result.data.rows.len()
+                        ),
+                    );
                 }
 
                 // Create table display
@@ -344,7 +344,7 @@ impl QuestionHandler {
                     .total_records(original_row_count)
                     .display_range(display_start, display_end)
                     .offset(offset.unwrap_or(0))
-                    .build()?;
+                    .build();
 
                 print!(
                     "{}",

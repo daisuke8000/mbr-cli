@@ -132,17 +132,17 @@ impl MetabaseClient {
         params.push("f=all".to_string());
 
         // Add search parameter if provided
-        if let Some(search_term) = search {
-            if !search_term.is_empty() {
-                params.push(format!("q={}", search_term));
-            }
+        if let Some(search_term) = search
+            && !search_term.is_empty()
+        {
+            params.push(format!("q={}", search_term));
         }
 
         // Add collection parameter if provided
-        if let Some(collection_id) = collection {
-            if !collection_id.is_empty() {
-                params.push(format!("collection={}", collection_id));
-            }
+        if let Some(collection_id) = collection
+            && !collection_id.is_empty()
+        {
+            params.push(format!("collection={}", collection_id));
         }
 
         // Build endpoint with parameters
@@ -169,10 +169,10 @@ impl MetabaseClient {
                 .map_err(|e| AppError::Api(convert_json_error(e, &endpoint)))?;
 
             // Apply limit if specified
-            if let Some(limit_value) = limit {
-                if limit_value > 0 {
-                    questions.truncate(limit_value as usize);
-                }
+            if let Some(limit_value) = limit
+                && limit_value > 0
+            {
+                questions.truncate(limit_value as usize);
             }
 
             Ok(questions)
@@ -208,10 +208,10 @@ impl MetabaseClient {
         let mut request = self.build_request(Method::POST, &endpoint);
 
         // Add parameters as JSON body if provided
-        if let Some(params) = parameters {
-            if !params.is_empty() {
-                request = request.json(&params);
-            }
+        if let Some(params) = parameters
+            && !params.is_empty()
+        {
+            request = request.json(&params);
         }
 
         // Send request with extended timeout
