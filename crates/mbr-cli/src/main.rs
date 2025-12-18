@@ -1,9 +1,12 @@
 use clap::Parser;
-use mbr_cli::cli::dispatcher::Dispatcher;
-use mbr_cli::cli::main_types::Cli;
-use mbr_cli::storage::config::Config;
-use mbr_cli::storage::credentials::Credentials;
+use mbr_core::storage::config::Config;
+use mbr_core::storage::credentials::Credentials;
 use std::path::PathBuf;
+
+mod cli;
+
+use cli::dispatcher::Dispatcher;
+use cli::main_types::Cli;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

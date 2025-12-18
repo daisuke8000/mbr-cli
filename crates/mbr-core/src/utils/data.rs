@@ -10,7 +10,7 @@ pub struct OffsetManager {
 impl OffsetManager {
     /// # Examples
     /// ```
-    /// use mbr_cli::utils::data::OffsetManager;
+    /// use mbr_core::utils::data::OffsetManager;
     /// let manager = OffsetManager::new(Some(10));
     /// assert_eq!(manager.offset, 10);
     /// ```
@@ -135,5 +135,4 @@ mod tests {
                 .is_err()
         );
     }
-
 }

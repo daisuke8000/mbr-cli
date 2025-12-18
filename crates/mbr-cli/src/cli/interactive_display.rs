@@ -1,5 +1,3 @@
-use crate::api::models::{QueryResult, Question};
-use crate::error::AppError;
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
@@ -7,6 +5,8 @@ use crossterm::{
     style::{Color, Print, ResetColor, SetForegroundColor},
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use mbr_core::api::models::{QueryResult, Question};
+use mbr_core::error::AppError;
 use std::io::{self, Write};
 
 struct RawModeCleanup;
@@ -131,7 +131,7 @@ impl InteractiveDisplay {
         question_name: &str,
     ) -> Result<(), AppError> {
         if no_fullscreen {
-            let display = crate::display::table::TableDisplay::new();
+            let display = mbr_core::display::table::TableDisplay::new();
             println!("{}", display.render_query_result(result)?);
             return Ok(());
         }
@@ -148,7 +148,7 @@ impl InteractiveDisplay {
                 let mut current_page = 1;
                 let mut scroll_offset = 0;
                 let available_height = terminal_height.saturating_sub(8) as usize;
-                let display = crate::display::table::TableDisplay::new();
+                let display = mbr_core::display::table::TableDisplay::new();
 
                 loop {
                     let start_row = (current_page - 1) * page_size;
@@ -159,8 +159,8 @@ impl InteractiveDisplay {
                         vec![]
                     };
 
-                    let page_result = crate::api::models::QueryResult {
-                        data: crate::api::models::QueryData {
+                    let page_result = mbr_core::api::models::QueryResult {
+                        data: mbr_core::api::models::QueryData {
                             cols: result.data.cols.clone(),
                             rows: page_rows,
                         },
@@ -239,7 +239,7 @@ impl InteractiveDisplay {
             }
             Err(_) => {
                 println!("Warning: Could not enable full-screen mode, falling back to simple mode");
-                let display = crate::display::table::TableDisplay::new();
+                let display = mbr_core::display::table::TableDisplay::new();
                 println!("{}", display.render_query_result(result)?);
             }
         }
@@ -263,7 +263,7 @@ impl InteractiveDisplay {
                 let mut current_page = 1;
                 let mut scroll_offset = 0;
                 let available_height = terminal_height.saturating_sub(6) as usize;
-                let display = crate::display::table::TableDisplay::new();
+                let display = mbr_core::display::table::TableDisplay::new();
 
                 loop {
                     let start = (current_page - 1) * page_size;
@@ -348,7 +348,7 @@ impl InteractiveDisplay {
             }
             Err(_) => {
                 println!("Warning: Could not enable full-screen mode, falling back to simple mode");
-                let display = crate::display::table::TableDisplay::new();
+                let display = mbr_core::display::table::TableDisplay::new();
                 println!("{}", display.render_question_list(questions)?);
             }
         }

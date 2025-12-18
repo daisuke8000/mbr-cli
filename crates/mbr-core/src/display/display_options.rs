@@ -273,5 +273,4 @@ mod tests {
         let mode = no_fs_options.determine_display_mode(100);
         assert!(mode == DisplayMode::Paginated || mode == DisplayMode::Interactive);
     }
-
 }

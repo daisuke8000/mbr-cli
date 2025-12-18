@@ -1,12 +1,12 @@
-use crate::api::client::MetabaseClient;
 use crate::cli::command_handlers::{AuthHandler, ConfigHandler, QueryHandler};
 use crate::cli::main_types::Commands;
-use crate::core::services::auth_service::AuthService;
-use crate::core::services::config_service::ConfigService;
-use crate::error::{AppError, CliError};
-use crate::storage::config::{Config, Profile};
-use crate::storage::credentials::{AuthMode, Credentials};
-use crate::utils::logging::print_verbose;
+use mbr_core::api::client::MetabaseClient;
+use mbr_core::core::services::auth_service::AuthService;
+use mbr_core::core::services::config_service::ConfigService;
+use mbr_core::error::{AppError, CliError};
+use mbr_core::storage::config::{Config, Profile};
+use mbr_core::storage::credentials::{AuthMode, Credentials};
+use mbr_core::utils::logging::print_verbose;
 
 pub struct Dispatcher {
     config: Config,
@@ -62,7 +62,7 @@ impl Dispatcher {
                 &format!("Creating default profile: {}", credentials.profile_name),
             );
 
-            use crate::storage::config::Profile;
+            use mbr_core::storage::config::Profile;
             let default_profile = Profile {
                 url: "http://localhost:3000".to_string(),
                 email: None,

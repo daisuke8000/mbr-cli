@@ -261,5 +261,4 @@ mod tests {
         assert_eq!(tracker.progress_percent(), 100.0);
         assert!(tracker.is_complete());
     }
-
 }

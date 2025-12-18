@@ -1,17 +1,17 @@
-use crate::api::client::MetabaseClient;
 use crate::cli::interactive_display::InteractiveDisplay;
 use crate::cli::main_types::{AuthCommands, ConfigCommands, QueryArgs};
-use crate::core::auth::LoginInput;
-use crate::core::services::auth_service::AuthService;
-use crate::core::services::config_service::ConfigService;
-use crate::display::{
+use mbr_core::api::client::MetabaseClient;
+use mbr_core::core::auth::LoginInput;
+use mbr_core::core::services::auth_service::AuthService;
+use mbr_core::core::services::config_service::ConfigService;
+use mbr_core::display::{
     OperationStatus, ProgressSpinner, TableDisplay, TableHeaderInfoBuilder, display_status,
 };
-use crate::error::{AppError, CliError};
-use crate::storage::config::Profile;
-use crate::storage::credentials::AuthMode;
-use crate::utils::data::OffsetManager;
-use crate::utils::logging::print_verbose;
+use mbr_core::error::{AppError, CliError};
+use mbr_core::storage::config::Profile;
+use mbr_core::storage::credentials::AuthMode;
+use mbr_core::utils::data::OffsetManager;
+use mbr_core::utils::logging::print_verbose;
 
 #[derive(Default)]
 pub struct AuthHandler;
@@ -179,7 +179,7 @@ impl ConfigHandler {
 
                 // Handle URL setting
                 if let Some(url_value) = url {
-                    crate::utils::validation::validate_url(&url_value)?;
+                    mbr_core::utils::validation::validate_url(&url_value)?;
                     config_service.set_profile_field(&profile, "url", &url_value)?;
                     updated_fields.push(format!("URL to: {}", url_value));
                 }
@@ -191,7 +191,7 @@ impl ConfigHandler {
                 }
 
                 if updated_fields.is_empty() {
-                    return Err(AppError::Cli(crate::error::CliError::InvalidArguments(
+                    return Err(AppError::Cli(CliError::InvalidArguments(
                         "No configuration values provided. Use --url and/or --email, or set MBR_URL/MBR_USERNAME environment variables".to_string(),
                     )));
                 }
