@@ -134,7 +134,8 @@ mod tests {
 
         let result = service.list(params).await;
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 2);
+        let items = result.expect("Failed to get list from MockService");
+        assert_eq!(items.len(), 2);
     }
 
     #[tokio::test]
@@ -142,7 +143,8 @@ mod tests {
         let service = MockService;
         let result = service.get(1).await;
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "test_item");
+        let item = result.expect("Failed to get item from MockService");
+        assert_eq!(item, "test_item");
     }
 
     #[test]
