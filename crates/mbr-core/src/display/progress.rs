@@ -261,26 +261,4 @@ mod tests {
         assert_eq!(tracker.progress_percent(), 100.0);
         assert!(tracker.is_complete());
     }
-
-    #[test]
-    fn test_operation_status_display() {
-        // Test creating and using different status types
-        let statuses = [
-            OperationStatus::InProgress,
-            OperationStatus::Success,
-            OperationStatus::Warning,
-            OperationStatus::Error,
-        ];
-
-        for status in statuses {
-            display_status("Test operation", status);
-        }
-    }
-
-    #[test]
-    fn test_progress_spinner_creation() {
-        let spinner = ProgressSpinner::new("Testing...".to_string());
-        assert_eq!(spinner.message, "Testing...");
-        assert!(!spinner.running.load(Ordering::Relaxed));
-    }
 }

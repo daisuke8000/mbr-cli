@@ -1,10 +1,7 @@
-use crate::api::models::{
-    Collection, CollectionDetail, Dashboard, DashboardCard, LoginRequest, LoginResponse,
-};
+use crate::api::models::{LoginRequest, LoginResponse};
 use crate::error::{ApiError, AppError};
 use crate::map_api_error;
 use crate::utils::error_helpers::*;
-use backoff::{Error as BackoffError, ExponentialBackoff};
 use reqwest::{Client, Method, RequestBuilder, Response};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -262,162 +259,6 @@ impl MetabaseClient {
         }
     }
 
-    /// Get all dashboards with optional search and limit parameters
-    /// Includes automatic retry on transient failures
-    pub async fn get_dashboards(
-        &self,
-        search: Option<&str>,
-        limit: Option<u32>,
-    ) -> Result<Vec<Dashboard>, ApiError> {
-        let mut endpoint = "/api/dashboard".to_string();
-        let mut query_params = vec![];
-
-        if let Some(search_term) = search {
-            query_params.push(format!("f=name&q={}", search_term));
-        }
-
-        if let Some(limit_val) = limit {
-            query_params.push(format!("limit={}", limit_val));
-        }
-
-        if !query_params.is_empty() {
-            endpoint.push('?');
-            endpoint.push_str(&query_params.join("&"));
-        }
-
-        self.execute_with_retry(|| async {
-            let request = self.build_request(Method::GET, &endpoint);
-            let response = request
-                .send()
-                .await
-                .map_err(|_e| convert_timeout_error(&endpoint, DEFAULT_TIMEOUT_SECS))?;
-            Self::handle_response(response, &endpoint).await
-        })
-        .await
-    }
-
-    /// Execute API request with exponential backoff retry
-    async fn execute_with_retry<F, Fut, T>(&self, operation: F) -> Result<T, ApiError>
-    where
-        F: Fn() -> Fut,
-        Fut: std::future::Future<Output = Result<T, ApiError>>,
-    {
-        let backoff = ExponentialBackoff::default();
-
-        backoff::future::retry(backoff, || async {
-            match operation().await {
-                Ok(result) => Ok(result),
-                Err(ApiError::Http {
-                    status: 500..=599, ..
-                }) => {
-                    // Retry on server errors
-                    Err(BackoffError::transient(ApiError::Http {
-                        status: 500,
-                        endpoint: "retry".to_string(),
-                        message: "Server error".to_string(),
-                    }))
-                }
-                Err(ApiError::Timeout { .. }) => {
-                    // Retry on timeouts
-                    Err(BackoffError::transient(convert_timeout_error(
-                        "retry",
-                        DEFAULT_TIMEOUT_SECS,
-                    )))
-                }
-                Err(other) => {
-                    // Don't retry on client errors (4xx)
-                    Err(BackoffError::permanent(other))
-                }
-            }
-        })
-        .await
-    }
-
-    /// Get a specific dashboard by ID  
-    /// Includes automatic retry on transient failures
-    pub async fn get_dashboard(&self, id: u32) -> Result<Dashboard, ApiError> {
-        let endpoint = format!("/api/dashboard/{}", id);
-
-        self.execute_with_retry(|| async {
-            let request = self.build_request(Method::GET, &endpoint);
-            let response = request
-                .send()
-                .await
-                .map_err(|_e| convert_timeout_error(&endpoint, DEFAULT_TIMEOUT_SECS))?;
-            Self::handle_response(response, &endpoint).await
-        })
-        .await
-    }
-
-    /// Get dashboard cards for a specific dashboard
-    /// Includes automatic retry on transient failures
-    pub async fn get_dashboard_cards(&self, id: u32) -> Result<Vec<DashboardCard>, ApiError> {
-        let endpoint = format!("/api/dashboard/{}", id);
-
-        self.execute_with_retry(|| async {
-            let request = self.build_request(Method::GET, &endpoint);
-            let response = request
-                .send()
-                .await
-                .map_err(|_e| convert_timeout_error(&endpoint, DEFAULT_TIMEOUT_SECS))?;
-            // Dashboard response includes dashcards field
-            let dashboard: Dashboard = Self::handle_response(response, &endpoint).await?;
-            Ok(dashboard.dashcards.unwrap_or_default())
-        })
-        .await
-    }
-
-    /// Get all collections with tree structure support
-    /// Includes automatic retry on transient failures
-    pub async fn get_collections(&self, tree: bool) -> Result<Vec<Collection>, ApiError> {
-        let mut endpoint = "/api/collection".to_string();
-        if tree {
-            endpoint.push_str("?tree=true");
-        }
-
-        self.execute_with_retry(|| async {
-            let request = self.build_request(Method::GET, &endpoint);
-            let response = request
-                .send()
-                .await
-                .map_err(|_e| convert_timeout_error(&endpoint, DEFAULT_TIMEOUT_SECS))?;
-            Self::handle_response(response, &endpoint).await
-        })
-        .await
-    }
-
-    /// Get a specific collection by ID with detailed information
-    /// Includes automatic retry on transient failures  
-    pub async fn get_collection(&self, id: u32) -> Result<CollectionDetail, ApiError> {
-        let endpoint = format!("/api/collection/{}", id);
-
-        self.execute_with_retry(|| async {
-            let request = self.build_request(Method::GET, &endpoint);
-            let response = request
-                .send()
-                .await
-                .map_err(|_e| convert_timeout_error(&endpoint, DEFAULT_TIMEOUT_SECS))?;
-            Self::handle_response(response, &endpoint).await
-        })
-        .await
-    }
-
-    /// Get items (questions and dashboards) within a specific collection
-    /// Includes automatic retry on transient failures
-    pub async fn get_collection_items(&self, id: u32) -> Result<Vec<serde_json::Value>, ApiError> {
-        let endpoint = format!("/api/collection/{}/items", id);
-
-        self.execute_with_retry(|| async {
-            let request = self.build_request(Method::GET, &endpoint);
-            let response = request
-                .send()
-                .await
-                .map_err(|_e| convert_timeout_error(&endpoint, DEFAULT_TIMEOUT_SECS))?;
-            Self::handle_response(response, &endpoint).await
-        })
-        .await
-    }
-
     pub async fn handle_response<T>(response: Response, endpoint: &str) -> Result<T, ApiError>
     where
         T: serde::de::DeserializeOwned,
@@ -534,41 +375,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_dashboards_method_signature() {
-        // Test that get_dashboards method exists with correct signature
-        let client = MetabaseClient::new("http://test.example".to_string()).unwrap();
-
-        // Just verify the client was created with dashboard methods available
-        assert!(!client.is_authenticated());
-        // The existence of these async methods is verified at compile time
-    }
-
-    #[test]
-    fn test_dashboard_api_methods_exist() {
-        // Compile-time verification that all dashboard methods exist
-        let client = MetabaseClient::new("http://test.example".to_string()).unwrap();
-
-        // Verify client has the required methods (compile-time check)
-        assert!(!client.is_authenticated());
-
-        // These methods existing means the API is properly implemented:
-        // - get_dashboards(&self, search: Option<&str>, limit: Option<u32>)
-        // - get_dashboard(&self, id: u32)
-        // - get_dashboard_cards(&self, id: u32)
-        // - execute_with_retry (private method for retry functionality)
-    }
-
-    #[test]
-    fn test_dashboard_search_parameter_building() {
-        // Test search parameter construction
-        let client = MetabaseClient::new("http://test.example".to_string()).unwrap();
-
-        // Verify the client was created properly
-        assert!(!client.is_authenticated());
-        assert_eq!(client.base_url, "http://test.example");
-    }
-
-    #[test]
     fn test_auth_priority_api_key_over_session() {
         let mut client = MetabaseClient::with_api_key(
             "http://example.test".to_string(),
@@ -649,20 +455,5 @@ mod tests {
                 .unwrap(),
             "session_abc"
         );
-    }
-
-    #[test]
-    fn test_collection_api_methods_exist() {
-        // Test that collection methods exist with correct signature
-        let client =
-            MetabaseClient::new("http://example.test".to_string()).expect("client creation failed");
-
-        // These should compile if methods exist with correct signatures
-        // - get_collections(&self, tree: bool)
-        // - get_collection(&self, id: u32)
-        // - get_collection_items(&self, id: u32)
-        let _future1 = client.get_collections(true);
-        let _future2 = client.get_collection(1);
-        let _future3 = client.get_collection_items(1);
     }
 }

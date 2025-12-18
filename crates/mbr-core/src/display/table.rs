@@ -1,6 +1,6 @@
-use crate::api::models::{Dashboard, DashboardCard, QueryResult, Question};
+use crate::api::models::{QueryResult, Question};
 use crate::error::AppError;
-use crate::utils::text::{format_datetime, truncate_text};
+use crate::utils::text::truncate_text;
 use comfy_table::{Attribute, Cell, Color, Table, presets};
 use crossterm::terminal;
 
@@ -94,11 +94,6 @@ impl TableDisplay {
     fn set_colored_headers(&self, table: &mut Table, headers: &[&str], color: Color) {
         let cells: Vec<Cell> = headers.iter().map(|h| self.bold_header(h, color)).collect();
         table.set_header(cells);
-    }
-
-    fn format_optional_id(id: Option<u32>, default: &str) -> String {
-        id.map(|v| v.to_string())
-            .unwrap_or_else(|| default.to_string())
     }
 
     pub fn render_question_list(&self, questions: &[Question]) -> Result<String, AppError> {
@@ -464,125 +459,6 @@ impl TableHeaderInfoBuilder {
     }
 }
 
-impl TableDisplay {
-    pub fn render_dashboard_list(&self, dashboards: &[Dashboard]) -> Result<String, AppError> {
-        if dashboards.is_empty() {
-            return Ok("No dashboards found.".to_string());
-        }
-
-        let mut table = Table::new();
-        table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
-        self.set_colored_headers(
-            &mut table,
-            &[
-                "ID",
-                "Name",
-                "Description",
-                "Collection ID",
-                "Creator ID",
-                "Created At",
-                "Updated At",
-            ],
-            Color::Green,
-        );
-
-        for dashboard in dashboards {
-            table.add_row(vec![
-                self.colored_cell(&dashboard.id.to_string(), Color::Cyan),
-                Cell::new(&dashboard.name),
-                Cell::new(dashboard.description.as_deref().unwrap_or("N/A")),
-                Cell::new(Self::format_optional_id(dashboard.collection_id, "Root")),
-                Cell::new(Self::format_optional_id(dashboard.creator_id, "N/A")),
-                Cell::new(format_datetime(&dashboard.created_at)),
-                Cell::new(format_datetime(&dashboard.updated_at)),
-            ]);
-        }
-
-        Ok(table.to_string())
-    }
-
-    pub fn render_dashboard_details(&self, dashboard: &Dashboard) -> Result<String, AppError> {
-        let mut table = Table::new();
-        table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
-        self.set_colored_headers(&mut table, &["Field", "Value"], Color::Green);
-
-        let fields = [
-            ("ID", dashboard.id.to_string()),
-            ("Name", dashboard.name.clone()),
-            (
-                "Description",
-                dashboard
-                    .description
-                    .clone()
-                    .unwrap_or_else(|| "N/A".to_string()),
-            ),
-            (
-                "Collection ID",
-                Self::format_optional_id(dashboard.collection_id, "Root"),
-            ),
-            (
-                "Creator ID",
-                Self::format_optional_id(dashboard.creator_id, "N/A"),
-            ),
-            ("Created At", dashboard.created_at.clone()),
-            ("Updated At", dashboard.updated_at.clone()),
-            (
-                "Cards Count",
-                dashboard
-                    .dashcards
-                    .as_ref()
-                    .map(|c| c.len().to_string())
-                    .unwrap_or_else(|| "0".to_string()),
-            ),
-        ];
-
-        for (field_name, field_value) in fields {
-            table.add_row(vec![
-                self.colored_cell(field_name, Color::Yellow),
-                Cell::new(field_value),
-            ]);
-        }
-
-        Ok(table.to_string())
-    }
-
-    pub fn render_dashboard_cards(&self, cards: &[DashboardCard]) -> Result<String, AppError> {
-        if cards.is_empty() {
-            return Ok("No cards found for this dashboard.".to_string());
-        }
-
-        let mut table = Table::new();
-        table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
-        self.set_colored_headers(
-            &mut table,
-            &[
-                "ID",
-                "Dashboard ID",
-                "Card ID",
-                "Col",
-                "Row",
-                "Size X",
-                "Size Y",
-            ],
-            Color::Green,
-        );
-
-        for card in cards {
-            table.add_row(vec![
-                self.colored_cell(&card.id.to_string(), Color::Cyan),
-                Cell::new(card.dashboard_id.to_string()),
-                Cell::new(Self::format_optional_id(card.card_id, "NULL")),
-                Cell::new(card.col.to_string()),
-                Cell::new(card.row.to_string()),
-                Cell::new(card.size_x.to_string()),
-                Cell::new(card.size_y.to_string()),
-            ]);
-        }
-
-        Ok(table.to_string())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -639,41 +515,6 @@ mod tests {
     }
 
     #[test]
-    fn test_truncate_text() {
-        // Short text remains unchanged
-        assert_eq!(truncate_text("Hello", 10), "Hello");
-
-        // Long text is truncated
-        assert_eq!(truncate_text("Hello World", 8), "Hello...");
-
-        // Unicode character processing (Japanese characters = 2 width per character)
-        // "Hello World Example" = 14 width, target 8 width so "Hello..." = 7 width
-        assert_eq!(truncate_text("Hello World!", 8), "Hello...");
-    }
-
-    #[test]
-    fn test_pad_to_width() {
-        assert_eq!(pad_to_width("Hello", 10), "Hello     ");
-        assert_eq!(pad_to_width("Hello World", 5), "Hello World");
-
-        // "Wide Text" = 9 width, so no change for width 8
-        assert_eq!(pad_to_width("Wide Text", 8), "Wide Text");
-        // "Text" = 4 width, so add 6 spaces for width 10
-        assert_eq!(pad_to_width("Text", 10), "Text      ");
-    }
-
-    #[test]
-    fn test_center_text() {
-        assert_eq!(center_text("Hi", 6), "  Hi  ");
-        assert_eq!(center_text("Hello", 5), "Hello");
-
-        // "Long Text" = 9 width, so no change for width 8
-        assert_eq!(center_text("Long Text", 8), "Long Text");
-        // "Hi" = 2 width, 5+5 padding for width 12
-        assert_eq!(center_text("Hi", 12), "     Hi     ");
-    }
-
-    #[test]
     fn test_format_cell_value() {
         let display = TableDisplay::new();
 
@@ -699,14 +540,6 @@ mod tests {
             display.format_cell_value(&json!({"a": 1, "b": 2})),
             "{2 items}"
         );
-    }
-
-    #[test]
-    fn test_format_optional_id() {
-        assert_eq!(TableDisplay::format_optional_id(Some(42), "N/A"), "42");
-        assert_eq!(TableDisplay::format_optional_id(None, "N/A"), "N/A");
-        assert_eq!(TableDisplay::format_optional_id(None, "Root"), "Root");
-        assert_eq!(TableDisplay::format_optional_id(Some(0), "Default"), "0");
     }
 
     #[test]

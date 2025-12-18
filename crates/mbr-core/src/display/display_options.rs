@@ -232,15 +232,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_display_options_creation() {
-        let options = DisplayOptions::new();
-        assert!(!options.full);
-        assert_eq!(options.page_size, 20);
-        assert!(!options.no_fullscreen);
-        assert_eq!(options.max_memory_mb, 500);
-    }
-
-    #[test]
     fn test_display_options_builder() {
         let options = DisplayOptions::new()
             .with_full_mode(true)
@@ -281,15 +272,5 @@ mod tests {
         let no_fs_options = DisplayOptions::new().with_no_fullscreen(true);
         let mode = no_fs_options.determine_display_mode(100);
         assert!(mode == DisplayMode::Paginated || mode == DisplayMode::Interactive);
-    }
-
-    #[test]
-    fn test_environment_detection() {
-        // These functions are environment-dependent, so only basic calls are tested
-        let _ = is_ci_environment();
-        let _ = is_ssh_environment();
-        let _ = is_wsl_environment();
-        let _ = is_terminal_supported();
-        let _ = is_fullscreen_capable();
     }
 }

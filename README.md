@@ -100,14 +100,30 @@ mbr-cli config set
 
 # Using CLI arguments (takes priority over env vars)
 mbr-cli config set --url "https://metabase.com" --email "user@example.com"
-
-# Legacy field/value mode (backward compatible)
-mbr-cli config set --field "url" --value "https://metabase.com"
 ```
 
-### Questions (Implemented)
-- `question list` - List available questions with search, limit, and collection filtering
-- `question execute <id>` - Execute question with parameters and display results with pagination
+### Query (Implemented)
+- `query --list` - List available questions with search, limit, and collection filtering
+- `query <id>` - Execute question with parameters and display results with pagination
+
+**Query Usage:**
+```bash
+# List all questions
+mbr-cli query --list
+
+# List with search and limit
+mbr-cli query --list --search "sales" --limit 10
+
+# Execute a question by ID
+mbr-cli query 123
+
+# Execute with output format
+mbr-cli query 123 --format json
+mbr-cli query 123 --format csv
+
+# Execute with parameters
+mbr-cli query 123 --param date=2024-01-01 --param region=US
+```
 
 ### Global Options
 Available for all commands:

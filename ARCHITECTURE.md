@@ -8,7 +8,7 @@ graph TB
         CLI[main.rs]
         Auth[auth commands]
         Config[config commands]
-        Question[question commands]
+        Query[query commands]
     end
     
     subgraph "Core Layer"
@@ -81,7 +81,7 @@ sequenceDiagram
     CLI-->>User: "Login successful"
     
     Note over User,Keychain: Authenticated Operations
-    User->>CLI: mbr-cli question list
+    User->>CLI: mbr-cli query --list
     CLI->>AuthCore: check_authentication()
     AuthCore->>SecureStore: get_session()
     SecureStore->>Keychain: retrieve_token()
@@ -93,7 +93,7 @@ sequenceDiagram
     CLI-->>User: Display table format
     
     Note over User,Keychain: Session Expired
-    User->>CLI: mbr-cli question execute 123
+    User->>CLI: mbr-cli query 123
     CLI->>AuthCore: check_authentication()
     AuthCore->>Metabase: validate session
     Metabase-->>AuthCore: 401 Unauthorized
@@ -102,11 +102,11 @@ sequenceDiagram
     CLI-->>User: "Please login again: mbr-cli auth login"
 ```
 
-## Question Execution Flow
+## Query Execution Flow
 
 ```mermaid
 flowchart TD
-    Start([mbr-cli question execute 123]) --> Auth{Check Auth}
+    Start([mbr-cli query 123]) --> Auth{Check Auth}
     Auth -->|Not Authenticated| AuthError[Show Auth Error]
     Auth -->|Authenticated| GetQ[Get Question Details]
     
@@ -287,9 +287,9 @@ flowchart LR
 
 #### CLI Layer (User Interface)
 - **main_types.rs**: Hierarchical command structure with clap derive macros
-- **dispatcher.rs**: Thin facade layer delegating to service handlers (226 lines, 83% reduction)
-- **command_handlers.rs**: Dedicated handlers for Auth, Config, Question commands (481 lines)
-- **interactive_display.rs**: Full-screen pagination and interactive display logic (500+ lines)
+- **dispatcher.rs**: Thin facade layer delegating to service handlers (~186 lines)
+- **command_handlers.rs**: Dedicated handlers for Auth, Config, Query commands (~443 lines)
+- **interactive_display.rs**: Full-screen pagination and interactive display logic (~357 lines)
 
 #### Core Layer (Business Logic)
 - **auth.rs**: LoginInput struct for authentication input handling and validation
@@ -319,9 +319,9 @@ flowchart LR
 - **Service Layer Pattern**: Business logic separated from CLI with facade pattern
 - **Single Responsibility**: Each module has clear, focused responsibilities
 - **Zero Circular Dependencies**: Architecture validation confirms clean separation
-- **Quality Gates**: Zero clippy warnings, comprehensive test coverage (108 tests)
+- **Quality Gates**: Zero clippy warnings, comprehensive test coverage (110 tests)
 
 ### ⏳ Future Enhancements
-- **Question Commands**: Enhanced list and execute operations
-- **Config Set Commands**: Configuration modification operations
+- **Query Commands**: Enhanced query operations with additional filtering options
 - **Cache System**: Response caching for improved performance
+- **Batch Operations**: Support for executing multiple queries

@@ -1,0 +1,21 @@
+[package]
+name = "mbr-cli"
+version = "0.1.3"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Rust-based CLI tool for Metabase API interaction"
+keywords = ["metabase", "cli", "api", "database", "analytics"]
+categories = ["command-line-utilities", "database"]
+
+[[bin]]
+name = "mbr-cli"
+path = "src/main.rs"
+
+[dependencies]
+mbr-core = { path = "../mbr-core" }
+clap.workspace = true
+rpassword.workspace = true
+tokio.workspace = true
+crossterm.workspace = true
+serde_json.workspace = true
