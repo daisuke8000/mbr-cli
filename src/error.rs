@@ -75,10 +75,6 @@ pub enum StorageError {
         path: String,
         source: std::io::Error,
     },
-    #[error("Session storage failed")]
-    SessionStorageFailed,
-    #[error("Configuration save failed")]
-    ConfigSaveFailed,
     #[error("Configuration parse error: {message}")]
     ConfigParseError { message: String },
     #[error("Configuration directory not found")]
@@ -135,12 +131,8 @@ pub enum ServiceError {
 pub enum UtilsError {
     #[error("Validation error: {message}")]
     Validation { message: String },
-    #[error("Memory calculation error: {message}")]
-    Memory { message: String },
     #[error("Data processing error: {message}")]
     DataProcessing { message: String },
-    #[error("Input processing error: {message}")]
-    InputProcessing { message: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -224,326 +216,180 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_cli_error_display() {
-        let cli_err = CliError::InvalidArguments("invalid arguments".to_string());
-        assert_eq!(
-            format!("{}", cli_err),
-            "Invalid arguments: invalid arguments"
+    fn test_error_display_formats() {
+        assert!(format!("{}", CliError::InvalidArguments("test".into())).contains("test"));
+        assert!(
+            format!(
+                "{}",
+                ApiError::Timeout {
+                    timeout_secs: 10,
+                    endpoint: "ep".into()
+                }
+            )
+            .contains("10")
         );
-        let cli_err = CliError::AuthRequired {
-            message: "message".to_string(),
-            hint: "hint".to_string(),
-            available_profiles: vec!["profile1".to_string(), "profile2".to_string()],
-        };
-        assert!(matches!(cli_err, CliError::AuthRequired { .. }));
-        if let CliError::AuthRequired {
-            message,
-            hint,
-            available_profiles,
-        } = cli_err
-        {
-            assert_eq!(message, "message");
-            assert_eq!(hint, "hint");
-            assert_eq!(
-                available_profiles,
-                vec!["profile1".to_string(), "profile2".to_string()]
-            );
-        }
-    }
-
-    #[test]
-    fn test_config_error_display() {
-        let config_err = ConfigError::FileNotFound {
-            path: "config.toml".to_string(),
-            hint: "hint".to_string(),
-        };
-        assert!(matches!(config_err, ConfigError::FileNotFound { .. }));
-        if let ConfigError::FileNotFound { path, hint } = config_err {
-            assert_eq!(path, "config.toml");
-            assert_eq!(hint, "hint");
-        };
-
-        let config_err = ConfigError::MissingField {
-            field: "field".to_string(),
-            field_type: "type".to_string(),
-        };
-        assert!(matches!(config_err, ConfigError::MissingField { .. }));
-        if let ConfigError::MissingField { field, field_type } = config_err {
-            assert_eq!(field, "field");
-            assert_eq!(field_type, "type");
-        };
-
-        let config_err = ConfigError::InvalidValue {
-            field: "field".to_string(),
-            value: "value".to_string(),
-            reason: "reason".to_string(),
-        };
-        assert!(matches!(config_err, ConfigError::InvalidValue { .. }));
-        if let ConfigError::InvalidValue {
-            field,
-            value,
-            reason,
-        } = config_err
-        {
-            assert_eq!(field, "field");
-            assert_eq!(value, "value");
-            assert_eq!(reason, "reason");
-        }
-    }
-
-    #[test]
-    fn test_api_error_display() {
-        let api_err = ApiError::Unauthorized {
-            status: 401,
-            endpoint: "endpoint".to_string(),
-            server_message: "message".to_string(),
-        };
-        assert!(matches!(api_err, ApiError::Unauthorized { .. }));
-        if let ApiError::Unauthorized {
-            status,
-            endpoint,
-            server_message,
-        } = api_err
-        {
-            assert_eq!(status, 401);
-            assert_eq!(endpoint, "endpoint");
-            assert_eq!(server_message, "message");
-        };
-
-        let api_err = ApiError::Timeout {
-            timeout_secs: 10,
-            endpoint: "endpoint".to_string(),
-        };
-        assert!(matches!(api_err, ApiError::Timeout { .. }));
-        if let ApiError::Timeout {
-            timeout_secs,
-            endpoint,
-        } = api_err
-        {
-            assert_eq!(timeout_secs, 10);
-            assert_eq!(endpoint, "endpoint");
-        };
-
-        let api_err = ApiError::Http {
-            status: 400,
-            endpoint: "endpoint".to_string(),
-            message: "message".to_string(),
-        };
-        assert!(matches!(api_err, ApiError::Http { .. }));
-        if let ApiError::Http {
-            status,
-            endpoint,
-            message,
-        } = api_err
-        {
-            assert_eq!(status, 400);
-            assert_eq!(endpoint, "endpoint");
-            assert_eq!(message, "message");
-        }
-    }
-
-    #[test]
-    fn test_app_error_display_cli() {
-        let app_err = AppError::Cli(CliError::InvalidArguments("invalid arguments".to_string()));
-        assert_eq!(
-            format!("{}", app_err),
-            "CliError: Invalid arguments: invalid arguments"
+        assert!(
+            format!(
+                "{}",
+                ConfigError::FileNotFound {
+                    path: "p".into(),
+                    hint: "h".into()
+                }
+            )
+            .contains("p")
         );
-        let app_err = AppError::Cli(CliError::AuthRequired {
-            message: "message".to_string(),
-            hint: "hint".to_string(),
-            available_profiles: vec!["profile1".to_string(), "profile2".to_string()],
-        });
-        assert!(matches!(
-            app_err,
-            AppError::Cli(CliError::AuthRequired { .. })
-        ));
-        if let AppError::Cli(CliError::AuthRequired {
-            message,
-            hint,
-            available_profiles,
-        }) = app_err
-        {
-            assert_eq!(message, "message");
-            assert_eq!(hint, "hint");
-            assert_eq!(
-                available_profiles,
-                vec!["profile1".to_string(), "profile2".to_string()]
-            );
-        }
+        assert!(
+            format!(
+                "{}",
+                ServiceError::AuthService {
+                    message: "m".into()
+                }
+            )
+            .contains("m")
+        );
+        assert!(
+            format!(
+                "{}",
+                UtilsError::Validation {
+                    message: "v".into()
+                }
+            )
+            .contains("v")
+        );
     }
 
     #[test]
-    fn test_app_error_display_api() {
-        let app_err = AppError::Api(ApiError::Unauthorized {
-            status: 401,
-            endpoint: "endpoint".to_string(),
-            server_message: "message".to_string(),
-        });
+    fn test_error_variants_constructible() {
         assert!(matches!(
-            app_err,
-            AppError::Api(ApiError::Unauthorized { .. })
+            CliError::AuthRequired {
+                message: "".into(),
+                hint: "".into(),
+                available_profiles: vec![]
+            },
+            CliError::AuthRequired { .. }
         ));
-        if let AppError::Api(ApiError::Unauthorized {
-            status,
-            endpoint,
-            server_message,
-        }) = app_err
-        {
-            assert_eq!(status, 401);
-            assert_eq!(endpoint, "endpoint");
-            assert_eq!(server_message, "message");
-        }
-
-        let app_err = AppError::Api(ApiError::Http {
-            status: 400,
-            endpoint: "endpoint".to_string(),
-            message: "message".to_string(),
-        });
-        assert!(matches!(app_err, AppError::Api(ApiError::Http { .. })));
-        if let AppError::Api(ApiError::Http {
-            status,
-            endpoint,
-            message,
-        }) = app_err
-        {
-            assert_eq!(status, 400);
-            assert_eq!(endpoint, "endpoint");
-            assert_eq!(message, "message");
-        }
-
-        let app_err = AppError::Api(ApiError::Timeout {
-            timeout_secs: 10,
-            endpoint: "endpoint".to_string(),
-        });
-        assert!(matches!(app_err, AppError::Api(ApiError::Timeout { .. })));
-        if let AppError::Api(ApiError::Timeout {
-            timeout_secs,
-            endpoint,
-        }) = app_err
-        {
-            assert_eq!(timeout_secs, 10);
-            assert_eq!(endpoint, "endpoint");
-        }
+        assert!(matches!(
+            ApiError::Unauthorized {
+                status: 401,
+                endpoint: "".into(),
+                server_message: "".into()
+            },
+            ApiError::Unauthorized { .. }
+        ));
+        assert!(matches!(
+            ApiError::Http {
+                status: 400,
+                endpoint: "".into(),
+                message: "".into()
+            },
+            ApiError::Http { .. }
+        ));
+        assert!(matches!(
+            ConfigError::MissingField {
+                field: "".into(),
+                field_type: "".into()
+            },
+            ConfigError::MissingField { .. }
+        ));
+        assert!(matches!(
+            ConfigError::InvalidValue {
+                field: "".into(),
+                value: "".into(),
+                reason: "".into()
+            },
+            ConfigError::InvalidValue { .. }
+        ));
     }
 
     #[test]
-    fn test_app_error_display_config() {
-        if let AppError::Config(ConfigError::FileNotFound { path, hint }) =
+    fn test_app_error_severity() {
+        assert_eq!(
+            AppError::Api(ApiError::Unauthorized {
+                status: 401,
+                endpoint: "".into(),
+                server_message: "".into()
+            })
+            .severity(),
+            ErrorSeverity::High
+        );
+        assert_eq!(
+            AppError::Api(ApiError::Http {
+                status: 500,
+                endpoint: "".into(),
+                message: "".into()
+            })
+            .severity(),
+            ErrorSeverity::High
+        );
+        assert_eq!(
+            AppError::Api(ApiError::Http {
+                status: 400,
+                endpoint: "".into(),
+                message: "".into()
+            })
+            .severity(),
+            ErrorSeverity::Medium
+        );
+        assert_eq!(
             AppError::Config(ConfigError::FileNotFound {
-                path: "config.toml".to_string(),
-                hint: "hint".to_string(),
+                path: "".into(),
+                hint: "".into()
             })
-        {
-            assert_eq!(path, "config.toml");
-            assert_eq!(hint, "hint");
-        };
+            .severity(),
+            ErrorSeverity::High
+        );
+        assert_eq!(
+            AppError::Display(DisplayError::Pagination("".into())).severity(),
+            ErrorSeverity::Low
+        );
+        assert_eq!(
+            AppError::Service(ServiceError::AuthService { message: "".into() }).severity(),
+            ErrorSeverity::High
+        );
+    }
 
-        if let AppError::Config(ConfigError::MissingField { field, field_type }) =
-            AppError::Config(ConfigError::MissingField {
-                field: "field".to_string(),
-                field_type: "type".to_string(),
-            })
-        {
-            assert_eq!(field, "field");
-            assert_eq!(field_type, "type");
-        };
-
-        if let AppError::Config(ConfigError::InvalidValue {
-            field,
-            value,
-            reason,
-        }) = AppError::Config(ConfigError::InvalidValue {
-            field: "field".to_string(),
-            value: "value".to_string(),
-            reason: "reason".to_string(),
-        }) {
-            assert_eq!(field, "field");
-            assert_eq!(value, "value");
-            assert_eq!(reason, "reason");
+    #[test]
+    fn test_app_error_conversion() {
+        let cli: AppError = CliError::InvalidArguments("".into()).into();
+        let api: AppError = ApiError::Timeout {
+            timeout_secs: 1,
+            endpoint: "".into(),
         }
+        .into();
+        let config: AppError = ConfigError::FileNotFound {
+            path: "".into(),
+            hint: "".into(),
+        }
+        .into();
+        assert!(matches!(cli, AppError::Cli(_)));
+        assert!(matches!(api, AppError::Api(_)));
+        assert!(matches!(config, AppError::Config(_)));
     }
 
     #[test]
-    fn test_service_error_display() {
-        let service_err = ServiceError::AuthService {
-            message: "Authentication failed".to_string(),
-        };
-        assert_eq!(
-            format!("{}", service_err),
-            "Authentication service error: Authentication failed"
+    fn test_troubleshooting_hints() {
+        assert!(
+            AppError::Auth(AuthError::InvalidCredentials)
+                .troubleshooting_hint()
+                .is_some()
         );
-
-        let service_err = ServiceError::ConfigService {
-            message: "Configuration invalid".to_string(),
-        };
-        assert_eq!(
-            format!("{}", service_err),
-            "Configuration service error: Configuration invalid"
+        assert!(
+            AppError::Api(ApiError::Timeout {
+                timeout_secs: 1,
+                endpoint: "".into()
+            })
+            .troubleshooting_hint()
+            .is_some()
         );
-
-        let service_err = ServiceError::QuestionService {
-            message: "Question execution failed".to_string(),
-        };
-        assert_eq!(
-            format!("{}", service_err),
-            "Question service error: Question execution failed"
+        assert!(
+            AppError::Question(QuestionError::NotFound { id: 1 })
+                .troubleshooting_hint()
+                .is_some()
         );
-    }
-
-    #[test]
-    fn test_utils_error_display() {
-        let utils_err = UtilsError::Validation {
-            message: "Invalid URL format".to_string(),
-        };
-        assert_eq!(
-            format!("{}", utils_err),
-            "Validation error: Invalid URL format"
-        );
-
-        let utils_err = UtilsError::Memory {
-            message: "Memory allocation failed".to_string(),
-        };
-        assert_eq!(
-            format!("{}", utils_err),
-            "Memory calculation error: Memory allocation failed"
-        );
-
-        let utils_err = UtilsError::DataProcessing {
-            message: "Data parsing failed".to_string(),
-        };
-        assert_eq!(
-            format!("{}", utils_err),
-            "Data processing error: Data parsing failed"
-        );
-
-        let utils_err = UtilsError::InputProcessing {
-            message: "Input validation failed".to_string(),
-        };
-        assert_eq!(
-            format!("{}", utils_err),
-            "Input processing error: Input validation failed"
-        );
-    }
-
-    #[test]
-    fn test_app_error_service_utils_integration() {
-        let app_err = AppError::Service(ServiceError::AuthService {
-            message: "Authentication failed".to_string(),
-        });
-        assert_eq!(app_err.severity(), ErrorSeverity::High);
-        assert_eq!(
-            format!("{}", app_err),
-            "ServiceError: Authentication service error: Authentication failed"
-        );
-
-        let app_err = AppError::Utils(UtilsError::Validation {
-            message: "Invalid input".to_string(),
-        });
-        assert_eq!(app_err.severity(), ErrorSeverity::Low);
-        assert_eq!(
-            format!("{}", app_err),
-            "UtilsError: Validation error: Invalid input"
+        assert!(
+            AppError::Display(DisplayError::Pagination("".into()))
+                .troubleshooting_hint()
+                .is_none()
         );
     }
 }

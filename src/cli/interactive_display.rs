@@ -8,11 +8,114 @@ use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
     style::{Color, Print, ResetColor, SetForegroundColor},
-    terminal::{self, Clear, ClearType},
+    terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use std::io::{self, Write};
 
-/// Interactive display manager for full-screen table and pagination
+struct RawModeCleanup;
+impl Drop for RawModeCleanup {
+    fn drop(&mut self) {
+        let _ = terminal::disable_raw_mode();
+    }
+}
+
+struct ScreenCleanup;
+impl Drop for ScreenCleanup {
+    fn drop(&mut self) {
+        let _ = execute!(io::stdout(), LeaveAlternateScreen);
+    }
+}
+
+const CONTROLS_LINE: &str = "Controls: ↑↓/jk=scroll | n/p=page | Home/End | q=quit | h=help";
+
+fn show_standard_help(title: &str) {
+    execute!(
+        io::stdout(),
+        Clear(ClearType::All),
+        cursor::MoveTo(0, 0),
+        SetForegroundColor(Color::Cyan),
+        Print(title),
+        ResetColor,
+        Print("\r\n\r\n"),
+        Print("Page Navigation:\r\n"),
+        Print("  n           : Next page\r\n"),
+        Print("  p           : Previous page\r\n"),
+        Print("  Home        : First page\r\n"),
+        Print("  End         : Last page\r\n"),
+        Print("\r\n"),
+        Print("Scroll Controls (within page):\r\n"),
+        Print("  ↑, k        : Scroll up (1 line)\r\n"),
+        Print("  ↓, j        : Scroll down (1 line)\r\n"),
+        Print("  Page Up     : Scroll up (page)\r\n"),
+        Print("  Page Down   : Scroll down (page)\r\n"),
+        Print("\r\n"),
+        Print("Other Controls:\r\n"),
+        Print("  q, Q, Esc  : Quit\r\n"),
+        Print("  Ctrl+C     : Force quit\r\n"),
+        Print("  h, H       : Show this help\r\n"),
+        Print("\r\n"),
+        SetForegroundColor(Color::Yellow),
+        Print("Press any key to continue..."),
+        ResetColor
+    )
+    .ok();
+    io::stdout().flush().ok();
+    event::read().ok();
+}
+
+enum KeyAction {
+    Quit,
+    ScrollUp,
+    ScrollDown,
+    PageUp,
+    PageDown,
+    NextPage,
+    PrevPage,
+    Home,
+    End,
+    Help,
+    None,
+}
+
+fn parse_key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyAction {
+    match code {
+        KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => KeyAction::Quit,
+        KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => KeyAction::Quit,
+        KeyCode::Up | KeyCode::Char('k') => KeyAction::ScrollUp,
+        KeyCode::Down | KeyCode::Char('j') => KeyAction::ScrollDown,
+        KeyCode::PageUp => KeyAction::PageUp,
+        KeyCode::PageDown => KeyAction::PageDown,
+        KeyCode::Char('n') | KeyCode::Char('N') => KeyAction::NextPage,
+        KeyCode::Char('p') | KeyCode::Char('P') => KeyAction::PrevPage,
+        KeyCode::Home => KeyAction::Home,
+        KeyCode::End => KeyAction::End,
+        KeyCode::Char('h') | KeyCode::Char('H') => KeyAction::Help,
+        _ => KeyAction::None,
+    }
+}
+
+fn display_controls(terminal_height: u16) {
+    execute!(
+        io::stdout(),
+        cursor::MoveTo(0, terminal_height - 2),
+        SetForegroundColor(Color::Green),
+        Print(CONTROLS_LINE),
+        ResetColor
+    )
+    .ok();
+}
+
+fn display_table_lines(lines: &[&str], scroll_offset: usize, available_height: usize) {
+    let total = lines.len();
+    let start = scroll_offset.min(total);
+    let end = (start + available_height).min(total);
+    for i in start..end {
+        if let Some(line) = lines.get(i) {
+            println!("{}\r", line);
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct InteractiveDisplay;
 
@@ -21,8 +124,6 @@ impl InteractiveDisplay {
         Self
     }
 
-    /// Display query results with interactive pagination
-    /// Based on original implementation: RAW mode + Alternate Screen + interactive display with scroll functionality
     pub async fn display_query_result_pagination(
         &self,
         result: &QueryResult,
@@ -32,69 +133,29 @@ impl InteractiveDisplay {
         question_id: u32,
         question_name: &str,
     ) -> Result<(), AppError> {
-        use crossterm::terminal::{
-            EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
-        };
-        use std::io::{self, Write};
-
-        // RAII cleanup structures
-        struct RawModeCleanup;
-        impl Drop for RawModeCleanup {
-            fn drop(&mut self) {
-                let _ = disable_raw_mode();
-            }
-        }
-
-        struct ScreenCleanup;
-        impl Drop for ScreenCleanup {
-            fn drop(&mut self) {
-                let _ = execute!(io::stdout(), LeaveAlternateScreen);
-            }
-        }
-
         if no_fullscreen {
-            // Simple mode fallback
             let display = crate::display::table::TableDisplay::new();
-            let table_output = display.render_query_result(result)?;
-            println!("{}", table_output);
+            println!("{}", display.render_query_result(result)?);
             return Ok(());
         }
 
-        // Full screen mode - RAW mode + Alternate Screen + scroll
-        match enable_raw_mode() {
+        match terminal::enable_raw_mode() {
             Ok(()) => {
                 let _cleanup = RawModeCleanup;
                 execute!(io::stdout(), EnterAlternateScreen).ok();
                 let _screen_cleanup = ScreenCleanup;
 
-                // Get terminal size
-                let (_terminal_width, terminal_height) = size().unwrap_or((80, 24));
-
-                // Pagination state
+                let (_, terminal_height) = terminal::size().unwrap_or((80, 24));
                 let total_rows = result.data.rows.len();
-                let base_offset = 0; // Use 0 here since the result is already offset-adjusted
-                let available_rows = total_rows.saturating_sub(base_offset);
-                let total_pages = if available_rows == 0 {
-                    1
-                } else {
-                    available_rows.div_ceil(page_size)
-                }; // Total pages considering offset
-                let mut current_page = 1; // Initial display always starts from page 1
-
-                // Table renderer for display
+                let total_pages = total_rows.div_ceil(page_size).max(1);
+                let mut current_page = 1;
+                let mut scroll_offset = 0;
+                let available_height = terminal_height.saturating_sub(8) as usize;
                 let display = crate::display::table::TableDisplay::new();
 
-                // Scroll state (for scrolling within table)
-                let mut scroll_offset = 0;
-                // Reserve 8 lines: header space (5 lines) + prompt space (3 lines)
-                let available_height = terminal_height.saturating_sub(8) as usize;
-
                 loop {
-                    // Get current page data (considering offset)
-                    let start_row = base_offset + (current_page - 1) * page_size;
+                    let start_row = (current_page - 1) * page_size;
                     let end_row = (start_row + page_size).min(total_rows);
-
-                    // Create QueryResult limited to current page data
                     let page_rows = if start_row < total_rows {
                         result.data.rows[start_row..end_row].to_vec()
                     } else {
@@ -108,14 +169,10 @@ impl InteractiveDisplay {
                         },
                     };
 
-                    // Generate table for current page
                     let page_table_output = display.render_query_result(&page_result)?;
                     let table_lines: Vec<&str> = page_table_output.lines().collect();
 
-                    // Clear entire screen
                     execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
-
-                    // Display header (fixed)
                     execute!(
                         io::stdout(),
                         SetForegroundColor(Color::Cyan),
@@ -124,228 +181,106 @@ impl InteractiveDisplay {
                         Print("\r\n"),
                         SetForegroundColor(Color::Yellow),
                         Print(format!(
-                            "Page {}/{} | Showing rows {}-{} of {} total (available: {}, offset: {}) | Page size: {}",
+                            "Page {}/{} | Rows {}-{} of {} | offset: {} | page_size: {}",
                             current_page,
                             total_pages,
-                            initial_offset.unwrap_or(0) + (current_page - 1) * page_size + 1,  // Correct user display range start
-                            initial_offset.unwrap_or(0) + (current_page - 1) * page_size + (end_row - start_row),  // Correct user display range end
+                            initial_offset.unwrap_or(0) + start_row + 1,
+                            initial_offset.unwrap_or(0) + start_row + (end_row - start_row),
                             total_rows,
-                            available_rows,
                             initial_offset.unwrap_or(0),
                             page_size
                         )),
                         ResetColor,
                         Print("\r\n\r\n")
-                    ).ok();
-
-                    // Display content within scroll range
-                    let total_lines = table_lines.len();
-                    let start_line = scroll_offset.min(total_lines);
-                    let end_line = (start_line + available_height).min(total_lines);
-
-                    if start_line < total_lines {
-                        let display_lines = &table_lines[start_line..end_line];
-                        for line in display_lines {
-                            println!("{}\r", line);
-                        }
-                    }
-
-                    // Clear bottom of screen (prevent leftover characters)
-                    execute!(io::stdout(), Clear(ClearType::FromCursorDown)).ok();
-
-                    // Display prompt (fixed at bottom)
-                    execute!(
-                        io::stdout(),
-                        cursor::MoveTo(0, terminal_height - 2),
-                        SetForegroundColor(Color::Green),
-                        Print("Controls: ↑↓/jk=scroll | n/p=page | Home/End | q=quit | h=help"),
-                        ResetColor
                     )
                     .ok();
 
+                    display_table_lines(&table_lines, scroll_offset, available_height);
+                    execute!(io::stdout(), Clear(ClearType::FromCursorDown)).ok();
+                    display_controls(terminal_height);
                     io::stdout().flush().ok();
 
-                    // Key input processing
                     if let Ok(Event::Key(KeyEvent {
                         code, modifiers, ..
                     })) = event::read()
                     {
-                        match code {
-                            // Exit
-                            KeyCode::Char('q') | KeyCode::Char('Q') => break,
-                            KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
-                                break;
+                        match parse_key_event(code, modifiers) {
+                            KeyAction::Quit => break,
+                            KeyAction::ScrollUp => scroll_offset = scroll_offset.saturating_sub(1),
+                            KeyAction::ScrollDown => {
+                                let max = table_lines.len().saturating_sub(available_height);
+                                scroll_offset = (scroll_offset + 1).min(max);
                             }
-                            KeyCode::Esc => break,
-
-                            // Scroll (line by line)
-                            KeyCode::Up | KeyCode::Char('k') => {
-                                scroll_offset = scroll_offset.saturating_sub(1);
-                            }
-                            KeyCode::Down | KeyCode::Char('j') => {
-                                let max_offset = total_lines.saturating_sub(available_height);
-                                scroll_offset = (scroll_offset + 1).min(max_offset);
-                            }
-
-                            // Page navigation (data pages)
-                            KeyCode::Char('n') => {
-                                if current_page < total_pages {
-                                    current_page += 1;
-                                    scroll_offset = 0; // Reset scroll position for new page
-                                }
-                            }
-                            KeyCode::Char('p') => {
-                                if current_page > 1 {
-                                    current_page -= 1;
-                                    scroll_offset = 0; // Reset scroll position for new page
-                                }
-                            }
-
-                            // Scroll movement (within page)
-                            KeyCode::PageUp => {
+                            KeyAction::PageUp => {
                                 scroll_offset = scroll_offset.saturating_sub(available_height);
                             }
-                            KeyCode::PageDown => {
-                                let max_offset = total_lines.saturating_sub(available_height);
-                                scroll_offset = (scroll_offset + available_height).min(max_offset);
+                            KeyAction::PageDown => {
+                                let max = table_lines.len().saturating_sub(available_height);
+                                scroll_offset = (scroll_offset + available_height).min(max);
                             }
-
-                            // First/last (page navigation)
-                            KeyCode::Home => {
+                            KeyAction::NextPage if current_page < total_pages => {
+                                current_page += 1;
+                                scroll_offset = 0;
+                            }
+                            KeyAction::PrevPage if current_page > 1 => {
+                                current_page -= 1;
+                                scroll_offset = 0;
+                            }
+                            KeyAction::Home => {
                                 current_page = 1;
                                 scroll_offset = 0;
                             }
-                            KeyCode::End => {
-                                current_page = total_pages.max(1);
+                            KeyAction::End => {
+                                current_page = total_pages;
                                 scroll_offset = 0;
                             }
-
-                            // Show help
-                            KeyCode::Char('h') | KeyCode::Char('H') => {
-                                execute!(
-                                    io::stdout(),
-                                    Clear(ClearType::All),
-                                    cursor::MoveTo(0, 0),
-                                    SetForegroundColor(Color::Cyan),
-                                    Print("Keyboard Navigation Help"),
-                                    ResetColor,
-                                    Print("\r\n\r\n"),
-                                    Print("Page Navigation:\r\n"),
-                                    Print("  n           : Next page\r\n"),
-                                    Print("  p           : Previous page\r\n"),
-                                    Print("  Home        : First page\r\n"),
-                                    Print("  End         : Last page\r\n"),
-                                    Print("\r\n"),
-                                    Print("Scroll Controls (within page):\r\n"),
-                                    Print("  ↑, k        : Scroll up (1 line)\r\n"),
-                                    Print("  ↓, j        : Scroll down (1 line)\r\n"),
-                                    Print("  Page Up     : Scroll up (page)\r\n"),
-                                    Print("  Page Down   : Scroll down (page)\r\n"),
-                                    Print("\r\n"),
-                                    Print("Other Controls:\r\n"),
-                                    Print("  q, Q, Esc  : Quit\r\n"),
-                                    Print("  Ctrl+C     : Force quit\r\n"),
-                                    Print("  h, H       : Show this help\r\n"),
-                                    Print("\r\n"),
-                                    SetForegroundColor(Color::Yellow),
-                                    Print("Press any key to continue..."),
-                                    ResetColor
-                                )
-                                .ok();
-                                io::stdout().flush().ok();
-                                event::read().ok();
-                            }
-
-                            _ => {} // Ignore invalid keys
+                            KeyAction::Help => show_standard_help("Keyboard Navigation Help"),
+                            _ => {}
                         }
                     }
                 }
             }
             Err(_) => {
-                // Fallback when RAW mode fails
                 println!("Warning: Could not enable full-screen mode, falling back to simple mode");
                 let display = crate::display::table::TableDisplay::new();
-                let table_output = display.render_query_result(result)?;
-                println!("{}", table_output);
+                println!("{}", display.render_query_result(result)?);
             }
         }
-
         Ok(())
     }
 
-    /// Display question list with interactive pagination
-    /// RAW mode + Alternate Screen + pagination display for Question List
     pub async fn display_question_list_pagination(
         &self,
         questions: &[Question],
         page_size: usize,
     ) -> Result<(), AppError> {
-        use crossterm::terminal::{
-            EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
-        };
-        use std::io::{self, Write};
-
-        // RAII cleanup structures
-        struct RawModeCleanup;
-        impl Drop for RawModeCleanup {
-            fn drop(&mut self) {
-                let _ = disable_raw_mode();
-            }
-        }
-
-        struct ScreenCleanup;
-        impl Drop for ScreenCleanup {
-            fn drop(&mut self) {
-                let _ = execute!(io::stdout(), LeaveAlternateScreen);
-            }
-        }
-
-        // Full screen mode - RAW mode + Alternate Screen + pagination (always used)
-        match enable_raw_mode() {
+        match terminal::enable_raw_mode() {
             Ok(()) => {
                 let _cleanup = RawModeCleanup;
                 execute!(io::stdout(), EnterAlternateScreen).ok();
                 let _screen_cleanup = ScreenCleanup;
 
-                // Get terminal size
-                let (_terminal_width, terminal_height) = size().unwrap_or((80, 24));
-
-                // Pagination state
-                let total_questions = questions.len();
-                let total_pages = if total_questions == 0 {
-                    1
-                } else {
-                    total_questions.div_ceil(page_size)
-                };
+                let (_, terminal_height) = terminal::size().unwrap_or((80, 24));
+                let total = questions.len();
+                let total_pages = total.div_ceil(page_size).max(1);
                 let mut current_page = 1;
-
-                // Table renderer for display
+                let mut scroll_offset = 0;
+                let available_height = terminal_height.saturating_sub(6) as usize;
                 let display = crate::display::table::TableDisplay::new();
 
-                // Scroll state (for scrolling within table)
-                let mut scroll_offset = 0;
-                // Reserve 6 lines: header space (3 lines) + prompt space (3 lines)
-                let available_height = terminal_height.saturating_sub(6) as usize;
-
                 loop {
-                    // Get current page data
-                    let start_idx = (current_page - 1) * page_size;
-                    let end_idx = (start_idx + page_size).min(total_questions);
-
-                    let page_questions = if start_idx < total_questions {
-                        &questions[start_idx..end_idx]
+                    let start = (current_page - 1) * page_size;
+                    let end = (start + page_size).min(total);
+                    let page_items = if start < total {
+                        &questions[start..end]
                     } else {
                         &[]
                     };
 
-                    // Generate table for current page
-                    let page_table_output = display.render_question_list(page_questions)?;
-                    let table_lines: Vec<&str> = page_table_output.lines().collect();
+                    let table_output = display.render_question_list(page_items)?;
+                    let table_lines: Vec<&str> = table_output.lines().collect();
 
-                    // Clear entire screen
                     execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
-
-                    // Display header (fixed)
                     execute!(
                         io::stdout(),
                         SetForegroundColor(Color::Cyan),
@@ -354,12 +289,12 @@ impl InteractiveDisplay {
                         Print("\r\n"),
                         SetForegroundColor(Color::Yellow),
                         Print(format!(
-                            "Page {}/{} | Showing questions {}-{} of {} total | Page size: {}",
+                            "Page {}/{} | Showing {}-{} of {} | page_size: {}",
                             current_page,
                             total_pages,
-                            start_idx + 1,
-                            start_idx + page_questions.len(),
-                            total_questions,
+                            start + 1,
+                            start + page_items.len(),
+                            total,
                             page_size
                         )),
                         ResetColor,
@@ -367,264 +302,133 @@ impl InteractiveDisplay {
                     )
                     .ok();
 
-                    // Display content within scroll range
-                    let total_lines = table_lines.len();
-                    let start_line = scroll_offset.min(total_lines);
-                    let end_line = (start_line + available_height).min(total_lines);
-
-                    if start_line < total_lines {
-                        let display_lines = &table_lines[start_line..end_line];
-                        for line in display_lines {
-                            println!("{}\r", line);
-                        }
-                    }
-
-                    // Clear bottom of screen (prevent leftover characters)
+                    display_table_lines(&table_lines, scroll_offset, available_height);
                     execute!(io::stdout(), Clear(ClearType::FromCursorDown)).ok();
-
-                    // Display prompt (fixed at bottom)
-                    execute!(
-                        io::stdout(),
-                        cursor::MoveTo(0, terminal_height - 2),
-                        SetForegroundColor(Color::Green),
-                        Print("Controls: ↑↓/jk=scroll | n/p=page | Home/End | q=quit | h=help"),
-                        ResetColor
-                    )
-                    .ok();
-
+                    display_controls(terminal_height);
                     io::stdout().flush().ok();
 
-                    // Key input processing
                     if let Ok(Event::Key(KeyEvent {
                         code, modifiers, ..
                     })) = event::read()
                     {
-                        match code {
-                            // Exit
-                            KeyCode::Char('q') | KeyCode::Char('Q') => break,
-                            KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
-                                break;
+                        match parse_key_event(code, modifiers) {
+                            KeyAction::Quit => break,
+                            KeyAction::ScrollUp => scroll_offset = scroll_offset.saturating_sub(1),
+                            KeyAction::ScrollDown => {
+                                let max = table_lines.len().saturating_sub(available_height);
+                                scroll_offset = (scroll_offset + 1).min(max);
                             }
-                            KeyCode::Esc => break,
-
-                            // Scroll (line by line)
-                            KeyCode::Up | KeyCode::Char('k') => {
-                                scroll_offset = scroll_offset.saturating_sub(1);
-                            }
-                            KeyCode::Down | KeyCode::Char('j') => {
-                                let max_offset = total_lines.saturating_sub(available_height);
-                                scroll_offset = (scroll_offset + 1).min(max_offset);
-                            }
-
-                            // Page navigation
-                            KeyCode::Char('n') => {
-                                if current_page < total_pages {
-                                    current_page += 1;
-                                    scroll_offset = 0; // Reset scroll position for new page
-                                }
-                            }
-                            KeyCode::Char('p') => {
-                                if current_page > 1 {
-                                    current_page -= 1;
-                                    scroll_offset = 0; // Reset scroll position for new page
-                                }
-                            }
-
-                            // Scroll movement (within page)
-                            KeyCode::PageUp => {
+                            KeyAction::PageUp => {
                                 scroll_offset = scroll_offset.saturating_sub(available_height);
                             }
-                            KeyCode::PageDown => {
-                                let max_offset = total_lines.saturating_sub(available_height);
-                                scroll_offset = (scroll_offset + available_height).min(max_offset);
+                            KeyAction::PageDown => {
+                                let max = table_lines.len().saturating_sub(available_height);
+                                scroll_offset = (scroll_offset + available_height).min(max);
                             }
-
-                            // First/last
-                            KeyCode::Home => {
+                            KeyAction::NextPage if current_page < total_pages => {
+                                current_page += 1;
+                                scroll_offset = 0;
+                            }
+                            KeyAction::PrevPage if current_page > 1 => {
+                                current_page -= 1;
+                                scroll_offset = 0;
+                            }
+                            KeyAction::Home => {
                                 current_page = 1;
                                 scroll_offset = 0;
                             }
-                            KeyCode::End => {
-                                current_page = total_pages.max(1);
+                            KeyAction::End => {
+                                current_page = total_pages;
                                 scroll_offset = 0;
                             }
-
-                            // Show help
-                            KeyCode::Char('h') | KeyCode::Char('H') => {
-                                execute!(
-                                    io::stdout(),
-                                    Clear(ClearType::All),
-                                    cursor::MoveTo(0, 0),
-                                    SetForegroundColor(Color::Cyan),
-                                    Print("Question List - Keyboard Navigation Help"),
-                                    ResetColor,
-                                    Print("\r\n\r\n"),
-                                    Print("Page Navigation:\r\n"),
-                                    Print("  n           : Next page\r\n"),
-                                    Print("  p           : Previous page\r\n"),
-                                    Print("  Home        : First page\r\n"),
-                                    Print("  End         : Last page\r\n"),
-                                    Print("\r\n"),
-                                    Print("Scroll Controls (within page):\r\n"),
-                                    Print("  ↑, k        : Scroll up (1 line)\r\n"),
-                                    Print("  ↓, j        : Scroll down (1 line)\r\n"),
-                                    Print("  Page Up     : Scroll up (page)\r\n"),
-                                    Print("  Page Down   : Scroll down (page)\r\n"),
-                                    Print("\r\n"),
-                                    Print("Other Controls:\r\n"),
-                                    Print("  q, Q, Esc  : Quit\r\n"),
-                                    Print("  Ctrl+C     : Force quit\r\n"),
-                                    Print("  h, H       : Show this help\r\n"),
-                                    Print("\r\n"),
-                                    SetForegroundColor(Color::Yellow),
-                                    Print("Press any key to continue..."),
-                                    ResetColor
-                                )
-                                .ok();
-                                io::stdout().flush().ok();
-                                event::read().ok();
+                            KeyAction::Help => {
+                                show_standard_help("Question List - Keyboard Navigation Help")
                             }
-
-                            _ => {} // Ignore invalid keys
+                            _ => {}
                         }
                     }
                 }
             }
             Err(_) => {
-                // Fallback when RAW mode fails
                 println!("Warning: Could not enable full-screen mode, falling back to simple mode");
                 let display = crate::display::table::TableDisplay::new();
-                let table_output = display.render_question_list(questions)?;
-                println!("{}", table_output);
+                println!("{}", display.render_question_list(questions)?);
             }
         }
-
         Ok(())
     }
 
-    /// Display dashboard list with interactive pagination
-    /// RAW mode + Alternate Screen + pagination display for Dashboard List
     pub async fn display_dashboard_list_pagination(
         &self,
         dashboards: &[Dashboard],
         page_size: usize,
     ) -> Result<(), AppError> {
-        use crossterm::terminal::{
-            EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
-        };
-        use std::io::{self, Write};
-
-        // RAII cleanup structures
-        struct RawModeCleanup;
-        impl Drop for RawModeCleanup {
-            fn drop(&mut self) {
-                let _ = disable_raw_mode();
-            }
-        }
-
-        struct ScreenCleanup;
-        impl Drop for ScreenCleanup {
-            fn drop(&mut self) {
-                let _ = execute!(io::stdout(), LeaveAlternateScreen);
-            }
-        }
-
-        // Full screen mode - RAW mode + Alternate Screen + scroll
-        match enable_raw_mode() {
+        match terminal::enable_raw_mode() {
             Ok(()) => {
                 let _cleanup = RawModeCleanup;
                 execute!(io::stdout(), EnterAlternateScreen).ok();
                 let _screen_cleanup = ScreenCleanup;
 
-                // Get terminal size
-                let (_terminal_width, terminal_height) = size().unwrap_or((80, 24));
-
-                // Pagination state
-                let total_dashboards = dashboards.len();
-                let total_pages = if total_dashboards == 0 {
-                    1
-                } else {
-                    total_dashboards.div_ceil(page_size)
-                };
+                let (_, terminal_height) = terminal::size().unwrap_or((80, 24));
+                let total = dashboards.len();
+                let total_pages = total.div_ceil(page_size).max(1);
                 let mut current_page = 1;
-
-                // Scroll state (for scrolling within table)
                 let mut scroll_offset = 0;
-                // Reserve 8 lines: header space (5 lines) + prompt space (3 lines)
                 let available_height = terminal_height.saturating_sub(8) as usize;
 
                 loop {
-                    // Get current page data
-                    let start_idx = (current_page - 1) * page_size;
-                    let end_idx = (start_idx + page_size).min(total_dashboards);
-                    let page_dashboards = if start_idx < total_dashboards {
-                        &dashboards[start_idx..end_idx]
+                    let start = (current_page - 1) * page_size;
+                    let end = (start + page_size).min(total);
+                    let page_items = if start < total {
+                        &dashboards[start..end]
                     } else {
                         &[]
                     };
 
-                    // Generate dashboard table lines with text wrapping
                     let mut table_lines = vec![
                         "┌──────┬─────────────────────────────────┬─────────────────────────────────┬──────────────────┬──────────────────┐".to_string(),
                         "│ ID   │ Name                            │ Description                     │ Collection       │ Updated          │".to_string(),
                         "├──────┼─────────────────────────────────┼─────────────────────────────────┼──────────────────┼──────────────────┤".to_string(),
                     ];
 
-                    for dashboard in page_dashboards {
-                        let name_wrapped = wrap_text(&dashboard.name, 31);
-                        let desc_wrapped = dashboard
+                    for d in page_items {
+                        let name_w = wrap_text(&d.name, 31);
+                        let desc_w = d
                             .description
                             .as_ref()
-                            .map(|d| wrap_text(d, 31))
-                            .unwrap_or_else(|| vec!["".to_string()]);
-                        let collection_text = dashboard
-                            .collection_id
-                            .map(|id| format!("ID: {}", id))
-                            .unwrap_or_else(|| "Personal".to_string());
-                        let collection_wrapped = wrap_text(&collection_text, 16);
-                        let updated_wrapped =
-                            wrap_text(&format_datetime(&dashboard.updated_at), 16);
-
-                        // Find maximum lines needed for this row
-                        let max_lines = name_wrapped
+                            .map(|s| wrap_text(s, 31))
+                            .unwrap_or_else(|| vec!["".into()]);
+                        let coll_w = wrap_text(
+                            &d.collection_id
+                                .map(|id| format!("ID: {}", id))
+                                .unwrap_or_else(|| "Personal".into()),
+                            16,
+                        );
+                        let upd_w = wrap_text(&format_datetime(&d.updated_at), 16);
+                        let max_lines = name_w
                             .len()
-                            .max(desc_wrapped.len())
-                            .max(collection_wrapped.len())
-                            .max(updated_wrapped.len());
-
-                        // Generate multi-line row
-                        for line_idx in 0..max_lines {
-                            let empty_string = String::new();
-                            let name_line = name_wrapped.get(line_idx).unwrap_or(&empty_string);
-                            let desc_line = desc_wrapped.get(line_idx).unwrap_or(&empty_string);
-                            let collection_line =
-                                collection_wrapped.get(line_idx).unwrap_or(&empty_string);
-                            let updated_line =
-                                updated_wrapped.get(line_idx).unwrap_or(&empty_string);
-
-                            let id_display = if line_idx == 0 {
-                                dashboard.id.to_string()
-                            } else {
-                                String::new()
-                            };
-
+                            .max(desc_w.len())
+                            .max(coll_w.len())
+                            .max(upd_w.len());
+                        for i in 0..max_lines {
+                            let empty = String::new();
                             table_lines.push(format!(
                                 "│ {:>4} │ {:31} │ {:31} │ {:16} │ {:16} │",
-                                id_display,
-                                pad_to_width(name_line, 31),
-                                pad_to_width(desc_line, 31),
-                                pad_to_width(collection_line, 16),
-                                pad_to_width(updated_line, 16)
+                                if i == 0 {
+                                    d.id.to_string()
+                                } else {
+                                    String::new()
+                                },
+                                pad_to_width(name_w.get(i).unwrap_or(&empty), 31),
+                                pad_to_width(desc_w.get(i).unwrap_or(&empty), 31),
+                                pad_to_width(coll_w.get(i).unwrap_or(&empty), 16),
+                                pad_to_width(upd_w.get(i).unwrap_or(&empty), 16)
                             ));
                         }
                     }
-
                     table_lines.push("└──────┴─────────────────────────────────┴─────────────────────────────────┴──────────────────┴──────────────────┘".to_string());
 
-                    // Clear entire screen
                     execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
-
-                    // Display header (fixed)
                     execute!(
                         io::stdout(),
                         SetForegroundColor(Color::Cyan),
@@ -633,12 +437,12 @@ impl InteractiveDisplay {
                         Print("\r\n"),
                         SetForegroundColor(Color::Yellow),
                         Print(format!(
-                            "Page {}/{} | Showing dashboards {}-{} of {} total | Page size: {}",
+                            "Page {}/{} | Showing {}-{} of {} | page_size: {}",
                             current_page,
                             total_pages,
-                            start_idx + 1,
-                            end_idx,
-                            total_dashboards,
+                            start + 1,
+                            end,
+                            total,
                             page_size
                         )),
                         ResetColor,
@@ -646,152 +450,64 @@ impl InteractiveDisplay {
                     )
                     .ok();
 
-                    // Display content within scroll range
-                    let total_lines = table_lines.len();
-                    let start_line = scroll_offset.min(total_lines);
-                    let end_line = (start_line + available_height).min(total_lines);
-
-                    if start_line < total_lines {
-                        let display_lines = &table_lines[start_line..end_line];
-                        for line in display_lines {
-                            println!("{}\r", line);
-                        }
-                    }
-
-                    // Clear bottom of screen
+                    let lines_ref: Vec<&str> = table_lines.iter().map(|s| s.as_str()).collect();
+                    display_table_lines(&lines_ref, scroll_offset, available_height);
                     execute!(io::stdout(), Clear(ClearType::FromCursorDown)).ok();
-
-                    // Display prompt (fixed at bottom)
-                    execute!(
-                        io::stdout(),
-                        cursor::MoveTo(0, terminal_height - 2),
-                        SetForegroundColor(Color::Green),
-                        Print("Controls: ↑↓/jk=scroll | n/p=page | Home/End | q=quit | h=help"),
-                        ResetColor
-                    )
-                    .ok();
-
+                    display_controls(terminal_height);
                     io::stdout().flush().ok();
 
-                    // Key input processing
                     if let Ok(Event::Key(KeyEvent {
                         code, modifiers, ..
                     })) = event::read()
                     {
-                        match code {
-                            // Exit
-                            KeyCode::Char('q') | KeyCode::Char('Q') => break,
-                            KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
-                                break;
+                        match parse_key_event(code, modifiers) {
+                            KeyAction::Quit => break,
+                            KeyAction::ScrollUp => scroll_offset = scroll_offset.saturating_sub(1),
+                            KeyAction::ScrollDown => {
+                                let max = table_lines.len().saturating_sub(available_height);
+                                scroll_offset = (scroll_offset + 1).min(max);
                             }
-                            KeyCode::Esc => break,
-
-                            // Scroll (line by line)
-                            KeyCode::Up | KeyCode::Char('k') => {
-                                scroll_offset = scroll_offset.saturating_sub(1);
-                            }
-                            KeyCode::Down | KeyCode::Char('j') => {
-                                let max_offset = total_lines.saturating_sub(available_height);
-                                scroll_offset = (scroll_offset + 1).min(max_offset);
-                            }
-
-                            // Page navigation
-                            KeyCode::Char('n') => {
-                                if current_page < total_pages {
-                                    current_page += 1;
-                                    scroll_offset = 0;
-                                }
-                            }
-                            KeyCode::Char('p') => {
-                                if current_page > 1 {
-                                    current_page -= 1;
-                                    scroll_offset = 0;
-                                }
-                            }
-
-                            // Scroll movement
-                            KeyCode::PageUp => {
+                            KeyAction::PageUp => {
                                 scroll_offset = scroll_offset.saturating_sub(available_height / 2);
                             }
-                            KeyCode::PageDown => {
-                                let max_offset = total_lines.saturating_sub(available_height);
-                                scroll_offset =
-                                    (scroll_offset + available_height / 2).min(max_offset);
+                            KeyAction::PageDown => {
+                                let max = table_lines.len().saturating_sub(available_height);
+                                scroll_offset = (scroll_offset + available_height / 2).min(max);
                             }
-                            KeyCode::Home => {
+                            KeyAction::NextPage if current_page < total_pages => {
+                                current_page += 1;
                                 scroll_offset = 0;
                             }
-                            KeyCode::End => {
-                                scroll_offset = total_lines.saturating_sub(available_height);
+                            KeyAction::PrevPage if current_page > 1 => {
+                                current_page -= 1;
+                                scroll_offset = 0;
                             }
-
-                            // Help
-                            KeyCode::Char('h') => {
-                                self.show_dashboard_help(terminal_height).await?;
+                            KeyAction::Home => scroll_offset = 0,
+                            KeyAction::End => {
+                                scroll_offset = table_lines.len().saturating_sub(available_height);
                             }
-
-                            _ => {} // Ignore other keys
+                            KeyAction::Help => {
+                                show_standard_help("Dashboard List - Keyboard Navigation Help")
+                            }
+                            _ => {}
                         }
                     }
                 }
             }
             Err(_) => {
-                // Fallback when RAW mode fails
                 println!("Warning: Could not enable full-screen mode, falling back to simple mode");
                 println!("Dashboard List ({} found):", dashboards.len());
-                for dashboard in dashboards {
+                for d in dashboards {
                     println!(
                         "  ID: {}, Name: {}, Description: {:?}",
-                        dashboard.id, dashboard.name, dashboard.description
+                        d.id, d.name, d.description
                     );
                 }
             }
         }
-
         Ok(())
     }
 
-    // Helper methods for dashboard display are now imported from utils::text
-
-    async fn show_dashboard_help(&self, _terminal_height: u16) -> Result<(), AppError> {
-        use std::io::{self, Write};
-
-        execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
-
-        execute!(
-            io::stdout(),
-            SetForegroundColor(Color::Cyan),
-            Print("Dashboard List - Help\r\n\r\n"),
-            ResetColor,
-            Print("Navigation:\r\n"),
-            Print("  ↑/k      - Scroll up one line\r\n"),
-            Print("  ↓/j      - Scroll down one line\r\n"),
-            Print("  Page Up  - Scroll up half page\r\n"),
-            Print("  Page Down- Scroll down half page\r\n"),
-            Print("  Home     - Go to top\r\n"),
-            Print("  End      - Go to bottom\r\n"),
-            Print("  n        - Next page\r\n"),
-            Print("  p        - Previous page\r\n\r\n"),
-            Print("Commands:\r\n"),
-            Print("  q        - Quit\r\n"),
-            Print("  h        - Show this help\r\n\r\n"),
-            SetForegroundColor(Color::Green),
-            Print("Press any key to return to dashboard list..."),
-            ResetColor
-        )
-        .ok();
-
-        io::stdout().flush().ok();
-
-        // Wait for any key press
-        if let Ok(Event::Key(_)) = crossterm::event::read() {
-            // Return to main display
-        }
-
-        Ok(())
-    }
-
-    /// Display dashboard details with interactive features
     pub async fn display_dashboard_details_interactive(
         &self,
         dashboard: &Dashboard,
@@ -800,21 +516,15 @@ impl InteractiveDisplay {
         let table_content = table_display.render_dashboard_details(dashboard)?;
         let table_lines: Vec<String> = table_content.lines().map(|s| s.to_string()).collect();
 
-        // Enable raw mode for keyboard handling
         match terminal::enable_raw_mode() {
             Ok(_) => {
+                let _cleanup = RawModeCleanup;
                 let mut scroll_offset = 0;
                 let (_, terminal_height) = terminal::size().unwrap_or((80, 24));
-                let header_height = 4; // Title + info + blank line
-                let footer_height = 2; // Controls + status
-                let available_height =
-                    (terminal_height as usize).saturating_sub(header_height + footer_height);
+                let available_height = (terminal_height as usize).saturating_sub(6);
 
                 loop {
-                    // Clear screen and reset cursor
                     execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
-
-                    // Display header
                     execute!(
                         io::stdout(),
                         SetForegroundColor(Color::Cyan),
@@ -831,88 +541,45 @@ impl InteractiveDisplay {
                     )
                     .ok();
 
-                    // Display content within scroll range
-                    let total_lines = table_lines.len();
-                    let start_line = scroll_offset.min(total_lines);
-                    let end_line = (start_line + available_height).min(total_lines);
-
-                    if start_line < total_lines {
-                        let display_lines = &table_lines[start_line..end_line];
-                        for line in display_lines {
+                    let total = table_lines.len();
+                    let start = scroll_offset.min(total);
+                    let end = (start + available_height).min(total);
+                    if start < total {
+                        for line in &table_lines[start..end] {
                             println!("{}\r", line);
                         }
                     }
 
-                    // Clear bottom of screen
                     execute!(io::stdout(), Clear(ClearType::FromCursorDown)).ok();
-
-                    // Display controls at bottom
-                    execute!(
-                        io::stdout(),
-                        cursor::MoveTo(0, terminal_height - 2),
-                        SetForegroundColor(Color::Green),
-                        Print("Controls: ↑↓/jk=scroll | n/p=page | Page Up/Down | Home/End | q=quit | h=help"),
-                        ResetColor
-                    ).ok();
-
+                    display_controls(terminal_height);
                     io::stdout().flush().ok();
 
-                    // Handle keyboard input
                     if let Ok(Event::Key(KeyEvent {
                         code,
                         kind: KeyEventKind::Press,
+                        modifiers,
                         ..
                     })) = event::read()
                     {
-                        match code {
-                            KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => break,
-                            KeyCode::Up | KeyCode::Char('k') => {
-                                scroll_offset = scroll_offset.saturating_sub(1);
+                        match parse_key_event(code, modifiers) {
+                            KeyAction::Quit => break,
+                            KeyAction::ScrollUp => scroll_offset = scroll_offset.saturating_sub(1),
+                            KeyAction::ScrollDown if scroll_offset + available_height < total => {
+                                scroll_offset += 1;
                             }
-                            KeyCode::Down | KeyCode::Char('j') => {
-                                if scroll_offset + available_height < total_lines {
-                                    scroll_offset += 1;
-                                }
-                            }
-                            KeyCode::PageUp => {
+                            KeyAction::PageUp => {
                                 scroll_offset = scroll_offset.saturating_sub(available_height);
                             }
-                            KeyCode::PageDown => {
+                            KeyAction::PageDown => {
                                 scroll_offset = (scroll_offset + available_height)
-                                    .min(total_lines.saturating_sub(available_height));
+                                    .min(total.saturating_sub(available_height));
                             }
-                            KeyCode::Home => scroll_offset = 0,
-                            KeyCode::End => {
-                                scroll_offset = total_lines.saturating_sub(available_height);
+                            KeyAction::Home => scroll_offset = 0,
+                            KeyAction::End => {
+                                scroll_offset = total.saturating_sub(available_height)
                             }
-                            KeyCode::Char('h') | KeyCode::Char('H') => {
-                                execute!(
-                                    io::stdout(),
-                                    Clear(ClearType::All),
-                                    cursor::MoveTo(0, 0),
-                                    SetForegroundColor(Color::Cyan),
-                                    Print("Dashboard Details - Keyboard Navigation Help"),
-                                    ResetColor,
-                                    Print("\r\n\r\n"),
-                                    Print("Scroll Controls:\r\n"),
-                                    Print("  ↑, k        : Scroll up (1 line)\r\n"),
-                                    Print("  ↓, j        : Scroll down (1 line)\r\n"),
-                                    Print("  Page Up     : Scroll up (page)\r\n"),
-                                    Print("  Page Down   : Scroll down (page)\r\n"),
-                                    Print("  Home        : Top\r\n"),
-                                    Print("  End         : Bottom\r\n"),
-                                    Print("\r\n"),
-                                    Print("Other Controls:\r\n"),
-                                    Print("  q, Q, Esc  : Quit\r\n"),
-                                    Print("  h, H       : Show this help\r\n"),
-                                    Print("\r\n"),
-                                    SetForegroundColor(Color::Yellow),
-                                    Print("Press any key to continue..."),
-                                    ResetColor
-                                )
-                                .ok();
-                                io::stdout().flush().ok();
-                                event::read().ok();
+                            KeyAction::Help => {
+                                show_standard_help("Dashboard Details - Keyboard Navigation Help")
                             }
                             _ => {}
                         }
@@ -920,55 +587,41 @@ impl InteractiveDisplay {
                 }
             }
             Err(_) => {
-                // Fallback to simple display
                 println!("Warning: Could not enable full-screen mode, falling back to simple mode");
-                let table_display = crate::display::table::TableDisplay::new();
-                let table_content = table_display.render_dashboard_details(dashboard)?;
                 println!("{}", table_content);
             }
         }
-
         Ok(())
     }
 
-    /// Display dashboard cards with interactive features and pagination
     pub async fn display_dashboard_cards_interactive(
         &self,
         cards: &[DashboardCard],
         dashboard_id: u32,
         page_size: usize,
     ) -> Result<(), AppError> {
-        // Implement pagination similar to dashboard_list_pagination
-        let total_cards = cards.len();
-        let total_pages = total_cards.div_ceil(page_size); // Ceiling division
+        let total = cards.len();
+        let total_pages = total.div_ceil(page_size).max(1);
         let mut current_page = 1;
 
-        // Enable raw mode for keyboard handling
         match terminal::enable_raw_mode() {
             Ok(_) => {
+                let _cleanup = RawModeCleanup;
                 let mut scroll_offset = 0;
                 let (_, terminal_height) = terminal::size().unwrap_or((80, 24));
-                let header_height = 4; // Title + info + blank line
-                let footer_height = 2; // Controls + status
-                let available_height =
-                    (terminal_height as usize).saturating_sub(header_height + footer_height);
+                let available_height = (terminal_height as usize).saturating_sub(6);
 
                 loop {
-                    // Calculate current page data
-                    let start_idx = (current_page - 1) * page_size;
-                    let end_idx = (start_idx + page_size).min(total_cards);
-                    let current_cards = &cards[start_idx..end_idx];
+                    let start = (current_page - 1) * page_size;
+                    let end = (start + page_size).min(total);
+                    let current_cards = cards.get(start..end).unwrap_or(&[]);
 
-                    // Generate table for current page
                     let table_display = crate::display::table::TableDisplay::new();
                     let table_content = table_display.render_dashboard_cards(current_cards)?;
                     let table_lines: Vec<String> =
                         table_content.lines().map(|s| s.to_string()).collect();
 
-                    // Clear entire screen
                     execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
-
-                    // Display header (fixed)
                     execute!(
                         io::stdout(),
                         SetForegroundColor(Color::Cyan),
@@ -977,12 +630,12 @@ impl InteractiveDisplay {
                         Print("\r\n"),
                         SetForegroundColor(Color::Yellow),
                         Print(format!(
-                            "Page {}/{} | Showing cards {}-{} of {} total | Page size: {}",
+                            "Page {}/{} | Showing {}-{} of {} | page_size: {}",
                             current_page,
                             total_pages,
-                            start_idx + 1,
-                            end_idx,
-                            total_cards,
+                            start + 1,
+                            end,
+                            total,
                             page_size
                         )),
                         ResetColor,
@@ -990,105 +643,59 @@ impl InteractiveDisplay {
                     )
                     .ok();
 
-                    // Display content within scroll range
                     let total_lines = table_lines.len();
                     let start_line = scroll_offset.min(total_lines);
                     let end_line = (start_line + available_height).min(total_lines);
-
                     if start_line < total_lines {
-                        let display_lines = &table_lines[start_line..end_line];
-                        for line in display_lines {
+                        for line in &table_lines[start_line..end_line] {
                             println!("{}\r", line);
                         }
                     }
 
-                    // Clear bottom of screen
                     execute!(io::stdout(), Clear(ClearType::FromCursorDown)).ok();
-
-                    // Display controls at bottom
-                    execute!(
-                        io::stdout(),
-                        cursor::MoveTo(0, terminal_height - 2),
-                        SetForegroundColor(Color::Green),
-                        Print("Controls: ↑↓/jk=scroll | n/p=page | Page Up/Down | Home/End | q=quit | h=help"),
-                        ResetColor
-                    ).ok();
-
+                    display_controls(terminal_height);
                     io::stdout().flush().ok();
 
-                    // Handle keyboard input
                     if let Ok(Event::Key(KeyEvent {
                         code,
                         kind: KeyEventKind::Press,
+                        modifiers,
                         ..
                     })) = event::read()
                     {
-                        match code {
-                            KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => break,
-                            KeyCode::Up | KeyCode::Char('k') => {
-                                scroll_offset = scroll_offset.saturating_sub(1);
+                        match parse_key_event(code, modifiers) {
+                            KeyAction::Quit => break,
+                            KeyAction::ScrollUp => scroll_offset = scroll_offset.saturating_sub(1),
+                            KeyAction::ScrollDown
+                                if scroll_offset + available_height < total_lines =>
+                            {
+                                scroll_offset += 1;
                             }
-                            KeyCode::Down | KeyCode::Char('j') => {
-                                if scroll_offset + available_height < total_lines {
-                                    scroll_offset += 1;
-                                }
-                            }
-                            KeyCode::PageUp => {
+                            KeyAction::PageUp => {
                                 scroll_offset = scroll_offset.saturating_sub(available_height);
                             }
-                            KeyCode::PageDown => {
+                            KeyAction::PageDown => {
                                 scroll_offset = (scroll_offset + available_height)
                                     .min(total_lines.saturating_sub(available_height));
                             }
-                            KeyCode::Home => {
+                            KeyAction::NextPage if current_page < total_pages => {
+                                current_page += 1;
+                                scroll_offset = 0;
+                            }
+                            KeyAction::PrevPage if current_page > 1 => {
+                                current_page -= 1;
+                                scroll_offset = 0;
+                            }
+                            KeyAction::Home => {
                                 current_page = 1;
                                 scroll_offset = 0;
                             }
-                            KeyCode::End => {
-                                current_page = total_pages.max(1);
+                            KeyAction::End => {
+                                current_page = total_pages;
                                 scroll_offset = 0;
                             }
-                            // Page navigation
-                            KeyCode::Char('n') | KeyCode::Char('N') => {
-                                if current_page < total_pages {
-                                    current_page += 1;
-                                    scroll_offset = 0;
-                                }
-                            }
-                            KeyCode::Char('p') | KeyCode::Char('P') => {
-                                if current_page > 1 {
-                                    current_page -= 1;
-                                    scroll_offset = 0;
-                                }
-                            }
-                            KeyCode::Char('h') | KeyCode::Char('H') => {
-                                execute!(
-                                    io::stdout(),
-                                    Clear(ClearType::All),
-                                    cursor::MoveTo(0, 0),
-                                    SetForegroundColor(Color::Cyan),
-                                    Print("Dashboard Cards - Keyboard Navigation Help"),
-                                    ResetColor,
-                                    Print("\r\n\r\n"),
-                                    Print("Scroll Controls:\r\n"),
-                                    Print("  ↑, k        : Scroll up (1 line)\r\n"),
-                                    Print("  ↓, j        : Scroll down (1 line)\r\n"),
-                                    Print("  Page Up     : Scroll up (page)\r\n"),
-                                    Print("  Page Down   : Scroll down (page)\r\n"),
-                                    Print("  Home        : Top\r\n"),
-                                    Print("  End         : Bottom\r\n"),
-                                    Print("\r\n"),
-                                    Print("Other Controls:\r\n"),
-                                    Print("  q, Q, Esc  : Quit\r\n"),
-                                    Print("  h, H       : Show this help\r\n"),
-                                    Print("\r\n"),
-                                    SetForegroundColor(Color::Yellow),
-                                    Print("Press any key to continue..."),
-                                    ResetColor
-                                )
-                                .ok();
-                                io::stdout().flush().ok();
-                                event::read().ok();
+                            KeyAction::Help => {
+                                show_standard_help("Dashboard Cards - Keyboard Navigation Help")
                             }
                             _ => {}
                         }
@@ -1096,73 +703,85 @@ impl InteractiveDisplay {
                 }
             }
             Err(_) => {
-                // Fallback to simple display
                 println!("Warning: Could not enable full-screen mode, falling back to simple mode");
                 let table_display = crate::display::table::TableDisplay::new();
-                let table_content = table_display.render_dashboard_cards(cards)?;
-                println!("{}", table_content);
+                println!("{}", table_display.render_dashboard_cards(cards)?);
             }
         }
-
         Ok(())
     }
 
-    /// Display collection list in fullscreen mode with proper terminal handling  
-    /// This replaces the old display_collection_list_pagination with a stable implementation
     pub async fn display_collection_list_fullscreen(
         &self,
         collections: &[Collection],
         page_size: usize,
     ) -> Result<(), AppError> {
-        use crossterm::terminal::{
-            EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
-        };
-        use std::io::{self, Write};
-
-        // RAII cleanup structures
-        struct RawModeCleanup;
-        impl Drop for RawModeCleanup {
-            fn drop(&mut self) {
-                let _ = disable_raw_mode();
-            }
-        }
-
-        struct ScreenCleanup;
-        impl Drop for ScreenCleanup {
-            fn drop(&mut self) {
-                let _ = execute!(io::stdout(), LeaveAlternateScreen);
-            }
-        }
-
-        // Full screen mode - RAW mode + Alternate Screen + pagination
-        match enable_raw_mode() {
+        match terminal::enable_raw_mode() {
             Ok(()) => {
                 let _cleanup = RawModeCleanup;
                 execute!(io::stdout(), EnterAlternateScreen).ok();
                 let _screen_cleanup = ScreenCleanup;
 
-                // Get terminal size for dynamic layout
-                let (terminal_width, terminal_height) = size().unwrap_or((80, 24));
-
-                // Pagination state
-                let total_collections = collections.len();
-                let total_pages = if total_collections == 0 {
-                    1
-                } else {
-                    total_collections.div_ceil(page_size)
-                };
+                let (terminal_width, terminal_height) = terminal::size().unwrap_or((80, 24));
+                let total = collections.len();
+                let total_pages = total.div_ceil(page_size).max(1);
                 let mut current_page = 1;
-
-                // Scroll state (for scrolling within table)
                 let mut scroll_offset = 0;
-                // Reserve 6 lines: header space (3 lines) + prompt space (3 lines)
                 let available_height = terminal_height.saturating_sub(6) as usize;
 
-                loop {
-                    // Clear screen and reset cursor
-                    execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
+                let available_width = (terminal_width as usize).saturating_sub(7);
+                let id_w = (available_width * 8 / 100).clamp(4, 8);
+                let name_w = (available_width * 35 / 100).clamp(10, 25);
+                let desc_w = (available_width * 45 / 100).clamp(15, 35);
+                let type_w = available_width.saturating_sub(id_w + name_w + desc_w);
 
-                    // Header with colored title
+                let top = format!(
+                    "┌{:─<id$}┬{:─<name$}┬{:─<desc$}┬{:─<t$}┐",
+                    "",
+                    "",
+                    "",
+                    "",
+                    id = id_w,
+                    name = name_w,
+                    desc = desc_w,
+                    t = type_w
+                );
+                let header = format!(
+                    "│{:^id$}│{:^name$}│{:^desc$}│{:^t$}│",
+                    "ID",
+                    "Name",
+                    "Description",
+                    "Type",
+                    id = id_w,
+                    name = name_w,
+                    desc = desc_w,
+                    t = type_w
+                );
+                let sep = format!(
+                    "├{:─<id$}┼{:─<name$}┼{:─<desc$}┼{:─<t$}┤",
+                    "",
+                    "",
+                    "",
+                    "",
+                    id = id_w,
+                    name = name_w,
+                    desc = desc_w,
+                    t = type_w
+                );
+                let bottom = format!(
+                    "└{:─<id$}┴{:─<name$}┴{:─<desc$}┴{:─<t$}┘",
+                    "",
+                    "",
+                    "",
+                    "",
+                    id = id_w,
+                    name = name_w,
+                    desc = desc_w,
+                    t = type_w
+                );
+
+                loop {
+                    execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
                     execute!(
                         io::stdout(),
                         SetForegroundColor(Color::Cyan),
@@ -1171,251 +790,145 @@ impl InteractiveDisplay {
                         Print("\r\n"),
                         SetForegroundColor(Color::Yellow),
                         Print(format!(
-                            "Total: {} collections | Page {} of {} | Showing {} items per page",
-                            total_collections, current_page, total_pages, page_size
+                            "Total: {} | Page {} of {} | page_size: {}",
+                            total, current_page, total_pages, page_size
                         )),
                         ResetColor,
-                        Print("\r\n\r\n")
-                    )
-                    .ok();
-
-                    // Calculate appropriate column widths based on terminal size
-                    let total_width = terminal_width as usize;
-                    let available_width = total_width.saturating_sub(7); // Border chars
-
-                    // Distribute width: 8% ID, 35% Name, 45% Description, 12% Type
-                    let id_width = (available_width * 8 / 100).clamp(4, 8);
-                    let name_width = (available_width * 35 / 100).clamp(10, 25);
-                    let desc_width = (available_width * 45 / 100).clamp(15, 35);
-                    let type_width =
-                        available_width.saturating_sub(id_width + name_width + desc_width);
-
-                    // Dynamic table header
-                    let top_border = format!("┌{:─<id$}┬{:─<name$}┬{:─<desc$}┬{:─<type$}┐", "", "", "", "", 
-                                            id = id_width, name = name_width, desc = desc_width, type = type_width);
-                    let header_row = format!("│{:^id$}│{:^name$}│{:^desc$}│{:^type$}│", 
-                                            "ID", "Name", "Description", "Type",
-                                            id = id_width, name = name_width, desc = desc_width, type = type_width);
-                    let separator = format!("├{:─<id$}┼{:─<name$}┼{:─<desc$}┼{:─<type$}┤", "", "", "", "",
-                                          id = id_width, name = name_width, desc = desc_width, type = type_width);
-
-                    execute!(
-                        io::stdout(),
-                        Print(&top_border),
+                        Print("\r\n\r\n"),
+                        Print(&top),
                         Print("\r\n"),
-                        Print(&header_row),
+                        Print(&header),
                         Print("\r\n"),
-                        Print(&separator),
+                        Print(&sep),
                         Print("\r\n")
                     )
                     .ok();
 
-                    // Get current page data
-                    let start_idx = (current_page - 1) * page_size;
-                    let end_idx = (start_idx + page_size).min(total_collections);
-                    let page_collections = if start_idx < total_collections {
-                        &collections[start_idx..end_idx]
+                    let start = (current_page - 1) * page_size;
+                    let end = (start + page_size).min(total);
+                    let page_items = if start < total {
+                        &collections[start..end]
                     } else {
                         &[]
                     };
 
-                    // Display collection rows
-                    let table_lines: Vec<String> = page_collections.iter().map(|collection| {
-                        let id_str = collection.id.map_or("root".to_string(), |id| id.to_string());
-                        let name = truncate_text(&collection.name, name_width);
-                        let description = truncate_text("", desc_width); // Collections don't have descriptions
-                        let collection_type = if collection.id.is_none() { "Root" } else { "Collection" };
-                        format!("│{:id$}│{:name$}│{:desc$}│{:type$}│", 
-                                id_str, name, description, collection_type,
-                                id = id_width, name = name_width, desc = desc_width, type = type_width)
-                    }).collect();
+                    let table_lines: Vec<String> = page_items
+                        .iter()
+                        .map(|c| {
+                            let id_str = c.id.map_or("root".into(), |id| id.to_string());
+                            let ctype = if c.id.is_none() { "Root" } else { "Collection" };
+                            format!(
+                                "│{:id$}│{:name$}│{:desc$}│{:t$}│",
+                                id_str,
+                                truncate_text(&c.name, name_w),
+                                truncate_text("", desc_w),
+                                ctype,
+                                id = id_w,
+                                name = name_w,
+                                desc = desc_w,
+                                t = type_w
+                            )
+                        })
+                        .collect();
 
-                    // Display table lines with scrolling
-                    let total_lines = table_lines.len();
-                    let start_line = scroll_offset.min(total_lines);
-                    let end_line = (start_line + available_height).min(total_lines);
-
-                    if start_line < total_lines {
-                        let display_lines = &table_lines[start_line..end_line];
-                        for line in display_lines {
+                    let lines_len = table_lines.len();
+                    let start_line = scroll_offset.min(lines_len);
+                    let end_line = (start_line + available_height).min(lines_len);
+                    if start_line < lines_len {
+                        for line in &table_lines[start_line..end_line] {
                             execute!(io::stdout(), Print(line), Print("\r\n")).ok();
                         }
                     }
 
-                    // Table bottom border
-                    let bottom_border = format!("└{:─<id$}┴{:─<name$}┴{:─<desc$}┴{:─<type$}┘", "", "", "", "",
-                                               id = id_width, name = name_width, desc = desc_width, type = type_width);
-                    execute!(io::stdout(), Print(&bottom_border), Print("\r\n\r\n")).ok();
-
-                    // Control instructions
+                    execute!(io::stdout(), Print(&bottom), Print("\r\n\r\n")).ok();
                     execute!(
                         io::stdout(),
                         SetForegroundColor(Color::Green),
-                        Print("Controls: [q]uit | [n]ext page | [p]revious page | [h]elp"),
+                        Print("Controls: [q]uit | [n]ext | [p]rev | [h]elp"),
                         ResetColor
                     )
                     .ok();
-
                     io::stdout().flush().ok();
 
-                    // Handle input
-                    if let Event::Key(KeyEvent { code, kind, .. }) =
-                        event::read().unwrap_or(Event::Key(KeyEvent::from(KeyCode::Char('q'))))
+                    if let Ok(Event::Key(KeyEvent {
+                        code,
+                        kind: KeyEventKind::Press,
+                        modifiers,
+                        ..
+                    })) = event::read()
                     {
-                        if kind == KeyEventKind::Press {
-                            match code {
-                                KeyCode::Char('q') | KeyCode::Esc => break,
-                                KeyCode::Char('n') | KeyCode::Right => {
-                                    if current_page < total_pages {
-                                        current_page += 1;
-                                        scroll_offset = 0;
-                                    }
-                                }
-                                KeyCode::Char('p') | KeyCode::Left => {
-                                    if current_page > 1 {
-                                        current_page -= 1;
-                                        scroll_offset = 0;
-                                    }
-                                }
-                                KeyCode::Char('j') | KeyCode::Down => {
-                                    if start_line + available_height < total_lines {
-                                        scroll_offset += 1;
-                                    }
-                                }
-                                KeyCode::Char('k') | KeyCode::Up => {
-                                    scroll_offset = scroll_offset.saturating_sub(1);
-                                }
-                                KeyCode::Home => {
-                                    current_page = 1;
-                                    scroll_offset = 0;
-                                }
-                                KeyCode::End => {
-                                    current_page = total_pages;
-                                    scroll_offset = 0;
-                                }
-                                KeyCode::Char('h') => {
-                                    self.show_collection_list_help().await?;
-                                }
-                                _ => {} // Ignore other keys
+                        match parse_key_event(code, modifiers) {
+                            KeyAction::Quit => break,
+                            KeyAction::NextPage if current_page < total_pages => {
+                                current_page += 1;
+                                scroll_offset = 0;
                             }
+                            KeyAction::PrevPage if current_page > 1 => {
+                                current_page -= 1;
+                                scroll_offset = 0;
+                            }
+                            KeyAction::ScrollDown if start_line + available_height < lines_len => {
+                                scroll_offset += 1;
+                            }
+                            KeyAction::ScrollUp => scroll_offset = scroll_offset.saturating_sub(1),
+                            KeyAction::Home => {
+                                current_page = 1;
+                                scroll_offset = 0;
+                            }
+                            KeyAction::End => {
+                                current_page = total_pages;
+                                scroll_offset = 0;
+                            }
+                            KeyAction::Help => {
+                                self.show_simple_help(
+                                    "Collection List - Help",
+                                    "This screen shows all collections.",
+                                )
+                                .await?
+                            }
+                            _ => {}
                         }
                     }
                 }
             }
             Err(_) => {
-                // Fallback: Simple output if RAW mode fails
                 println!("Collection List ({} collections):", collections.len());
-                for (i, collection) in collections.iter().enumerate() {
-                    let id_str = collection
-                        .id
-                        .map_or("root".to_string(), |id| id.to_string());
-                    let collection_type = if collection.id.is_none() {
-                        "Root"
-                    } else {
-                        "Collection"
-                    };
+                for (i, c) in collections.iter().enumerate() {
+                    let id_str = c.id.map_or("root".into(), |id| id.to_string());
+                    let ctype = if c.id.is_none() { "Root" } else { "Collection" };
                     println!(
                         "{:3}. ID: {:8} | Name: {:25} | Type: {}",
                         i + 1,
                         id_str,
-                        truncate_text(&collection.name, 25),
-                        collection_type
+                        truncate_text(&c.name, 25),
+                        ctype
                     );
                 }
             }
         }
-
         Ok(())
     }
 
-    /// Help display for collection list
-    async fn show_collection_list_help(&self) -> Result<(), AppError> {
-        execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
-
-        execute!(
-            io::stdout(),
-            SetForegroundColor(Color::Cyan),
-            Print("Collection List - Help"),
-            ResetColor,
-            Print("\r\n\r\n"),
-            Print("Available Commands:\r\n"),
-            Print("  q - Quit and return to previous screen\r\n"),
-            Print("  n - Next page\r\n"),
-            Print("  p - Previous page\r\n"),
-            Print("  j/↓ - Scroll down within current page\r\n"),
-            Print("  k/↑ - Scroll up within current page\r\n"),
-            Print("  Home - Go to first page\r\n"),
-            Print("  End - Go to last page\r\n"),
-            Print("  h - Show this help\r\n"),
-            Print("  ESC - Same as 'q'\r\n"),
-            Print("\r\n"),
-            Print("This screen shows all collections in your Metabase instance.\r\n"),
-            Print("Collections are used to organize questions and dashboards.\r\n"),
-            Print("The root collection contains items not placed in other collections.\r\n"),
-            Print("\r\n"),
-            SetForegroundColor(Color::Yellow),
-            Print("Press any key to return..."),
-            ResetColor
-        )
-        .ok();
-
-        io::stdout().flush().ok();
-        event::read().ok(); // Wait for any key press
-
-        Ok(())
-    }
-
-    /// Display collection details in fullscreen mode with proper terminal handling
-    /// This replaces the old display_collection_details_interactive with a stable implementation
     pub async fn display_collection_details_fullscreen(
         &self,
         collection: &CollectionDetail,
     ) -> Result<(), AppError> {
-        use crossterm::terminal::{
-            EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
-        };
-        use std::io::{self, Write};
-
-        // RAII cleanup structures
-        struct RawModeCleanup;
-        impl Drop for RawModeCleanup {
-            fn drop(&mut self) {
-                let _ = disable_raw_mode();
-            }
-        }
-
-        struct ScreenCleanup;
-        impl Drop for ScreenCleanup {
-            fn drop(&mut self) {
-                let _ = execute!(io::stdout(), LeaveAlternateScreen);
-            }
-        }
-
-        // Full screen mode - RAW mode + Alternate Screen
-        match enable_raw_mode() {
+        match terminal::enable_raw_mode() {
             Ok(()) => {
                 let _cleanup = RawModeCleanup;
                 execute!(io::stdout(), EnterAlternateScreen).ok();
                 let _screen_cleanup = ScreenCleanup;
 
-                // Get terminal size for dynamic width calculation
-                let (terminal_width, _terminal_height) = size().unwrap_or((80, 24));
+                let (terminal_width, _) = terminal::size().unwrap_or((80, 24));
+                let available_width = (terminal_width as usize).saturating_sub(5);
+                let field_w = (available_width * 30 / 100).clamp(8, 15);
+                let value_w = available_width.saturating_sub(field_w);
 
-                // Calculate appropriate column widths based on terminal size
-                let total_width = terminal_width as usize;
-                let border_width = 4; // "│ " + " │"
-                let separator_width = 1; // "│"
-                let available_width = total_width.saturating_sub(border_width + separator_width);
-
-                // Distribute width: 30% for field name, 70% for value
-                let field_width = (available_width * 30 / 100).clamp(8, 15);
-                let value_width = available_width.saturating_sub(field_width);
+                let top = format!("┌{:─<fw$}┬{:─<vw$}┐", "", "", fw = field_w, vw = value_w);
+                let bottom = format!("└{:─<fw$}┴{:─<vw$}┘", "", "", fw = field_w, vw = value_w);
 
                 loop {
-                    // Clear screen and reset cursor
                     execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
-
-                    // Header with colored title
                     execute!(
                         io::stdout(),
                         SetForegroundColor(Color::Cyan),
@@ -1425,91 +938,52 @@ impl InteractiveDisplay {
                         SetForegroundColor(Color::Yellow),
                         Print(format!(
                             "ID: {} | Name: {}",
-                            collection
-                                .id
-                                .map_or("root".to_string(), |id| id.to_string()),
+                            collection.id.map_or("root".into(), |id| id.to_string()),
                             collection.name
                         )),
                         ResetColor,
-                        Print("\r\n\r\n")
+                        Print("\r\n\r\n"),
+                        Print(&top),
+                        Print("\r\n")
                     )
                     .ok();
 
-                    // Dynamic table borders
-                    let top_border = format!(
-                        "┌{:─<width$}┬{:─<vwidth$}┐",
-                        "",
-                        "",
-                        width = field_width,
-                        vwidth = value_width
-                    );
-                    let _separator = format!(
-                        "├{:─<width$}┼{:─<vwidth$}┤",
-                        "",
-                        "",
-                        width = field_width,
-                        vwidth = value_width
-                    );
-                    let bottom_border = format!(
-                        "└{:─<width$}┴{:─<vwidth$}┘",
-                        "",
-                        "",
-                        width = field_width,
-                        vwidth = value_width
-                    );
-
-                    execute!(io::stdout(), Print(&top_border), Print("\r\n")).ok();
-
-                    // Display fields using execute for consistency
-                    let id_str = if let Some(id) = collection.id {
-                        format!("{}", id)
-                    } else {
-                        "root".to_string()
-                    };
-
-                    // Helper closure to print table row
-                    let print_row = |field: &str, value: &str| {
-                        let truncated_field = truncate_text(field, field_width);
-                        let truncated_value = truncate_text(value, value_width);
+                    let print_row = |f: &str, v: &str| {
                         execute!(
                             io::stdout(),
                             Print(format!(
-                                "│{:width$}│{:vwidth$}│\r\n",
-                                truncated_field,
-                                truncated_value,
-                                width = field_width,
-                                vwidth = value_width
+                                "│{:fw$}│{:vw$}│\r\n",
+                                truncate_text(f, field_w),
+                                truncate_text(v, value_w),
+                                fw = field_w,
+                                vw = value_w
                             ))
                         )
                         .ok();
                     };
 
-                    print_row("ID", &id_str);
+                    print_row(
+                        "ID",
+                        &collection.id.map_or("root".into(), |id| id.to_string()),
+                    );
                     print_row("Name", &collection.name);
-
-                    if let Some(description) = &collection.description {
-                        print_row("Description", description);
+                    if let Some(d) = &collection.description {
+                        print_row("Description", d);
+                    }
+                    if let Some(c) = &collection.color {
+                        print_row("Color", c);
+                    }
+                    if let Some(p) = collection.parent_id {
+                        print_row("Parent ID", &p.to_string());
+                    }
+                    if let Some(c) = &collection.created_at {
+                        print_row("Created", c);
+                    }
+                    if let Some(u) = &collection.updated_at {
+                        print_row("Updated", u);
                     }
 
-                    if let Some(color) = &collection.color {
-                        print_row("Color", color);
-                    }
-
-                    if let Some(parent_id) = collection.parent_id {
-                        print_row("Parent ID", &parent_id.to_string());
-                    }
-
-                    if let Some(created_at) = &collection.created_at {
-                        print_row("Created", created_at);
-                    }
-
-                    if let Some(updated_at) = &collection.updated_at {
-                        print_row("Updated", updated_at);
-                    }
-
-                    execute!(io::stdout(), Print(&bottom_border), Print("\r\n\r\n")).ok();
-
-                    // Control instructions
+                    execute!(io::stdout(), Print(&bottom), Print("\r\n\r\n")).ok();
                     execute!(
                         io::stdout(),
                         SetForegroundColor(Color::Green),
@@ -1517,105 +991,66 @@ impl InteractiveDisplay {
                         ResetColor
                     )
                     .ok();
-
                     io::stdout().flush().ok();
 
-                    // Handle input
-                    if let Event::Key(KeyEvent { code, kind, .. }) =
-                        event::read().unwrap_or(Event::Key(KeyEvent::from(KeyCode::Char('q'))))
+                    if let Ok(Event::Key(KeyEvent {
+                        code,
+                        kind: KeyEventKind::Press,
+                        modifiers,
+                        ..
+                    })) = event::read()
                     {
-                        if kind == KeyEventKind::Press {
-                            match code {
-                                KeyCode::Char('q') | KeyCode::Esc => break,
-                                KeyCode::Char('h') => {
-                                    self.show_collection_details_help().await?;
-                                }
-                                _ => {} // Ignore other keys
+                        match parse_key_event(code, modifiers) {
+                            KeyAction::Quit => break,
+                            KeyAction::Help => {
+                                self.show_simple_help(
+                                    "Collection Details - Help",
+                                    "Detailed info about this collection.",
+                                )
+                                .await?
                             }
+                            _ => {}
                         }
                     }
                 }
             }
             Err(_) => {
-                // Fallback: Simple output if RAW mode fails
                 println!("Collection Details:");
                 println!(
                     "ID: {}",
-                    collection
-                        .id
-                        .map_or("root".to_string(), |id| id.to_string())
+                    collection.id.map_or("root".into(), |id| id.to_string())
                 );
                 println!("Name: {}", collection.name);
-
-                if let Some(description) = &collection.description {
-                    println!("Description: {}", description);
+                if let Some(d) = &collection.description {
+                    println!("Description: {}", d);
                 }
-
-                if let Some(color) = &collection.color {
-                    println!("Color: {}", color);
+                if let Some(c) = &collection.color {
+                    println!("Color: {}", c);
                 }
-
-                if let Some(parent_id) = collection.parent_id {
-                    println!("Parent ID: {}", parent_id);
+                if let Some(p) = collection.parent_id {
+                    println!("Parent ID: {}", p);
                 }
-
-                if let Some(created_at) = &collection.created_at {
-                    println!("Created: {}", created_at);
+                if let Some(c) = &collection.created_at {
+                    println!("Created: {}", c);
                 }
-
-                if let Some(updated_at) = &collection.updated_at {
-                    println!("Updated: {}", updated_at);
+                if let Some(u) = &collection.updated_at {
+                    println!("Updated: {}", u);
                 }
             }
         }
-
         Ok(())
     }
 
-    /// Help display for collection details
-    async fn show_collection_details_help(&self) -> Result<(), AppError> {
-        execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
-
-        execute!(
-            io::stdout(),
-            SetForegroundColor(Color::Cyan),
-            Print("Collection Details - Help"),
-            ResetColor,
-            Print("\r\n\r\n"),
-            Print("Available Commands:\r\n"),
-            Print("  q - Quit and return to previous screen\r\n"),
-            Print("  h - Show this help\r\n"),
-            Print("  ESC - Same as 'q'\r\n"),
-            Print("\r\n"),
-            Print("This screen shows detailed information about a Metabase collection.\r\n"),
-            Print("Collections are used to organize questions and dashboards.\r\n"),
-            Print("\r\n"),
-            SetForegroundColor(Color::Yellow),
-            Print("Press any key to return..."),
-            ResetColor
-        )
-        .ok();
-
-        io::stdout().flush().ok();
-        event::read().ok(); // Wait for any key press
-
-        Ok(())
-    }
-
-    /// Display collection statistics interactively
     pub async fn display_collection_stats_interactive(
         &self,
         stats: &CollectionStats,
         collection_id: u32,
     ) -> Result<(), AppError> {
-        // Try to enable RAW mode for full-screen display
         match terminal::enable_raw_mode() {
             Ok(_) => {
+                let _cleanup = RawModeCleanup;
                 loop {
-                    // Clear screen and reset cursor
                     execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
-
-                    // Print statistics
                     println!(
                         "Collection Statistics (ID: {}) | [q]uit | [h]elp",
                         collection_id
@@ -1626,19 +1061,13 @@ impl InteractiveDisplay {
                     println!("│ Total Items      │ {:59} │", stats.item_count);
                     println!("│ Questions        │ {:59} │", stats.question_count);
                     println!("│ Dashboards       │ {:59} │", stats.dashboard_count);
-
-                    if let Some(last_updated) = &stats.last_updated {
-                        println!(
-                            "│ Last Updated     │ {:59} │",
-                            truncate_text(last_updated, 59)
-                        );
+                    if let Some(u) = &stats.last_updated {
+                        println!("│ Last Updated     │ {:59} │", truncate_text(u, 59));
                     }
-
                     println!(
                         "└──────────────────┴─────────────────────────────────────────────────────────────┘"
                     );
 
-                    // Control instructions with color (similar to query results)
                     execute!(
                         io::stdout(),
                         SetForegroundColor(Color::Green),
@@ -1646,38 +1075,70 @@ impl InteractiveDisplay {
                         ResetColor
                     )
                     .ok();
-
                     io::stdout().flush().ok();
 
-                    // Handle input
-                    if let Event::Key(KeyEvent { code, kind, .. }) =
-                        event::read().unwrap_or(Event::Key(KeyEvent::from(KeyCode::Char('q'))))
+                    if let Ok(Event::Key(KeyEvent {
+                        code,
+                        kind: KeyEventKind::Press,
+                        modifiers,
+                        ..
+                    })) = event::read()
                     {
-                        if kind == KeyEventKind::Press {
-                            match code {
-                                KeyCode::Char('q') | KeyCode::Esc => break,
-                                KeyCode::Char('h') => {
-                                    self.show_collection_details_help().await?;
-                                }
-                                _ => {} // Ignore other keys
+                        match parse_key_event(code, modifiers) {
+                            KeyAction::Quit => break,
+                            KeyAction::Help => {
+                                self.show_simple_help(
+                                    "Collection Stats - Help",
+                                    "Statistics for this collection.",
+                                )
+                                .await?
                             }
+                            _ => {}
                         }
                     }
                 }
             }
             Err(_) => {
-                // Fallback when RAW mode fails
                 println!("Warning: Could not enable full-screen mode, falling back to simple mode");
                 println!("Collection Statistics (ID: {}):", collection_id);
                 println!("  Total Items: {}", stats.item_count);
                 println!("  Questions: {}", stats.question_count);
                 println!("  Dashboards: {}", stats.dashboard_count);
-                if let Some(last_updated) = &stats.last_updated {
-                    println!("  Last Updated: {}", last_updated);
+                if let Some(u) = &stats.last_updated {
+                    println!("  Last Updated: {}", u);
                 }
             }
         }
+        Ok(())
+    }
 
+    async fn show_simple_help(&self, title: &str, extra: &str) -> Result<(), AppError> {
+        execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).ok();
+        execute!(
+            io::stdout(),
+            SetForegroundColor(Color::Cyan),
+            Print(title),
+            ResetColor,
+            Print("\r\n\r\n"),
+            Print("Commands:\r\n"),
+            Print("  q/ESC - Quit\r\n"),
+            Print("  n     - Next page\r\n"),
+            Print("  p     - Previous page\r\n"),
+            Print("  j/↓   - Scroll down\r\n"),
+            Print("  k/↑   - Scroll up\r\n"),
+            Print("  Home  - First page\r\n"),
+            Print("  End   - Last page\r\n"),
+            Print("  h     - Show this help\r\n"),
+            Print("\r\n"),
+            Print(extra),
+            Print("\r\n\r\n"),
+            SetForegroundColor(Color::Yellow),
+            Print("Press any key to return..."),
+            ResetColor
+        )
+        .ok();
+        io::stdout().flush().ok();
+        event::read().ok();
         Ok(())
     }
 }

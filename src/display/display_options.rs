@@ -125,12 +125,12 @@ impl DisplayOptions {
             ));
         }
 
-        if let Some(offset) = self.offset {
-            if offset == usize::MAX {
-                return Err(AppError::Display(crate::error::DisplayError::Pagination(
-                    "Invalid offset value".to_string(),
-                )));
-            }
+        if let Some(offset) = self.offset
+            && offset == usize::MAX
+        {
+            return Err(AppError::Display(crate::error::DisplayError::Pagination(
+                "Invalid offset value".to_string(),
+            )));
         }
 
         Ok(())

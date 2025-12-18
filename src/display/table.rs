@@ -4,11 +4,9 @@ use crate::utils::text::{format_datetime, truncate_text};
 use comfy_table::{Attribute, Cell, Color, Table, presets};
 use crossterm::terminal;
 
-// Constants for string capacity pre-allocation
 const HEADER_CAPACITY: usize = 256;
 const COMPREHENSIVE_HEADER_CAPACITY: usize = 512;
 
-/// Parameters for question header display
 pub struct QuestionHeaderParams<'a> {
     pub question_id: u32,
     pub question_name: &'a str,
@@ -19,28 +17,18 @@ pub struct QuestionHeaderParams<'a> {
     pub end_row: Option<usize>,
 }
 
-/// Parameters for table header information display
 #[derive(Debug, Clone)]
 pub struct TableHeaderInfo {
-    /// Data source information (question name, API endpoint, etc.)
     pub data_source: String,
-    /// Data source ID (question ID, etc.)
     pub source_id: Option<u32>,
-    /// Total record count
     pub total_records: usize,
-    /// Display start position (1-based)
     pub start_position: usize,
-    /// Display end position (1-based)
     pub end_position: usize,
-    /// Offset information
     pub offset: Option<usize>,
-    /// Filter application status
     pub is_filtered: bool,
-    /// Pagination information
     pub pagination_info: Option<PaginationInfo>,
 }
 
-/// Pagination display information
 #[derive(Debug, Clone)]
 pub struct PaginationInfo {
     pub current_page: usize,
@@ -48,14 +36,18 @@ pub struct PaginationInfo {
     pub page_size: usize,
 }
 
-/// Formatter and utilities for table display
+struct ColumnWidths {
+    name: usize,
+    collection: usize,
+    description: usize,
+}
+
 pub struct TableDisplay {
     max_width: Option<usize>,
     use_colors: bool,
 }
 
 impl TableDisplay {
-    /// Create a new TableDisplay instance
     pub fn new() -> Self {
         Self {
             max_width: Self::detect_terminal_width(),
@@ -63,141 +55,121 @@ impl TableDisplay {
         }
     }
 
-    /// Detect terminal width
     fn detect_terminal_width() -> Option<usize> {
         match terminal::size() {
-            Ok((cols, _rows)) => {
+            Ok((cols, _)) => {
                 let width = cols as usize;
-                // Set minimum and maximum width for improved stability
-                if width < 40 {
-                    Some(40) // Minimum width
-                } else if width > 200 {
-                    Some(200) // Maximum width
-                } else {
-                    Some(width)
-                }
+                Some(width.clamp(40, 200))
             }
-            Err(_) => Some(80), // Default width
+            Err(_) => Some(80),
         }
     }
 
-    /// Create a TableDisplay instance with maximum width setting
     pub fn with_max_width(mut self, width: usize) -> Self {
         self.max_width = Some(width);
         self
     }
 
-    /// Set color usage
     pub fn with_colors(mut self, use_colors: bool) -> Self {
         self.use_colors = use_colors;
         self
     }
 
-    /// Render a question list in table format
+    fn bold_header(&self, text: &str, color: Color) -> Cell {
+        if self.use_colors {
+            Cell::new(text).add_attribute(Attribute::Bold).fg(color)
+        } else {
+            Cell::new(text).add_attribute(Attribute::Bold)
+        }
+    }
+
+    fn colored_cell(&self, text: &str, color: Color) -> Cell {
+        if self.use_colors {
+            Cell::new(text).fg(color)
+        } else {
+            Cell::new(text)
+        }
+    }
+
+    fn set_colored_headers(&self, table: &mut Table, headers: &[&str], color: Color) {
+        let cells: Vec<Cell> = headers.iter().map(|h| self.bold_header(h, color)).collect();
+        table.set_header(cells);
+    }
+
+    fn format_optional_id(id: Option<u32>, default: &str) -> String {
+        id.map(|v| v.to_string())
+            .unwrap_or_else(|| default.to_string())
+    }
+
     pub fn render_question_list(&self, questions: &[Question]) -> Result<String, AppError> {
         self.render_question_list_with_limit(questions, None)
     }
 
-    /// Render a question list in table format with a limit
     pub fn render_question_list_with_limit(
         &self,
         questions: &[Question],
         limit: Option<usize>,
     ) -> Result<String, AppError> {
         let mut table = Table::new();
-
-        // UTF8 style and header configuration
         table.load_preset(presets::UTF8_FULL);
         table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
-
-        // Table width setting adjusted to terminal width
         self.configure_table_width(&mut table);
+        self.set_colored_headers(
+            &mut table,
+            &["ID", "Name", "Collection", "Description"],
+            Color::Cyan,
+        );
 
-        if self.use_colors {
-            table.set_header(vec![
-                Cell::new("ID")
-                    .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
-                Cell::new("Name")
-                    .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
-                Cell::new("Collection")
-                    .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
-                Cell::new("Description")
-                    .add_attribute(Attribute::Bold)
-                    .fg(Color::Cyan),
-            ]);
-        } else {
-            table.set_header(vec!["ID", "Name", "Collection", "Description"]);
-        }
-
-        // Add data rows (with limit applied)
-        let display_questions = if let Some(limit_val) = limit {
-            &questions[..questions.len().min(limit_val)]
-        } else {
-            questions
+        let display_questions = match limit {
+            Some(l) => &questions[..questions.len().min(l)],
+            None => questions,
         };
 
-        // Get responsive column widths
-        let (_id_width, name_width, collection_width, desc_width) =
-            self.get_responsive_column_widths();
+        let widths = self.get_responsive_column_widths();
 
         for question in display_questions {
             let collection_name = self.extract_collection_name(question);
             let description = question.description.as_deref().unwrap_or("N/A");
 
-            let row = vec![
-                if self.use_colors {
-                    Cell::new(question.id.to_string()).fg(Color::Cyan)
-                } else {
-                    Cell::new(question.id.to_string())
-                },
-                Cell::new(truncate_text(&question.name, name_width)),
-                Cell::new(truncate_text(&collection_name, collection_width)),
-                if self.use_colors {
-                    Cell::new(truncate_text(description, desc_width)).fg(Color::DarkGrey)
-                } else {
-                    Cell::new(truncate_text(description, desc_width))
-                },
-            ];
-
-            table.add_row(row);
+            table.add_row(vec![
+                self.colored_cell(&question.id.to_string(), Color::Cyan),
+                Cell::new(truncate_text(&question.name, widths.name)),
+                Cell::new(truncate_text(&collection_name, widths.collection)),
+                self.colored_cell(
+                    &truncate_text(description, widths.description),
+                    Color::DarkGrey,
+                ),
+            ]);
         }
 
-        // Omission display due to limit
-        if let Some(limit_val) = limit {
-            if questions.len() > limit_val {
-                let remaining = questions.len() - limit_val;
-                let note = format!(
-                    "... and {} more questions (use --full to see all)",
-                    remaining
-                );
-
-                if self.use_colors {
-                    table.add_row(vec![
-                        Cell::new(""),
-                        Cell::new(note)
-                            .fg(Color::DarkGrey)
-                            .add_attribute(Attribute::Italic),
-                        Cell::new(""),
-                        Cell::new(""),
-                    ]);
-                } else {
-                    table.add_row(vec!["", &note, "", ""]);
-                }
+        if let Some(limit_val) = limit
+            && questions.len() > limit_val
+        {
+            let note = format!(
+                "... and {} more questions (use --full to see all)",
+                questions.len() - limit_val
+            );
+            if self.use_colors {
+                table.add_row(vec![
+                    Cell::new(""),
+                    Cell::new(note)
+                        .fg(Color::DarkGrey)
+                        .add_attribute(Attribute::Italic),
+                    Cell::new(""),
+                    Cell::new(""),
+                ]);
+            } else {
+                table.add_row(vec!["", &note, "", ""]);
             }
         }
 
         Ok(table.to_string())
     }
 
-    /// Render query result in table format (based on the original implementation, wrap support)
     pub fn render_query_result(&self, result: &QueryResult) -> Result<String, AppError> {
         self.render_query_result_with_limit(result, None)
     }
 
-    /// Render query result in table format with limit (based on original implementation, wrap support)
     pub fn render_query_result_with_limit(
         &self,
         result: &QueryResult,
@@ -208,42 +180,30 @@ impl TableDisplay {
         }
 
         let total_rows = result.data.rows.len();
-        let display_limit = limit.unwrap_or(total_rows);
-        let rows_to_display = display_limit.min(total_rows);
+        let rows_to_display = limit.unwrap_or(total_rows).min(total_rows);
 
         let mut table = Table::new();
-        // Same Dynamic setting as the original implementation-enable wrap display
         table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
 
-        // Header configuration (based on the original implementation)
         let headers: Vec<Cell> = result
             .data
             .cols
             .iter()
-            .map(|col| {
-                if self.use_colors {
-                    Cell::new(&col.display_name)
-                        .add_attribute(Attribute::Bold)
-                        .fg(Color::Green)
-                } else {
-                    Cell::new(&col.display_name).add_attribute(Attribute::Bold)
-                }
-            })
+            .map(|col| self.bold_header(&col.display_name, Color::Green))
             .collect();
         table.set_header(headers);
 
-        // Add data rows (based on the original implementation, with limit applied)
         for row in result.data.rows.iter().take(rows_to_display) {
             let cells: Vec<Cell> = row
                 .iter()
                 .map(|value| {
-                    let formatted_value = self.format_cell_value(value);
+                    let formatted = self.format_cell_value(value);
                     if self.use_colors && matches!(value, serde_json::Value::Null) {
-                        Cell::new(formatted_value)
+                        Cell::new(formatted)
                             .fg(Color::DarkGrey)
                             .add_attribute(Attribute::Italic)
                     } else {
-                        Cell::new(formatted_value)
+                        Cell::new(formatted)
                     }
                 })
                 .collect();
@@ -251,8 +211,6 @@ impl TableDisplay {
         }
 
         let mut output = table.to_string();
-
-        // Display omission information due to limit
         if rows_to_display != total_rows {
             output.push_str(&format!(
                 "\nShowing {} of {} rows",
@@ -263,17 +221,14 @@ impl TableDisplay {
         Ok(output)
     }
 
-    /// Extended display including question header and result information
     pub fn render_question_header_with_results(&self, params: &QuestionHeaderParams) -> String {
-        let mut header = String::with_capacity(HEADER_CAPACITY); // Pre-allocate for typical header size
+        let mut header = String::with_capacity(HEADER_CAPACITY);
 
-        // Question information
         header.push_str(&format!(
             "🚀 Question #{}: {}\n",
             params.question_id, params.question_name
         ));
 
-        // Result information
         if let (Some(current), Some(total), Some(start), Some(end)) = (
             params.current_page,
             params.total_pages,
@@ -296,45 +251,32 @@ impl TableDisplay {
             ));
         }
 
-        // Execution time (current time)
-        let now = std::time::SystemTime::now();
         header.push_str(&format!(
             "⏰ Execution time: {:?} | 💡 Tips: --format json/csv\n",
-            now
+            std::time::SystemTime::now()
         ));
-
         header.push_str("──────────────────────────────────────────────────────────\n");
 
         header
     }
 
-    /// Display comprehensive table header information
-    ///
-    /// Following the PaginationInfo concept from reference implementation, generates comprehensive header including
-    /// - Data source information (question name, ID, etc.)
-    /// - Record count and pagination status
-    /// - Offset information
-    /// - Filter application status
     pub fn render_comprehensive_header(&self, info: &TableHeaderInfo) -> String {
-        let mut header = String::with_capacity(COMPREHENSIVE_HEADER_CAPACITY); // Pre-allocate for comprehensive header
+        let mut header = String::with_capacity(COMPREHENSIVE_HEADER_CAPACITY);
 
-        // Data source information
         if let Some(id) = info.source_id {
+            let label = if info.data_source.contains("Question") {
+                "Question"
+            } else {
+                "Data"
+            };
             header.push_str(&format!(
                 "🚀 {}: {} (ID: {})\n",
-                if info.data_source.contains("Question") {
-                    "Question"
-                } else {
-                    "Data"
-                },
-                info.data_source,
-                id
+                label, info.data_source, id
             ));
         } else {
             header.push_str(&format!("🚀 Data: {}\n", info.data_source));
         }
 
-        // Data range information
         let range_info = if info.start_position == info.end_position {
             format!("Display: {} record", info.start_position)
         } else {
@@ -344,25 +286,23 @@ impl TableDisplay {
             )
         };
 
-        let total_info = format!("Total records: {}", info.total_records);
+        header.push_str(&format!(
+            "📊 {} | Total records: {}",
+            range_info, info.total_records
+        ));
 
-        header.push_str(&format!("📊 {} | {}", range_info, total_info));
-
-        // Offset information
-        if let Some(offset) = info.offset {
-            if offset > 0 {
-                header.push_str(&format!(" | Offset: +{}", offset));
-            }
+        if let Some(offset) = info.offset
+            && offset > 0
+        {
+            header.push_str(&format!(" | Offset: +{}", offset));
         }
 
-        // Filter application status
         if info.is_filtered {
             header.push_str(" | 🔍 Filter applied");
         }
 
         header.push('\n');
 
-        // Pagination information
         if let Some(ref page_info) = info.pagination_info {
             header.push_str(&format!(
                 "📄 Page: {}/{} | Page size: {} records\n",
@@ -372,27 +312,22 @@ impl TableDisplay {
             ));
         }
 
-        // Execution time and tips
-        let now = std::time::SystemTime::now();
         header.push_str(&format!(
             "⏰ Execution time: {:?} | 💡 Tips: --limit, --offset, --format\n",
-            now
+            std::time::SystemTime::now()
         ));
-
-        // Separator
-        let terminal_width = self.max_width.unwrap_or(80);
-        let separator = "─".repeat(terminal_width.min(80));
-        header.push_str(&format!("{}\n", separator));
+        header.push_str(&format!(
+            "{}\n",
+            "─".repeat(self.max_width.unwrap_or(80).min(80))
+        ));
 
         header
     }
 
-    /// Builder helper for TableHeaderInfo
     pub fn create_header_info_builder() -> TableHeaderInfoBuilder {
         TableHeaderInfoBuilder::new()
     }
 
-    /// Extract collection name from question
     fn extract_collection_name(&self, question: &Question) -> String {
         if let Some(ref collection) = question.collection {
             collection.name.clone()
@@ -403,78 +338,52 @@ impl TableDisplay {
         }
     }
 
-    /// Set table width to match the terminal size
     fn configure_table_width(&self, table: &mut Table) {
-        if let Some(terminal_width) = self.max_width {
-            // Adjust considering borders and padding from terminal width
-            let available_width = if terminal_width > 20 {
-                terminal_width - 6 // Consider left/right borders, padding, margins
-            } else {
-                terminal_width.max(40) // Ensure minimum width
-            };
+        let width = self
+            .max_width
+            .map(|w| if w > 20 { w - 6 } else { w.max(40) })
+            .unwrap_or(80);
+        table.set_width(width as u16);
+    }
 
-            table.set_width(available_width as u16);
-        } else {
-            // Default width when terminal size cannot be obtained
-            table.set_width(80);
+    fn get_responsive_column_widths(&self) -> ColumnWidths {
+        match self.max_width.unwrap_or(80) {
+            0..=59 => ColumnWidths {
+                name: 10,
+                collection: 6,
+                description: 15,
+            },
+            60..=79 => ColumnWidths {
+                name: 15,
+                collection: 8,
+                description: 20,
+            },
+            80..=119 => ColumnWidths {
+                name: 25,
+                collection: 12,
+                description: 25,
+            },
+            _ => ColumnWidths {
+                name: 40,
+                collection: 20,
+                description: 35,
+            },
         }
     }
 
-    /// Calculate responsive column widths (for question list)
-    fn get_responsive_column_widths(&self) -> (usize, usize, usize, usize) {
-        let terminal_width = self.max_width.unwrap_or(80);
-
-        if terminal_width < 60 {
-            // Very narrow terminal
-            (3, 10, 6, 15)
-        } else if terminal_width < 80 {
-            // Narrow terminal
-            (4, 15, 8, 20)
-        } else if terminal_width < 120 {
-            // Standard terminal
-            (4, 25, 12, 25)
-        } else {
-            // Wide terminal
-            (4, 40, 20, 35)
-        }
-    }
-
-    // truncate_text is now imported from utils::text
-
-    /// Format cell value
     pub fn format_cell_value(&self, value: &serde_json::Value) -> String {
         match value {
-            serde_json::Value::Null => {
-                "-".to_string() // Shorter and more stable display
-            }
-            serde_json::Value::String(s) => {
-                // Long strings are automatically truncated
-                if s.len() > 100 {
-                    truncate_text(s, 100)
-                } else {
-                    s.clone()
-                }
-            }
+            serde_json::Value::Null => "-".to_string(),
+            serde_json::Value::String(s) if s.len() > 100 => truncate_text(s, 100),
+            serde_json::Value::String(s) => s.clone(),
             serde_json::Value::Number(n) => n.to_string(),
             serde_json::Value::Bool(b) => b.to_string(),
-            serde_json::Value::Array(arr) => {
-                if arr.is_empty() {
-                    "[]".to_string()
-                } else {
-                    format!("[{} items]", arr.len())
-                }
-            }
-            serde_json::Value::Object(obj) => {
-                if obj.is_empty() {
-                    "{}".to_string()
-                } else {
-                    format!("{{{} items}}", obj.len())
-                }
-            }
+            serde_json::Value::Array(arr) if arr.is_empty() => "[]".to_string(),
+            serde_json::Value::Array(arr) => format!("[{} items]", arr.len()),
+            serde_json::Value::Object(obj) if obj.is_empty() => "{}".to_string(),
+            serde_json::Value::Object(obj) => format!("{{{} items}}", obj.len()),
         }
     }
-
-    // pad_to_width and center_text are now imported from utils::text
 }
 
 impl Default for TableDisplay {
@@ -483,8 +392,7 @@ impl Default for TableDisplay {
     }
 }
 
-/// Builder for TableHeaderInfo
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct TableHeaderInfoBuilder {
     data_source: Option<String>,
     source_id: Option<u32>,
@@ -498,16 +406,7 @@ pub struct TableHeaderInfoBuilder {
 
 impl TableHeaderInfoBuilder {
     pub fn new() -> Self {
-        Self {
-            data_source: None,
-            source_id: None,
-            total_records: None,
-            start_position: None,
-            end_position: None,
-            offset: None,
-            is_filtered: false,
-            pagination_info: None,
-        }
+        Self::default()
     }
 
     pub fn data_source(mut self, source: String) -> Self {
@@ -550,28 +449,22 @@ impl TableHeaderInfoBuilder {
         self
     }
 
-    pub fn build(self) -> Result<TableHeaderInfo, AppError> {
-        Ok(TableHeaderInfo {
+    pub fn build(self) -> TableHeaderInfo {
+        let total_records = self.total_records.unwrap_or(0);
+        TableHeaderInfo {
             data_source: self.data_source.unwrap_or_else(|| "Unknown".to_string()),
             source_id: self.source_id,
-            total_records: self.total_records.unwrap_or(0),
+            total_records,
             start_position: self.start_position.unwrap_or(1),
-            end_position: self.end_position.unwrap_or(self.total_records.unwrap_or(0)),
+            end_position: self.end_position.unwrap_or(total_records),
             offset: self.offset,
             is_filtered: self.is_filtered,
             pagination_info: self.pagination_info,
-        })
-    }
-}
-
-impl Default for TableHeaderInfoBuilder {
-    fn default() -> Self {
-        Self::new()
+        }
     }
 }
 
 impl TableDisplay {
-    /// Render dashboard list in table format with dynamic field-based headers
     pub fn render_dashboard_list(&self, dashboards: &[Dashboard]) -> Result<String, AppError> {
         if dashboards.is_empty() {
             return Ok("No dashboards found.".to_string());
@@ -579,88 +472,41 @@ impl TableDisplay {
 
         let mut table = Table::new();
         table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
+        self.set_colored_headers(
+            &mut table,
+            &[
+                "ID",
+                "Name",
+                "Description",
+                "Collection ID",
+                "Creator ID",
+                "Created At",
+                "Updated At",
+            ],
+            Color::Green,
+        );
 
-        // Dynamic headers based on Dashboard struct fields
-        let headers = [
-            "ID",
-            "Name",
-            "Description",
-            "Collection ID",
-            "Creator ID",
-            "Created At",
-            "Updated At",
-        ];
-
-        if self.use_colors {
-            let colored_headers: Vec<Cell> = headers
-                .iter()
-                .map(|h| Cell::new(h).add_attribute(Attribute::Bold).fg(Color::Green))
-                .collect();
-            table.set_header(colored_headers);
-        } else {
-            let bold_headers: Vec<Cell> = headers
-                .iter()
-                .map(|h| Cell::new(h).add_attribute(Attribute::Bold))
-                .collect();
-            table.set_header(bold_headers);
-        }
-
-        // Add data rows with field values
         for dashboard in dashboards {
-            let description = dashboard.description.as_deref().unwrap_or("N/A");
-            let collection_id = dashboard
-                .collection_id
-                .map(|id| id.to_string())
-                .unwrap_or_else(|| "Root".to_string());
-            let creator_id = dashboard
-                .creator_id
-                .map(|id| id.to_string())
-                .unwrap_or_else(|| "N/A".to_string());
-
-            let row = vec![
-                if self.use_colors {
-                    Cell::new(dashboard.id.to_string()).fg(Color::Cyan)
-                } else {
-                    Cell::new(dashboard.id.to_string())
-                },
+            table.add_row(vec![
+                self.colored_cell(&dashboard.id.to_string(), Color::Cyan),
                 Cell::new(&dashboard.name),
-                Cell::new(description),
-                Cell::new(collection_id),
-                Cell::new(creator_id),
+                Cell::new(dashboard.description.as_deref().unwrap_or("N/A")),
+                Cell::new(Self::format_optional_id(dashboard.collection_id, "Root")),
+                Cell::new(Self::format_optional_id(dashboard.creator_id, "N/A")),
                 Cell::new(format_datetime(&dashboard.created_at)),
                 Cell::new(format_datetime(&dashboard.updated_at)),
-            ];
-
-            table.add_row(row);
+            ]);
         }
 
         Ok(table.to_string())
     }
 
-    /// Render dashboard details in table format with field-based structure
     pub fn render_dashboard_details(&self, dashboard: &Dashboard) -> Result<String, AppError> {
         let mut table = Table::new();
         table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
+        self.set_colored_headers(&mut table, &["Field", "Value"], Color::Green);
 
-        // Two-column layout: Field Name | Value
-        if self.use_colors {
-            table.set_header(vec![
-                Cell::new("Field")
-                    .add_attribute(Attribute::Bold)
-                    .fg(Color::Green),
-                Cell::new("Value")
-                    .add_attribute(Attribute::Bold)
-                    .fg(Color::Green),
-            ]);
-        } else {
-            table.set_header(vec![
-                Cell::new("Field").add_attribute(Attribute::Bold),
-                Cell::new("Value").add_attribute(Attribute::Bold),
-            ]);
-        }
-
-        // Add each field as a row based on Dashboard struct
-        let fields = vec![
+        let fields = [
             ("ID", dashboard.id.to_string()),
             ("Name", dashboard.name.clone()),
             (
@@ -672,17 +518,11 @@ impl TableDisplay {
             ),
             (
                 "Collection ID",
-                dashboard
-                    .collection_id
-                    .map(|id| id.to_string())
-                    .unwrap_or_else(|| "Root".to_string()),
+                Self::format_optional_id(dashboard.collection_id, "Root"),
             ),
             (
                 "Creator ID",
-                dashboard
-                    .creator_id
-                    .map(|id| id.to_string())
-                    .unwrap_or_else(|| "N/A".to_string()),
+                Self::format_optional_id(dashboard.creator_id, "N/A"),
             ),
             ("Created At", dashboard.created_at.clone()),
             ("Updated At", dashboard.updated_at.clone()),
@@ -697,21 +537,15 @@ impl TableDisplay {
         ];
 
         for (field_name, field_value) in fields {
-            let row = vec![
-                if self.use_colors {
-                    Cell::new(field_name).fg(Color::Yellow)
-                } else {
-                    Cell::new(field_name)
-                },
+            table.add_row(vec![
+                self.colored_cell(field_name, Color::Yellow),
                 Cell::new(field_value),
-            ];
-            table.add_row(row);
+            ]);
         }
 
         Ok(table.to_string())
     }
 
-    /// Render dashboard cards in table format with field-based headers
     pub fn render_dashboard_cards(&self, cards: &[DashboardCard]) -> Result<String, AppError> {
         if cards.is_empty() {
             return Ok("No cards found for this dashboard.".to_string());
@@ -719,60 +553,34 @@ impl TableDisplay {
 
         let mut table = Table::new();
         table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
+        self.set_colored_headers(
+            &mut table,
+            &[
+                "ID",
+                "Dashboard ID",
+                "Card ID",
+                "Col",
+                "Row",
+                "Size X",
+                "Size Y",
+            ],
+            Color::Green,
+        );
 
-        // Dynamic headers based on DashboardCard struct fields
-        let headers = [
-            "ID",
-            "Dashboard ID",
-            "Card ID",
-            "Col",
-            "Row",
-            "Size X",
-            "Size Y",
-        ];
-
-        if self.use_colors {
-            let colored_headers: Vec<Cell> = headers
-                .iter()
-                .map(|h| Cell::new(h).add_attribute(Attribute::Bold).fg(Color::Green))
-                .collect();
-            table.set_header(colored_headers);
-        } else {
-            let bold_headers: Vec<Cell> = headers
-                .iter()
-                .map(|h| Cell::new(h).add_attribute(Attribute::Bold))
-                .collect();
-            table.set_header(bold_headers);
-        }
-
-        // Add data rows with field values from DashboardCard struct
         for card in cards {
-            let card_id = card
-                .card_id
-                .map(|id| id.to_string())
-                .unwrap_or_else(|| "NULL".to_string());
-
-            let row = vec![
-                if self.use_colors {
-                    Cell::new(card.id.to_string()).fg(Color::Cyan)
-                } else {
-                    Cell::new(card.id.to_string())
-                },
+            table.add_row(vec![
+                self.colored_cell(&card.id.to_string(), Color::Cyan),
                 Cell::new(card.dashboard_id.to_string()),
-                Cell::new(card_id),
+                Cell::new(Self::format_optional_id(card.card_id, "NULL")),
                 Cell::new(card.col.to_string()),
                 Cell::new(card.row.to_string()),
                 Cell::new(card.size_x.to_string()),
                 Cell::new(card.size_y.to_string()),
-            ];
-
-            table.add_row(row);
+            ]);
         }
 
         Ok(table.to_string())
     }
-
-    // format_datetime is now imported from utils::text
 }
 
 #[cfg(test)]
@@ -869,10 +677,36 @@ mod tests {
     fn test_format_cell_value() {
         let display = TableDisplay::new();
 
+        // Basic types
         assert_eq!(display.format_cell_value(&json!(null)), "-");
         assert_eq!(display.format_cell_value(&json!("text")), "text");
         assert_eq!(display.format_cell_value(&json!(123)), "123");
         assert_eq!(display.format_cell_value(&json!(true)), "true");
+
+        // Long string truncation (> 100 chars)
+        let long_string = "a".repeat(150);
+        let result = display.format_cell_value(&json!(long_string));
+        assert!(result.len() <= 103); // 100 + "..."
+        assert!(result.ends_with("..."));
+
+        // Empty collections
+        assert_eq!(display.format_cell_value(&json!([])), "[]");
+        assert_eq!(display.format_cell_value(&json!({})), "{}");
+
+        // Non-empty collections
+        assert_eq!(display.format_cell_value(&json!([1, 2, 3])), "[3 items]");
+        assert_eq!(
+            display.format_cell_value(&json!({"a": 1, "b": 2})),
+            "{2 items}"
+        );
+    }
+
+    #[test]
+    fn test_format_optional_id() {
+        assert_eq!(TableDisplay::format_optional_id(Some(42), "N/A"), "42");
+        assert_eq!(TableDisplay::format_optional_id(None, "N/A"), "N/A");
+        assert_eq!(TableDisplay::format_optional_id(None, "Root"), "Root");
+        assert_eq!(TableDisplay::format_optional_id(Some(0), "Default"), "0");
     }
 
     #[test]

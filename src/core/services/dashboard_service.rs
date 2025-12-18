@@ -13,13 +13,13 @@ impl DashboardService {
 
     pub async fn list(&self, params: ListParams) -> Result<Vec<Dashboard>, ServiceError> {
         // Validate parameters
-        if let Some(limit) = params.limit {
-            if limit == 0 {
-                return Err(ServiceError::Validation {
-                    field: "limit".to_string(),
-                    message: "Limit must be greater than 0".to_string(),
-                });
-            }
+        if let Some(limit) = params.limit
+            && limit == 0
+        {
+            return Err(ServiceError::Validation {
+                field: "limit".to_string(),
+                message: "Limit must be greater than 0".to_string(),
+            });
         }
 
         // Call API client
