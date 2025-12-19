@@ -17,7 +17,8 @@ use tokio::sync::mpsc;
 
 use crate::action::{AppAction, ContentTarget, DataRequest};
 use crate::components::{
-    ActivePanel, Component, ContentPanel, ContentView, HelpOverlay, NavigationPanel, StatusBar,
+    ActivePanel, Component, ContentPanel, ContentView, HelpOverlay, NavigationPanel,
+    QueryResultData, StatusBar,
 };
 use crate::event::{Event, EventHandler};
 use crate::layout::main::{
@@ -196,6 +197,24 @@ impl App {
                 self.content.update_questions(&self.data.questions);
                 self.status_bar.set_message(format!("Error: {}", error));
             }
+            // === Query Execution (Phase 6) ===
+            AppAction::ExecuteQuestion(id) => {
+                self.execute_question(id);
+            }
+            AppAction::QueryResultLoaded(result_data) => {
+                let row_count = result_data.rows.len();
+                let name = result_data.question_name.clone();
+                self.content.set_query_result(result_data);
+                self.status_bar
+                    .set_message(format!("Query '{}': {} rows", name, row_count));
+            }
+            AppAction::QueryFailed(error) => {
+                self.status_bar.set_message(format!("Query failed: {}", error));
+            }
+            AppAction::BackToQuestions => {
+                self.content.back_to_questions();
+                self.status_bar.set_message("Returned to Questions list");
+            }
         }
     }
 
@@ -243,6 +262,12 @@ impl App {
                 self.status_bar
                     .set_message(format!("Loading question #{}...", id));
             }
+            DataRequest::Execute(id) => {
+                // Execute question query - handled by execute_question method
+                self.status_bar
+                    .set_message(format!("Executing query #{}...", id));
+                // Actual execution is handled through ExecuteQuestion action
+            }
         }
     }
 
@@ -269,6 +294,76 @@ impl App {
         }
     }
 
+    /// Execute a question query
+    fn execute_question(&mut self, id: u32) {
+        // Check if we have a service client
+        let service = match &self.service {
+            Some(s) => Arc::clone(s),
+            None => {
+                self.status_bar
+                    .set_message("Error: Not connected to Metabase");
+                return;
+            }
+        };
+
+        // Get question name from loaded questions
+        let question_name = self
+            .data
+            .questions
+            .data()
+            .and_then(|qs| qs.iter().find(|q| q.id == id))
+            .map(|q| q.name.clone())
+            .unwrap_or_else(|| format!("Question #{}", id));
+
+        self.status_bar
+            .set_message(format!("Executing '{}'...", question_name));
+
+        let tx = self.action_tx.clone();
+
+        tokio::spawn(async move {
+            match service.execute_question(id).await {
+                Ok(result) => {
+                    // Convert QueryResult to QueryResultData (TUI-friendly format)
+                    let columns: Vec<String> = result
+                        .data
+                        .cols
+                        .iter()
+                        .map(|c| c.display_name.clone())
+                        .collect();
+
+                    let rows: Vec<Vec<String>> = result
+                        .data
+                        .rows
+                        .iter()
+                        .map(|row| {
+                            row.iter()
+                                .map(|v| match v {
+                                    serde_json::Value::Null => "—".to_string(),
+                                    serde_json::Value::Bool(b) => b.to_string(),
+                                    serde_json::Value::Number(n) => n.to_string(),
+                                    serde_json::Value::String(s) => s.clone(),
+                                    _ => v.to_string(),
+                                })
+                                .collect()
+                        })
+                        .collect();
+
+                    let result_data = QueryResultData {
+                        question_id: id,
+                        question_name,
+                        columns,
+                        rows,
+                    };
+
+                    let _ = tx.send(AppAction::QueryResultLoaded(result_data));
+                }
+                Err(e) => {
+                    let _ = tx.send(AppAction::QueryFailed(e));
+                }
+            }
+        });
+    }
+
     /// Handle keyboard input.
     fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
         // Help overlay takes priority when shown
@@ -293,7 +388,12 @@ impl App {
                 return;
             }
             KeyCode::Esc => {
-                self.should_quit = true;
+                // If viewing query result, go back to Questions instead of quitting
+                if self.content.current_view() == ContentView::QueryResult {
+                    let _ = self.action_tx.send(AppAction::BackToQuestions);
+                } else {
+                    self.should_quit = true;
+                }
                 return;
             }
             KeyCode::Char('?') => {
@@ -334,6 +434,15 @@ impl App {
                     .handle_key(crossterm::event::KeyEvent::new(code, modifiers));
             }
             ActivePanel::Content => {
+                // Handle Enter in Questions view to execute query
+                if code == KeyCode::Enter
+                    && self.content.current_view() == ContentView::Questions
+                {
+                    if let Some(question_id) = self.content.get_selected_question_id() {
+                        let _ = self.action_tx.send(AppAction::ExecuteQuestion(question_id));
+                        return;
+                    }
+                }
                 self.content
                     .handle_key(crossterm::event::KeyEvent::new(code, modifiers));
             }
@@ -350,6 +459,13 @@ impl App {
             _ => ContentView::Welcome,
         };
         self.content.set_view(view);
+
+        // Auto-load data when navigating to Questions view
+        if view == ContentView::Questions && matches!(self.data.questions, LoadState::Idle) {
+            let _ = self
+                .action_tx
+                .send(AppAction::LoadData(DataRequest::Questions));
+        }
 
         // Update status message
         if let Some(item) = self.navigation.selected_item() {

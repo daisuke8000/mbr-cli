@@ -8,6 +8,8 @@
 
 use mbr_core::api::models::{CurrentUser, Question};
 
+use crate::components::QueryResultData;
+
 /// Application-level actions for component-to-app communication.
 ///
 /// This enum enables clean separation between UI components and application logic.
@@ -50,6 +52,19 @@ pub enum AppAction {
 
     /// Data loading failed with error message
     LoadFailed(String),
+
+    // === Query Execution (Phase 6) ===
+    /// Execute a question query
+    ExecuteQuestion(u32),
+
+    /// Query execution completed successfully
+    QueryResultLoaded(QueryResultData),
+
+    /// Query execution failed
+    QueryFailed(String),
+
+    /// Return to Questions list from query result view
+    BackToQuestions,
 }
 
 /// Target content views for navigation
@@ -74,6 +89,8 @@ pub enum DataRequest {
     Questions,
     /// Load a specific question's details
     QuestionDetails(u32),
+    /// Execute a specific question's query
+    Execute(u32),
     /// Refresh current data
     Refresh,
 }

@@ -11,7 +11,7 @@ mod help_overlay;
 mod navigation;
 mod status_bar;
 
-pub use content::{ContentPanel, ContentView};
+pub use content::{ContentPanel, ContentView, QueryResultData};
 pub use help_overlay::HelpOverlay;
 pub use navigation::NavigationPanel;
 pub use status_bar::StatusBar;

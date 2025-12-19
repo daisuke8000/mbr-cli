@@ -46,7 +46,8 @@ impl StatusBar {
             bindings: vec![
                 KeyBinding::new("Tab", "Switch"),
                 KeyBinding::new("↑↓", "Navigate"),
-                KeyBinding::new("Enter", "Select"),
+                KeyBinding::new("Enter", "Select/Run"),
+                KeyBinding::new("Esc", "Back"),
                 KeyBinding::new("r", "Refresh"),
                 KeyBinding::new("?", "Help"),
                 KeyBinding::new("q", "Quit"),

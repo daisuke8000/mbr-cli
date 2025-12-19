@@ -989,6 +989,7 @@ dependencies = [
  "crossterm 0.29.0",
  "mbr-core",
  "ratatui",
+ "serde_json",
  "thiserror 1.0.69",
  "tokio",
 ]
