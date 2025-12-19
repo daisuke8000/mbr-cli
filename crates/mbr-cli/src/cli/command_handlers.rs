@@ -1,122 +1,14 @@
 use crate::cli::interactive_display::InteractiveDisplay;
-use crate::cli::main_types::{AuthCommands, ConfigCommands, QueryArgs};
+use crate::cli::main_types::{ConfigCommands, QueryArgs};
 use mbr_core::api::client::MetabaseClient;
-use mbr_core::core::auth::LoginInput;
-use mbr_core::core::services::auth_service::AuthService;
 use mbr_core::core::services::config_service::ConfigService;
 use mbr_core::display::{
     OperationStatus, ProgressSpinner, TableDisplay, TableHeaderInfoBuilder, display_status,
 };
 use mbr_core::error::{AppError, CliError};
-use mbr_core::storage::config::Profile;
-use mbr_core::storage::credentials::AuthMode;
+use mbr_core::storage::credentials::has_api_key;
 use mbr_core::utils::data::OffsetManager;
 use mbr_core::utils::logging::print_verbose;
-
-#[derive(Default)]
-pub struct AuthHandler;
-
-impl AuthHandler {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub async fn handle(
-        &self,
-        command: AuthCommands,
-        auth_service: &mut AuthService,
-        profile: &Profile,
-        verbose: bool,
-    ) -> Result<(), AppError> {
-        match command {
-            AuthCommands::Login { username, password } => {
-                print_verbose(verbose, "Attempting auth login command using AuthService");
-
-                let default_username = username.clone().or_else(|| profile.email.clone());
-                let input =
-                    LoginInput::from_args_or_env(username, password, default_username.as_deref())?;
-
-                let username_display = input.username.clone();
-                let result = auth_service.authenticate(input).await;
-                match &result {
-                    Ok(_) => {
-                        print_verbose(verbose, "Authentication via AuthService succeeded");
-                        println!("✅ Successfully logged in as {}", username_display);
-                        println!("Connected to: {}", profile.url);
-                    }
-                    Err(e) => {
-                        println!("❌ Login failed: {}", e);
-                    }
-                }
-                result.map(|_| ())
-            }
-            AuthCommands::Logout => {
-                print_verbose(verbose, "Attempting auth logout command using AuthService");
-
-                let result = auth_service.logout().await;
-                match &result {
-                    Ok(_) => {
-                        println!(
-                            "✅ Successfully logged out from profile: {}",
-                            auth_service.get_auth_status().profile_name
-                        );
-                    }
-                    Err(e) => {
-                        println!("❌ Logout failed: {}", e);
-                    }
-                }
-                result.map(|_| ())
-            }
-            AuthCommands::Status => {
-                print_verbose(verbose, "Attempting auth status command using AuthService");
-
-                let auth_status = auth_service.get_auth_status();
-
-                // Show authentication status
-                println!("Authentication Status:");
-                println!("=====================");
-
-                match auth_status.auth_mode {
-                    AuthMode::APIKey => {
-                        println!("Authentication Mode: API Key");
-                        if let Ok(key) = std::env::var("MBR_API_KEY") {
-                            let masked = if key.len() > 8 {
-                                format!("{}...{}", &key[..4], &key[key.len() - 4..])
-                            } else {
-                                "*****".to_string()
-                            };
-                            println!("API Key: {}", masked);
-                        } else {
-                            println!("API Key: (not set)");
-                        }
-                    }
-                    AuthMode::Session => {
-                        println!("Authentication Mode: Session");
-
-                        if auth_status.session_active {
-                            if auth_service.is_authenticated() {
-                                println!("Session: ✅ Active session found");
-                                print_verbose(verbose, "Valid session token found in keychain");
-                            } else {
-                                println!("Session: ❌ Session token invalid or expired");
-                                print_verbose(verbose, "Session token found but appears invalid");
-                            }
-                        } else {
-                            println!(
-                                "Session: ❌ No active session (use 'auth login' to authenticate)"
-                            );
-                            print_verbose(verbose, "No session token found in keychain");
-                        }
-                    }
-                }
-
-                println!("\nActive Profile: {}", auth_status.profile_name);
-
-                Ok(())
-            }
-        }
-    }
-}
 
 #[derive(Default)]
 pub struct ConfigHandler;
@@ -130,6 +22,7 @@ impl ConfigHandler {
         &self,
         command: ConfigCommands,
         config_service: &mut ConfigService,
+        client: MetabaseClient,
         verbose: bool,
     ) -> Result<(), AppError> {
         match command {
@@ -146,6 +39,13 @@ impl ConfigHandler {
                 println!("=====================");
 
                 println!("Default Profile: {}", config_service.get_default_profile());
+
+                // Show API key status
+                if has_api_key() {
+                    println!("API Key: ✅ Set (MBR_API_KEY)");
+                } else {
+                    println!("API Key: ❌ Not set");
+                }
 
                 println!("\nProfiles:");
                 if profiles.is_empty() {
@@ -200,6 +100,64 @@ impl ConfigHandler {
                 config_service.save_config(None)?;
                 println!("Configuration saved successfully.");
                 Ok(())
+            }
+            ConfigCommands::Validate => {
+                print_verbose(verbose, "Validating API key and connection");
+
+                // Check if API key is set
+                if !has_api_key() {
+                    println!("❌ MBR_API_KEY environment variable is not set.\n");
+                    println!("To authenticate, set your Metabase API key:");
+                    println!("  export MBR_API_KEY=\"your_api_key\"\n");
+                    println!("Generate an API key in Metabase:");
+                    println!("  Settings → Admin settings → API Keys");
+                    return Err(AppError::Cli(CliError::AuthRequired {
+                        message: "MBR_API_KEY is not set".to_string(),
+                        hint: "Set the MBR_API_KEY environment variable".to_string(),
+                        available_profiles: vec![],
+                    }));
+                }
+
+                if !client.is_authenticated() {
+                    println!("❌ API key is not configured properly.");
+                    return Err(AppError::Cli(CliError::AuthRequired {
+                        message: "Client is not authenticated".to_string(),
+                        hint: "Check your MBR_API_KEY environment variable".to_string(),
+                        available_profiles: vec![],
+                    }));
+                }
+
+                // Test connection by getting current user
+                let mut spinner = ProgressSpinner::new("Validating API key...".to_string());
+                spinner.start();
+
+                match client.get_current_user().await {
+                    Ok(user) => {
+                        spinner.stop(Some("✅ API key validated successfully"));
+                        println!("\nAuthentication Status:");
+                        println!("=====================");
+                        println!("✅ Connected to Metabase");
+                        println!("\nUser Information:");
+                        println!("  ID: {}", user.id);
+                        println!("  Email: {}", user.email);
+                        if let Some(name) = user.common_name.or(user.first_name) {
+                            println!("  Name: {}", name);
+                        }
+                        if let Some(is_superuser) = user.is_superuser {
+                            println!("  Admin: {}", if is_superuser { "Yes" } else { "No" });
+                        }
+                        Ok(())
+                    }
+                    Err(e) => {
+                        spinner.stop(Some("❌ API key validation failed"));
+                        println!("\n❌ Failed to validate API key: {}", e);
+                        println!("\nPossible causes:");
+                        println!("  - API key is invalid or expired");
+                        println!("  - Metabase server is unreachable");
+                        println!("  - API key doesn't have required permissions");
+                        Err(e)
+                    }
+                }
             }
         }
     }
@@ -325,19 +283,19 @@ impl QueryHandler {
         let mut processed_result = result;
 
         // Apply offset if specified
-        if let Some(offset_val) = args.offset
-            && offset_val > 0
-        {
-            let offset_manager = OffsetManager::new(Some(offset_val));
-            processed_result = offset_manager.apply_offset(&processed_result)?;
-            print_verbose(
-                verbose,
-                &format!(
-                    "Applied offset: {}, remaining rows: {}",
-                    offset_val,
-                    processed_result.data.rows.len()
-                ),
-            );
+        if let Some(offset_val) = args.offset {
+            if offset_val > 0 {
+                let offset_manager = OffsetManager::new(Some(offset_val));
+                processed_result = offset_manager.apply_offset(&processed_result)?;
+                print_verbose(
+                    verbose,
+                    &format!(
+                        "Applied offset: {}, remaining rows: {}",
+                        offset_val,
+                        processed_result.data.rows.len()
+                    ),
+                );
+            }
         }
 
         let table_display = TableDisplay::new();

@@ -50,9 +50,8 @@
 //!
 //! ## Feature Highlights
 //!
-//! - **Dual Authentication**: Supports both API key and session-based auth
+//! - **API Key Authentication**: Simple authentication via `MBR_API_KEY` environment variable
 //! - **Multi-Profile**: Manage multiple Metabase server configurations
-//! - **Secure Storage**: Credentials stored in OS keychain
 //! - **Rich Error Handling**: Contextual errors with severity levels
 
 pub use error::AppError;
@@ -75,13 +74,12 @@ pub mod prelude {
     pub use crate::api::models::{Collection, QueryResult, Question};
 
     // Services
-    pub use crate::core::services::auth_service::AuthService;
     pub use crate::core::services::config_service::ConfigService;
     pub use crate::core::services::question_service::QuestionService;
 
     // Storage
     pub use crate::storage::config::{Config, Profile};
-    pub use crate::storage::credentials::Credentials;
+    pub use crate::storage::credentials::{get_api_key, has_api_key};
 
     // Display utilities
     pub use crate::display::TableDisplay;
@@ -90,7 +88,6 @@ pub mod prelude {
 /// Business logic layer - services and domain models.
 ///
 /// Contains the service layer that orchestrates API calls and business rules:
-/// - [`core::services::auth_service`]: Authentication workflows
 /// - [`core::services::config_service`]: Configuration management
 /// - [`core::services::question_service`]: Question operations
 pub mod core;
@@ -99,7 +96,7 @@ pub mod core;
 ///
 /// Manages persistent data:
 /// - [`storage::config`]: TOML configuration with multi-profile support
-/// - [`storage::credentials`]: Secure credential storage via OS keychain
+/// - [`storage::credentials`]: API key retrieval from environment
 pub mod storage;
 
 /// Utilities layer - shared helpers and common functionality.
@@ -144,9 +141,7 @@ pub type Result<T> = std::result::Result<T, AppError>;
 #[doc(hidden)]
 pub use api::client::MetabaseClient;
 #[doc(hidden)]
-pub use api::models::{Collection, QueryResult, Question};
-#[doc(hidden)]
-pub use core::services::auth_service::AuthService;
+pub use api::models::{Collection, CurrentUser, QueryResult, Question};
 #[doc(hidden)]
 pub use core::services::config_service::ConfigService;
 #[doc(hidden)]
@@ -154,4 +149,4 @@ pub use core::services::question_service::QuestionService;
 #[doc(hidden)]
 pub use storage::config::Config;
 #[doc(hidden)]
-pub use storage::credentials::Credentials;
+pub use storage::credentials::{get_api_key, has_api_key};

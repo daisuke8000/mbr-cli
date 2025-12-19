@@ -1,16 +1,15 @@
-use crate::cli::command_handlers::{AuthHandler, ConfigHandler, QueryHandler};
+use crate::cli::command_handlers::{ConfigHandler, QueryHandler};
 use crate::cli::main_types::Commands;
 use mbr_core::api::client::MetabaseClient;
-use mbr_core::core::services::auth_service::AuthService;
 use mbr_core::core::services::config_service::ConfigService;
 use mbr_core::error::{AppError, CliError};
 use mbr_core::storage::config::{Config, Profile};
-use mbr_core::storage::credentials::{AuthMode, Credentials};
+use mbr_core::storage::credentials::get_api_key;
 use mbr_core::utils::logging::print_verbose;
 
 pub struct Dispatcher {
     config: Config,
-    credentials: Credentials,
+    profile_name: String,
     verbose: bool,
     api_key: Option<String>,
 }
@@ -22,53 +21,24 @@ impl Dispatcher {
 
     pub fn new(
         mut config: Config,
-        mut credentials: Credentials,
+        profile_name: String,
         verbose: bool,
         api_key: Option<String>,
         config_path: Option<std::path::PathBuf>,
     ) -> Self {
-        let has_valid_api_key = api_key.as_ref().is_some_and(|key| !key.is_empty());
-        if matches!(credentials.get_auth_mode(), AuthMode::Session) && !has_valid_api_key {
-            print_verbose(verbose, "Checking for saved session token...");
-
-            match Credentials::load(&credentials.profile_name) {
-                Ok(loaded_creds) => {
-                    credentials = loaded_creds;
-                    print_verbose(
-                        verbose,
-                        &format!(
-                            "Session credentials loaded for profile: {}",
-                            credentials.profile_name
-                        ),
-                    );
-                }
-                Err(_) => {
-                    print_verbose(
-                        verbose,
-                        &format!(
-                            "No saved session token found for profile: {}",
-                            credentials.profile_name
-                        ),
-                    );
-                }
-            }
-        } else {
-            print_verbose(verbose, "API key is set, skipping session restoration");
-        }
-
-        if config.get_profile(&credentials.profile_name).is_none() {
+        // Create default profile if not exists
+        if config.get_profile(&profile_name).is_none() {
             print_verbose(
                 verbose,
-                &format!("Creating default profile: {}", credentials.profile_name),
+                &format!("Creating default profile: {}", profile_name),
             );
 
-            use mbr_core::storage::config::Profile;
             let default_profile = Profile {
                 url: "http://localhost:3000".to_string(),
                 email: None,
             };
 
-            config.set_profile(credentials.profile_name.clone(), default_profile);
+            config.set_profile(profile_name.clone(), default_profile);
 
             if let Err(err) = config.save(config_path) {
                 print_verbose(verbose, &format!("Warning: Failed to save config: {}", err));
@@ -79,78 +49,45 @@ impl Dispatcher {
 
         Self {
             config,
-            credentials,
+            profile_name,
             verbose,
             api_key,
         }
     }
 
-    // Helper method to get profile for the current credentials
-    fn get_current_profile(&self) -> Result<&Profile, AppError> {
-        self.config
-            .get_profile(&self.credentials.profile_name)
-            .ok_or_else(|| {
-                AppError::Cli(CliError::AuthRequired {
-                    message: format!("Profile '{}' not found", self.credentials.profile_name),
-                    hint: "Use 'mbr-cli config set <profile> <field> <value>' to create a profile"
-                        .to_string(),
-                    available_profiles: self.config.profiles.keys().cloned().collect(),
-                })
-            })
+    // Get effective API key (CLI arg > env var)
+    fn get_effective_api_key(&self) -> Option<String> {
+        // CLI argument takes priority
+        if let Some(ref key) = self.api_key {
+            if !key.is_empty() {
+                return Some(key.clone());
+            }
+        }
+        // Fall back to environment variable
+        get_api_key()
     }
 
-    // Helper method to create MetabaseClient with API key integration
+    // Helper method to get profile for the current credentials
+    fn get_current_profile(&self) -> Result<&Profile, AppError> {
+        self.config.get_profile(&self.profile_name).ok_or_else(|| {
+            AppError::Cli(CliError::AuthRequired {
+                message: format!("Profile '{}' not found", self.profile_name),
+                hint: "Use 'mbr-cli config set --profile <name> --url <url>' to create a profile"
+                    .to_string(),
+                available_profiles: self.config.profiles.keys().cloned().collect(),
+            })
+        })
+    }
+
+    // Helper method to create MetabaseClient with API key
     fn create_client(&self, profile: &Profile) -> Result<MetabaseClient, AppError> {
-        if let Some(ref api_key) = self.api_key {
-            if !api_key.is_empty() {
-                self.log_verbose("Creating client with API key");
-                Ok(MetabaseClient::with_api_key(
-                    profile.url.clone(),
-                    api_key.clone(),
-                )?)
-            } else {
-                self.log_verbose("Creating client without API key (empty API key ignored)");
-                Ok(MetabaseClient::new(profile.url.clone())?)
-            }
+        if let Some(api_key) = self.get_effective_api_key() {
+            self.log_verbose("Creating client with API key");
+            Ok(MetabaseClient::with_api_key(profile.url.clone(), api_key)?)
         } else {
             self.log_verbose("Creating client without API key");
             Ok(MetabaseClient::new(profile.url.clone())?)
         }
-    }
-
-    // Helper method to create authenticated MetabaseClient with session restoration
-    fn create_authenticated_client(&self, profile: &Profile) -> Result<MetabaseClient, AppError> {
-        let mut client = self.create_client(profile)?;
-
-        // For session-based authentication, restore session if available
-        let has_valid_api_key = self.api_key.as_ref().is_some_and(|key| !key.is_empty());
-        if matches!(self.credentials.get_auth_mode(), AuthMode::Session) && !has_valid_api_key {
-            self.log_verbose("Attempting to restore session token");
-            let credentials = Credentials::load(&self.credentials.profile_name)?;
-            if let Some(token) = credentials.get_session_token() {
-                self.log_verbose("Session token found, setting for client");
-                client.set_session_token(token);
-            } else {
-                self.log_verbose("No session token found");
-            }
-        }
-
-        Ok(client)
-    }
-
-    // Helper method to create AuthService with proper credentials and client
-    fn create_auth_service(&self, profile: &Profile) -> Result<AuthService, AppError> {
-        let client = self.create_authenticated_client(profile)?;
-        let credentials = if self.api_key.is_some() {
-            // Use credentials with API key preference
-            self.credentials.clone()
-        } else {
-            // Load latest credentials from storage for session mode
-            Credentials::load(&self.credentials.profile_name)
-                .unwrap_or_else(|_| self.credentials.clone())
-        };
-
-        Ok(AuthService::new(credentials, client))
     }
 
     // Helper method to create ConfigService with current configuration
@@ -160,25 +97,19 @@ impl Dispatcher {
 
     pub async fn dispatch(&self, command: Commands) -> Result<(), AppError> {
         match command {
-            Commands::Auth { command } => {
-                let handler = AuthHandler::new();
-                let profile = self.get_current_profile()?;
-                let mut auth_service = self.create_auth_service(profile)?;
-                handler
-                    .handle(command, &mut auth_service, profile, self.verbose)
-                    .await
-            }
             Commands::Config { command } => {
                 let handler = ConfigHandler::new();
                 let mut config_service = self.create_config_service();
+                let profile = self.get_current_profile()?;
+                let client = self.create_client(profile)?;
                 handler
-                    .handle(command, &mut config_service, self.verbose)
+                    .handle(command, &mut config_service, client, self.verbose)
                     .await
             }
             Commands::Query(args) => {
                 let handler = QueryHandler::new();
                 let profile = self.get_current_profile()?;
-                let client = self.create_authenticated_client(profile)?;
+                let client = self.create_client(profile)?;
                 handler.handle(args, client, self.verbose).await
             }
         }

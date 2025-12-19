@@ -56,20 +56,16 @@ pub enum ApiError {
 
 #[derive(Error, Debug)]
 pub enum AuthError {
-    #[error("Login failed: Invalid credentials")]
-    InvalidCredentials,
-    #[error("Session expired or invalid")]
-    SessionInvalid,
-    #[error("Login failed")]
-    LoginFailed,
-    #[error("API key authentication failed")]
+    #[error("MBR_API_KEY environment variable is not set")]
+    MissingApiKey,
+    #[error("API key is invalid or expired")]
     ApiKeyInvalid,
+    #[error("API key authentication failed: {message}")]
+    AuthFailed { message: String },
 }
 
 #[derive(Error, Debug)]
 pub enum StorageError {
-    #[error("Keyring error: {0}")]
-    KeyringError(String),
     #[error("File I/O error at {path}: {source}")]
     FileIo {
         path: String,
@@ -180,10 +176,12 @@ impl AppError {
 
     pub fn display_friendly(&self) -> String {
         match self {
-            AppError::Auth(AuthError::InvalidCredentials) => "Invalid credentials".to_string(),
-            AppError::Auth(AuthError::SessionInvalid) => "Session expired or invalid".to_string(),
+            AppError::Auth(AuthError::MissingApiKey) => {
+                "MBR_API_KEY environment variable is not set".to_string()
+            }
+            AppError::Auth(AuthError::ApiKeyInvalid) => "API key is invalid or expired".to_string(),
             AppError::Config(ConfigError::FileNotFound { .. }) => {
-                "configuration file not found: ".to_string()
+                "Configuration file not found".to_string()
             }
             AppError::Question(QuestionError::NotFound { id }) => {
                 format!("Question {} not found", id)
@@ -194,17 +192,23 @@ impl AppError {
 
     pub fn troubleshooting_hint(&self) -> Option<String> {
         match self {
-            AppError::Auth(AuthError::InvalidCredentials | AuthError::SessionInvalid) => {
-                Some("'mbr-cli auth login' try again".to_string())
+            AppError::Auth(AuthError::MissingApiKey) => {
+                Some("Set the MBR_API_KEY environment variable:\n  export MBR_API_KEY=\"your_api_key\"\n\nGenerate an API key in Metabase:\n  Settings → Admin settings → API Keys".to_string())
+            }
+            AppError::Auth(AuthError::ApiKeyInvalid) => {
+                Some("Check that your API key is valid and has not expired.\nRun 'mbr-cli config validate' to test the connection.".to_string())
             }
             AppError::Config(ConfigError::FileNotFound { .. }) => {
-                Some("'mbr-cli config set --url <url>' to set configuration".to_string())
+                Some("Run 'mbr-cli config set --url <url>' to create a configuration".to_string())
             }
             AppError::Api(ApiError::Timeout { .. }) => {
-                Some("Check your internet or Metabase connection and try again".to_string())
+                Some("Check your network connection and Metabase server availability".to_string())
+            }
+            AppError::Api(ApiError::Unauthorized { .. }) => {
+                Some("Your API key may be invalid or expired. Run 'mbr-cli config validate' to check.".to_string())
             }
             AppError::Question(QuestionError::NotFound { .. }) => {
-                Some("'mbr-cli query --list' to see a list of available questions".to_string())
+                Some("Run 'mbr-cli query --list' to see available questions".to_string())
             }
             _ => None,
         }
@@ -369,7 +373,12 @@ mod tests {
     #[test]
     fn test_troubleshooting_hints() {
         assert!(
-            AppError::Auth(AuthError::InvalidCredentials)
+            AppError::Auth(AuthError::MissingApiKey)
+                .troubleshooting_hint()
+                .is_some()
+        );
+        assert!(
+            AppError::Auth(AuthError::ApiKeyInvalid)
                 .troubleshooting_hint()
                 .is_some()
         );
@@ -377,6 +386,15 @@ mod tests {
             AppError::Api(ApiError::Timeout {
                 timeout_secs: 1,
                 endpoint: "".into()
+            })
+            .troubleshooting_hint()
+            .is_some()
+        );
+        assert!(
+            AppError::Api(ApiError::Unauthorized {
+                status: 401,
+                endpoint: "".into(),
+                server_message: "".into()
             })
             .troubleshooting_hint()
             .is_some()

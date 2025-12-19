@@ -13,7 +13,6 @@ serde_json.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 dirs.workspace = true
-keyring.workspace = true
 unicode-width.workspace = true
 backoff.workspace = true
 async-trait.workspace = true
@@ -21,7 +20,6 @@ log.workspace = true
 crossterm.workspace = true
 comfy-table.workspace = true
 atty.workspace = true
-rpassword.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

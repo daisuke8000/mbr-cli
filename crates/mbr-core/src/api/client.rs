@@ -1,6 +1,4 @@
-use crate::api::models::{LoginRequest, LoginResponse};
 use crate::error::{ApiError, AppError};
-use crate::map_api_error;
 use crate::utils::error_helpers::*;
 use reqwest::{Client, Method, RequestBuilder, Response};
 use std::collections::HashMap;
@@ -13,7 +11,6 @@ const USER_AGENT: &str = concat!("mbr-cli/", env!("CARGO_PKG_VERSION"));
 pub struct MetabaseClient {
     client: Client,
     pub base_url: String,
-    pub session_token: Option<String>,
     pub api_key: Option<String>,
 }
 
@@ -29,21 +26,12 @@ impl MetabaseClient {
         Ok(MetabaseClient {
             client,
             base_url: base_url.trim_end_matches('/').to_string(),
-            session_token: None,
             api_key: None,
         })
     }
 
-    pub fn set_session_token(&mut self, token: String) {
-        self.session_token = Some(token);
-    }
-
-    pub fn get_session_token(&self) -> Option<String> {
-        self.session_token.clone()
-    }
-
     pub fn is_authenticated(&self) -> bool {
-        self.api_key.is_some() || self.session_token.is_some()
+        self.api_key.is_some()
     }
 
     pub fn with_api_key(base_url: String, api_key: String) -> Result<Self, ApiError> {
@@ -58,62 +46,47 @@ impl MetabaseClient {
 
         if let Some(api_key) = &self.api_key {
             request = request.header("x-api-key", api_key);
-        } else if let Some(token) = &self.session_token {
-            request = request.header("X-Metabase-Session", token);
         }
 
         request
     }
 
-    // Authentication endpoints
-    pub async fn login(&mut self, username: &str, password: &str) -> Result<(), ApiError> {
-        let login_req = LoginRequest {
-            username: username.to_string(),
-            password: password.to_string(),
-        };
+    /// Get current user information from Metabase
+    /// Used for validating API key authentication
+    pub async fn get_current_user(&self) -> Result<crate::api::models::CurrentUser, AppError> {
+        let endpoint = "/api/user/current";
 
-        let response = map_api_error!(
-            self.build_request(Method::POST, "/api/session")
-                .json(&login_req)
-                .send()
-                .await,
-            "/api/session"
-        )?;
+        let response = self
+            .build_request(Method::GET, endpoint)
+            .send()
+            .await
+            .map_err(|e| AppError::Api(convert_request_error(e, endpoint)))?;
 
-        let login_resp: LoginResponse = Self::handle_response(response, "/api/session").await?;
-        self.session_token = Some(login_resp.id);
-        Ok(())
-    }
-
-    pub async fn logout(&mut self) -> Result<(), ApiError> {
-        // If not authenticated via session, nothing to do
-        if self.session_token.is_none() {
-            return Ok(());
-        }
-
-        let response = map_api_error!(
-            self.build_request(Method::DELETE, "/api/session")
-                .send()
-                .await,
-            "/api/session"
-        )?;
-
-        // Metabase returns 204 No Content on successful logout
         let status = response.status();
+
         if status.is_success() {
-            self.session_token = None;
-            Ok(())
+            let user: crate::api::models::CurrentUser = response
+                .json()
+                .await
+                .map_err(|e| AppError::Api(convert_json_error(e, endpoint)))?;
+            Ok(user)
+        } else if status == reqwest::StatusCode::UNAUTHORIZED {
+            Err(AppError::Api(ApiError::Unauthorized {
+                status: status.as_u16(),
+                endpoint: endpoint.to_string(),
+                server_message: "Invalid API key".to_string(),
+            }))
         } else {
             let error_text = response
                 .text()
                 .await
-                .unwrap_or_else(|_| "Logout failed".to_string());
+                .unwrap_or_else(|_| "Unknown error".to_string());
 
-            Err(ApiError::Http {
+            Err(AppError::Api(ApiError::Http {
                 status: status.as_u16(),
-                endpoint: "/api/session".to_string(),
+                endpoint: endpoint.to_string(),
                 message: error_text,
-            })
+            }))
         }
     }
 
@@ -129,17 +102,17 @@ impl MetabaseClient {
         params.push("f=all".to_string());
 
         // Add search parameter if provided
-        if let Some(search_term) = search
-            && !search_term.is_empty()
-        {
-            params.push(format!("q={}", search_term));
+        if let Some(search_term) = search {
+            if !search_term.is_empty() {
+                params.push(format!("q={}", search_term));
+            }
         }
 
         // Add collection parameter if provided
-        if let Some(collection_id) = collection
-            && !collection_id.is_empty()
-        {
-            params.push(format!("collection={}", collection_id));
+        if let Some(collection_id) = collection {
+            if !collection_id.is_empty() {
+                params.push(format!("collection={}", collection_id));
+            }
         }
 
         // Build endpoint with parameters
@@ -166,10 +139,10 @@ impl MetabaseClient {
                 .map_err(|e| AppError::Api(convert_json_error(e, &endpoint)))?;
 
             // Apply limit if specified
-            if let Some(limit_value) = limit
-                && limit_value > 0
-            {
-                questions.truncate(limit_value as usize);
+            if let Some(limit_value) = limit {
+                if limit_value > 0 {
+                    questions.truncate(limit_value as usize);
+                }
             }
 
             Ok(questions)
@@ -177,7 +150,7 @@ impl MetabaseClient {
             Err(AppError::Api(ApiError::Unauthorized {
                 status: status.as_u16(),
                 endpoint,
-                server_message: "Authentication failed - please login first".to_string(),
+                server_message: "Authentication failed - check MBR_API_KEY".to_string(),
             }))
         } else {
             let error_text = response
@@ -205,10 +178,10 @@ impl MetabaseClient {
         let mut request = self.build_request(Method::POST, &endpoint);
 
         // Add parameters as JSON body if provided
-        if let Some(params) = parameters
-            && !params.is_empty()
-        {
-            request = request.json(&params);
+        if let Some(params) = parameters {
+            if !params.is_empty() {
+                request = request.json(&params);
+            }
         }
 
         // Send request with extended timeout
@@ -243,7 +216,7 @@ impl MetabaseClient {
             Err(AppError::Api(ApiError::Unauthorized {
                 status: status.as_u16(),
                 endpoint,
-                server_message: "Authentication failed - please login first".to_string(),
+                server_message: "Authentication failed - check MBR_API_KEY".to_string(),
             }))
         } else {
             let error_text = response
@@ -308,20 +281,10 @@ mod tests {
     }
 
     #[test]
-    fn test_set_session_token_is_authenticated() {
-        let mut client =
-            MetabaseClient::new("http://example.test".to_string()).expect("client creation failed");
-        client.set_session_token("token".to_string());
-        assert!(client.is_authenticated());
-        assert_eq!(Some("token".to_string()), client.get_session_token());
-    }
-
-    #[test]
-    fn test_set_session_token_is_not_authenticated() {
+    fn test_not_authenticated_without_api_key() {
         let client =
             MetabaseClient::new("http://example.test".to_string()).expect("client creation failed");
         assert!(!client.is_authenticated());
-        assert!(client.get_session_token().is_none());
     }
 
     #[test]
@@ -336,19 +299,16 @@ mod tests {
     }
 
     #[test]
-    fn test_build_request() {
+    fn test_build_request_without_auth() {
         let client =
             MetabaseClient::new("http://example.test".to_string()).expect("client creation failed");
-        let request = client.build_request(Method::POST, "/api/session");
+        let request = client.build_request(Method::GET, "/api/card");
 
         let built_request = request.build().expect("Failed to build request");
 
-        assert_eq!(
-            built_request.url().as_str(),
-            "http://example.test/api/session"
-        );
-        assert_eq!(built_request.method(), Method::POST);
-        assert!(built_request.headers().get("X-Metabase-Session").is_none());
+        assert_eq!(built_request.url().as_str(), "http://example.test/api/card");
+        assert_eq!(built_request.method(), Method::GET);
+        assert!(built_request.headers().get("x-api-key").is_none());
     }
 
     #[test]
@@ -371,89 +331,12 @@ mod tests {
                 .unwrap(),
             "test_api_key_123"
         );
-        assert!(built_request.headers().get("X-Metabase-Session").is_none());
     }
 
     #[test]
-    fn test_auth_priority_api_key_over_session() {
-        let mut client = MetabaseClient::with_api_key(
-            "http://example.test".to_string(),
-            "api_key_456".to_string(),
-        )
-        .expect("client creation failed");
-
-        // Set a session token too (not typical usage, but for testing priority)
-        client.set_session_token("session_123".to_string());
-
-        let request = client.build_request(Method::POST, "/api/session");
-        let built_request = request.build().expect("Failed to build request");
-
-        // API key should take priority
-        assert!(built_request.headers().get("x-api-key").is_some());
-        assert_eq!(
-            built_request
-                .headers()
-                .get("x-api-key")
-                .unwrap()
-                .to_str()
-                .unwrap(),
-            "api_key_456"
-        );
-        // Session header should not exist (an API key takes priority)
-        assert!(built_request.headers().get("X-Metabase-Session").is_none());
-    }
-
-    #[tokio::test]
-    async fn test_login_updates_session_token() {
-        // This would require a mock server in real tests
-        // For now; we verify the method signature compiles
-        let client =
-            MetabaseClient::new("http://example.test".to_string()).expect("client creation failed");
-
-        // Verify initial state
-        assert!(!client.is_authenticated());
-        assert!(client.session_token.is_none());
-
-        // After login (would need a mock server for actual test)
-        // client.login("user", "pass").await.unwrap();
-        // assert!(client.is_authenticated());
-    }
-
-    #[tokio::test]
-    async fn test_logout_clears_session_token() {
-        let mut client =
-            MetabaseClient::new("http://example.test".to_string()).expect("client creation failed");
-
-        // Set a session token
-        client.set_session_token("test_token".to_string());
-        assert!(client.is_authenticated());
-
-        // After logout (would need a mock server for actual test)
-        // client.logout().await.unwrap();
-        // assert!(!client.is_authenticated());
-        // assert!(client.session_token.is_none());
-    }
-
-    #[test]
-    fn test_build_request_with_session_only() {
-        let mut client =
-            MetabaseClient::new("http://example.test".to_string()).expect("client creation failed");
-        client.set_session_token("session_abc".to_string());
-
-        let request = client.build_request(Method::POST, "/api/session");
-        let built_request = request.build().expect("Failed to build request");
-
-        // No API key header should exist
-        assert!(built_request.headers().get("x-api-key").is_none());
-        // Session header should be present
-        assert_eq!(
-            built_request
-                .headers()
-                .get("X-Metabase-Session")
-                .unwrap()
-                .to_str()
-                .unwrap(),
-            "session_abc"
-        );
+    fn test_base_url_trailing_slash_removed() {
+        let client = MetabaseClient::new("http://example.test/".to_string())
+            .expect("client creation failed");
+        assert_eq!(client.base_url, "http://example.test");
     }
 }

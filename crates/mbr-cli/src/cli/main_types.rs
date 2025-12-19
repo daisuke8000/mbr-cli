@@ -5,12 +5,16 @@ use clap::{Args, Parser, Subcommand};
 #[command(about = "Command line interface tool for interacting with Metabase APIs")]
 #[command(version)]
 #[command(after_help = "Examples:
-  mbr-cli auth login                    # Login to Metabase
   mbr-cli query --list                  # List available questions
   mbr-cli query --list --limit 10       # List first 10 questions
   mbr-cli query 123                     # Execute question ID 123
   mbr-cli query 123 --format json       # Execute and output as JSON
-  mbr-cli config show                   # Show current configuration")]
+  mbr-cli config show                   # Show current configuration
+  mbr-cli config validate               # Validate API key and connection
+
+Environment Variables:
+  MBR_API_KEY   Metabase API key (required for authentication)
+  MBR_URL       Metabase server URL")]
 pub struct Cli {
     /// Enable verbose output for debugging
     #[arg(short, long, global = true)]
@@ -34,38 +38,13 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Authentication commands (login, logout, status)
-    Auth {
-        #[command(subcommand)]
-        command: AuthCommands,
-    },
-    /// Configuration management (show, set)
+    /// Configuration management (show, set, validate)
     Config {
         #[command(subcommand)]
         command: ConfigCommands,
     },
     /// Query Metabase questions (execute or list)
     Query(QueryArgs),
-}
-
-#[derive(Subcommand, Debug)]
-pub enum AuthCommands {
-    /// Login to Metabase server
-    #[command(after_help = "Examples:
-  mbr-cli auth login                              # Interactive login
-  mbr-cli auth login --username user@example.com  # Login with username")]
-    Login {
-        /// Username for login (uses MBR_USERNAME env var if not provided)
-        #[arg(long, env = "MBR_USERNAME")]
-        username: Option<String>,
-        /// Password for login (uses MBR_PASSWORD env var if not provided)
-        #[arg(long, env = "MBR_PASSWORD")]
-        password: Option<String>,
-    },
-    /// Logout and clear the session
-    Logout,
-    /// Show current authentication status
-    Status,
 }
 
 #[derive(Subcommand, Debug)]
@@ -88,6 +67,10 @@ pub enum ConfigCommands {
         #[arg(long, env = "MBR_USERNAME")]
         email: Option<String>,
     },
+    /// Validate API key and test connection to Metabase server
+    #[command(after_help = "Examples:
+  mbr-cli config validate               # Validate using MBR_API_KEY env var")]
+    Validate,
 }
 
 /// Query arguments for executing or listing questions
