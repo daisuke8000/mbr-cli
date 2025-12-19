@@ -11,6 +11,7 @@ use ratatui::backend::CrosstermBackend;
 use std::io::{self, stdout};
 
 mod app;
+mod components;
 mod event;
 
 use app::App;
