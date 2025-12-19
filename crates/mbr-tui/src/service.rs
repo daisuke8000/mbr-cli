@@ -2,8 +2,7 @@
 //!
 //! Provides async data fetching using mbr-core's QuestionService and MetabaseClient.
 
-// Allow unused fields/methods as they are designed for Phase 4+ implementation
-#![allow(dead_code)]
+use std::sync::Arc;
 
 use mbr_core::api::client::MetabaseClient;
 use mbr_core::api::models::{CurrentUser, Question};
@@ -12,22 +11,74 @@ use mbr_core::core::services::types::ListParams;
 use mbr_core::storage::config::Config;
 use mbr_core::storage::credentials::get_api_key;
 
-/// Application state loaded from mbr-core services
-#[derive(Debug, Clone, Default)]
-pub struct AppData {
-    /// Loaded questions from Metabase
-    pub questions: Vec<Question>,
-    /// Current user information (if authenticated)
-    pub current_user: Option<CurrentUser>,
-    /// Error message from last operation
-    pub error: Option<String>,
-    /// Whether data is currently loading
-    pub loading: bool,
+/// Generic loading state for async data.
+///
+/// This enum enforces proper handling of all loading states at compile time,
+/// preventing bugs like displaying stale data while loading.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum LoadState<T> {
+    /// Initial state, no data loaded yet
+    #[default]
+    Idle,
+    /// Data is being fetched
+    Loading,
+    /// Data successfully loaded
+    Loaded(T),
+    /// Loading failed with error message
+    Error(String),
 }
 
-/// Service client wrapper for async operations
+// Methods designed for Phase 5+ implementation
+#[allow(dead_code)]
+impl<T> LoadState<T> {
+    /// Check if currently loading
+    pub fn is_loading(&self) -> bool {
+        matches!(self, LoadState::Loading)
+    }
+
+    /// Check if data is loaded
+    pub fn is_loaded(&self) -> bool {
+        matches!(self, LoadState::Loaded(_))
+    }
+
+    /// Check if in error state
+    pub fn is_error(&self) -> bool {
+        matches!(self, LoadState::Error(_))
+    }
+
+    /// Get reference to loaded data if available
+    pub fn data(&self) -> Option<&T> {
+        match self {
+            LoadState::Loaded(data) => Some(data),
+            _ => None,
+        }
+    }
+
+    /// Get error message if in error state
+    pub fn error(&self) -> Option<&str> {
+        match self {
+            LoadState::Error(msg) => Some(msg),
+            _ => None,
+        }
+    }
+}
+
+/// Application data state using LoadState for each resource.
+#[derive(Debug, Clone, Default)]
+pub struct AppData {
+    /// Questions list with loading state
+    pub questions: LoadState<Vec<Question>>,
+    /// Current user information (if authenticated)
+    pub current_user: Option<CurrentUser>,
+}
+
+/// Service client wrapper for async operations.
+///
+/// Designed to be wrapped in Arc for sharing across tokio tasks.
+#[derive(Clone)]
 pub struct ServiceClient {
     client: MetabaseClient,
+    #[allow(dead_code)] // Designed for future features
     base_url: String,
 }
 
@@ -51,6 +102,7 @@ impl ServiceClient {
     }
 
     /// Get the base URL
+    #[allow(dead_code)] // Designed for future features
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
@@ -84,8 +136,8 @@ impl ServiceClient {
     }
 }
 
-/// Initialize service client from environment and config
-pub fn init_service() -> Result<ServiceClient, String> {
+/// Initialize service client from environment and config, wrapped in Arc.
+pub fn init_service() -> Result<Arc<ServiceClient>, String> {
     // Get API key from environment
     let api_key = get_api_key();
 
@@ -99,7 +151,7 @@ pub fn init_service() -> Result<ServiceClient, String> {
         .map(|p| p.url.clone())
         .unwrap_or_else(|| "http://localhost:3000".to_string());
 
-    ServiceClient::new(base_url, api_key)
+    ServiceClient::new(base_url, api_key).map(Arc::new)
 }
 
 /// Connection status for display

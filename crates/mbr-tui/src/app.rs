@@ -3,6 +3,8 @@
 //! This module contains the core application state and the main run loop.
 //! Integrates with mbr-core services for Metabase data access.
 
+use std::sync::Arc;
+
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::{
     Frame,
@@ -18,7 +20,7 @@ use crate::components::{
     ActivePanel, Component, ContentPanel, ContentView, NavigationPanel, StatusBar,
 };
 use crate::event::{Event, EventHandler};
-use crate::service::{AppData, ConnectionStatus, ServiceClient, init_service};
+use crate::service::{AppData, ConnectionStatus, LoadState, ServiceClient, init_service};
 
 /// The main application state.
 pub struct App {
@@ -32,8 +34,8 @@ pub struct App {
     content: ContentPanel,
     /// Status bar (bottom)
     status_bar: StatusBar,
-    /// Service client for API access
-    service: Option<ServiceClient>,
+    /// Service client for API access (Arc-wrapped for async sharing)
+    service: Option<Arc<ServiceClient>>,
     /// Connection status
     connection_status: ConnectionStatus,
     /// Application data from API
@@ -147,11 +149,14 @@ impl App {
                 self.handle_data_request(request);
             }
             AppAction::ShowError(msg) => {
-                self.data.error = Some(msg.clone());
+                self.data.questions = LoadState::Error(msg.clone());
                 self.status_bar.set_message(format!("Error: {}", msg));
             }
             AppAction::ClearError => {
-                self.data.error = None;
+                // Reset to Idle state when clearing error
+                if self.data.questions.is_error() {
+                    self.data.questions = LoadState::Idle;
+                }
             }
             AppAction::SetStatus(msg) => {
                 self.status_bar.set_message(msg);
@@ -159,24 +164,78 @@ impl App {
             AppAction::ClearStatus => {
                 self.status_bar.set_message("");
             }
+            // === Completion Notifications ===
+            AppAction::QuestionsLoaded(questions) => {
+                let count = questions.len();
+                self.data.questions = LoadState::Loaded(questions);
+                // Sync to content panel for display
+                self.content.update_questions(&self.data.questions);
+                self.status_bar
+                    .set_message(format!("Loaded {} questions", count));
+            }
+            AppAction::AuthValidated(user) => {
+                let display_name = user
+                    .common_name
+                    .clone()
+                    .or_else(|| user.first_name.clone())
+                    .unwrap_or_else(|| user.email.clone());
+                self.connection_status = ConnectionStatus::Connected(display_name.clone());
+                self.status_bar
+                    .set_message(format!("Connected as {}", display_name));
+                self.data.current_user = Some(user);
+            }
+            AppAction::LoadFailed(error) => {
+                self.data.questions = LoadState::Error(error.clone());
+                // Sync to content panel for display
+                self.content.update_questions(&self.data.questions);
+                self.status_bar.set_message(format!("Error: {}", error));
+            }
         }
     }
 
-    /// Handle data loading request
+    /// Handle data loading request with background task spawning
     fn handle_data_request(&mut self, request: DataRequest) {
+        // Check if we have a service client
+        let service = match &self.service {
+            Some(s) => Arc::clone(s),
+            None => {
+                self.status_bar
+                    .set_message("Error: Not connected to Metabase");
+                return;
+            }
+        };
+
+        let tx = self.action_tx.clone();
+
         match request {
-            DataRequest::Questions => {
-                self.data.loading = true;
+            DataRequest::Questions | DataRequest::Refresh => {
+                // Guard: prevent duplicate requests while loading
+                if matches!(self.data.questions, LoadState::Loading) {
+                    return;
+                }
+
+                // Set loading state
+                self.data.questions = LoadState::Loading;
+                // Sync to content panel for display
+                self.content.update_questions(&self.data.questions);
                 self.status_bar.set_message("Loading questions...");
+
+                // Spawn background task
+                tokio::spawn(async move {
+                    match service.fetch_questions(None, Some(50)).await {
+                        Ok(questions) => {
+                            let _ = tx.send(AppAction::QuestionsLoaded(questions));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppAction::LoadFailed(e));
+                        }
+                    }
+                });
             }
             DataRequest::QuestionDetails(id) => {
-                self.data.loading = true;
+                // Question details loading - placeholder for future implementation
                 self.status_bar
                     .set_message(format!("Loading question #{}...", id));
-            }
-            DataRequest::Refresh => {
-                self.data.loading = true;
-                self.status_bar.set_message("Refreshing...");
             }
         }
     }

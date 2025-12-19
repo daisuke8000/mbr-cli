@@ -6,6 +6,8 @@
 // Allow unused variants as they are designed for Phase 4+ implementation
 #![allow(dead_code)]
 
+use mbr_core::api::models::{CurrentUser, Question};
+
 /// Application-level actions for component-to-app communication.
 ///
 /// This enum enables clean separation between UI components and application logic.
@@ -38,6 +40,16 @@ pub enum AppAction {
 
     /// Clear status message
     ClearStatus,
+
+    // === Completion Notifications (Phase 4) ===
+    /// Questions loaded successfully from API
+    QuestionsLoaded(Vec<Question>),
+
+    /// Authentication validated successfully
+    AuthValidated(CurrentUser),
+
+    /// Data loading failed with error message
+    LoadFailed(String),
 }
 
 /// Target content views for navigation
