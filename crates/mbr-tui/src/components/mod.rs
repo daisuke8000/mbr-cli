@@ -7,10 +7,12 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 
 mod content;
+mod help_overlay;
 mod navigation;
 mod status_bar;
 
 pub use content::{ContentPanel, ContentView};
+pub use help_overlay::HelpOverlay;
 pub use navigation::NavigationPanel;
 pub use status_bar::StatusBar;
 
@@ -43,7 +45,8 @@ impl ActivePanel {
 /// Common trait for all UI components.
 pub trait Component {
     /// Draw the component within the given area.
-    fn draw(&self, frame: &mut Frame, area: Rect, focused: bool);
+    /// Takes `&mut self` to support stateful widgets like TableState.
+    fn draw(&mut self, frame: &mut Frame, area: Rect, focused: bool);
 
     /// Handle keyboard input. Returns true if the event was consumed.
     fn handle_key(&mut self, key: KeyEvent) -> bool;

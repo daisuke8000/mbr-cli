@@ -17,3 +17,4 @@ mbr-core = { path = "../mbr-core" }
 ratatui.workspace = true
 crossterm.workspace = true
 tokio.workspace = true
+thiserror.workspace = true
