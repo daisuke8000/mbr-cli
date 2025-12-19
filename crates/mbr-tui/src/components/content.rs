@@ -267,7 +267,11 @@ impl ContentPanel {
                     )
                     .header(
                         Row::new(vec!["ID", "Name", "Collection"])
-                            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                            .style(
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD),
+                            )
                             .bottom_margin(1),
                     )
                     .block(
