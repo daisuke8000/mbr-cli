@@ -57,7 +57,6 @@ impl StatusBar {
     pub fn set_message(&mut self, message: impl Into<String>) {
         self.message = message.into();
     }
-
 }
 
 impl Component for StatusBar {

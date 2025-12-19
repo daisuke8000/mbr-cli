@@ -6,12 +6,12 @@ use crossterm::event::KeyEvent;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 
-mod navigation;
 mod content;
+mod navigation;
 mod status_bar;
 
-pub use navigation::NavigationPanel;
 pub use content::{ContentPanel, ContentView};
+pub use navigation::NavigationPanel;
 pub use status_bar::StatusBar;
 
 /// Active panel for focus management.
@@ -96,5 +96,4 @@ impl ScrollState {
             }
         }
     }
-
 }
