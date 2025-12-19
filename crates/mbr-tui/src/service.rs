@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use mbr_core::api::client::MetabaseClient;
-use mbr_core::api::models::{CurrentUser, Question};
+use mbr_core::api::models::{CurrentUser, QueryResult, Question};
 use mbr_core::core::services::question_service::QuestionService;
 use mbr_core::core::services::types::ListParams;
 use mbr_core::storage::config::Config;
@@ -133,6 +133,14 @@ impl ServiceClient {
             .list_questions(params)
             .await
             .map_err(|e| format!("Failed to fetch questions: {}", e))
+    }
+
+    /// Execute a question query and return results
+    pub async fn execute_question(&self, id: u32) -> Result<QueryResult, String> {
+        self.client
+            .execute_question(id, None)
+            .await
+            .map_err(|e| format!("Query execution failed: {}", e))
     }
 }
 

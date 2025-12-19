@@ -16,7 +16,8 @@ pub struct HelpOverlay;
 impl HelpOverlay {
     /// Keybinding groups for display.
     const GLOBAL_KEYS: &'static [(&'static str, &'static str)] = &[
-        ("q / Esc", "Quit application"),
+        ("q", "Quit application"),
+        ("Esc", "Quit / Back from result"),
         ("Tab", "Switch between panels"),
         ("Shift+Tab", "Switch panels (reverse)"),
         ("r", "Refresh data"),
@@ -28,7 +29,8 @@ impl HelpOverlay {
         ("↓ / j", "Move down"),
         ("Home / g", "Go to first item"),
         ("End / G", "Go to last item"),
-        ("Enter", "Select item"),
+        ("Enter", "Select / Execute query"),
+        ("Esc", "Back (in result view)"),
     ];
 
     /// Render the help overlay centered on screen.

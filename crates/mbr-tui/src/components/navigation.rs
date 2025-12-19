@@ -47,10 +47,10 @@ impl NavigationPanel {
     /// Create a new navigation panel with default menu items.
     pub fn new() -> Self {
         let items = vec![
-            MenuItem::new("Questions", "󰋗"),
-            MenuItem::new("Collections", ""),
-            MenuItem::new("Databases", ""),
-            MenuItem::new("Settings", ""),
+            MenuItem::new("Questions", "📋"),
+            MenuItem::new("Collections", "📁"),
+            MenuItem::new("Databases", "🗄️"),
+            MenuItem::new("Settings", "⚙️"),
         ];
         let total = items.len();
 

@@ -26,6 +26,20 @@ pub enum ContentView {
     Collections,
     Databases,
     Settings,
+    QueryResult,
+}
+
+/// Query result data for display in TUI.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QueryResultData {
+    /// Question ID that was executed
+    pub question_id: u32,
+    /// Question name for display
+    pub question_name: String,
+    /// Column headers
+    pub columns: Vec<String>,
+    /// Row data (each cell as string)
+    pub rows: Vec<Vec<String>>,
 }
 
 /// Content panel showing main content.
@@ -36,6 +50,10 @@ pub struct ContentPanel {
     questions: LoadState<Vec<Question>>,
     /// Table state for Questions view (manages selection and scroll)
     table_state: TableState,
+    /// Query result data for QueryResult view
+    query_result: Option<QueryResultData>,
+    /// Table state for query result table
+    result_table_state: TableState,
 }
 
 impl Default for ContentPanel {
@@ -52,6 +70,8 @@ impl ContentPanel {
             scroll: ScrollState::default(),
             questions: LoadState::default(),
             table_state: TableState::default(),
+            query_result: None,
+            result_table_state: TableState::default(),
         }
     }
 
@@ -60,6 +80,11 @@ impl ContentPanel {
         self.view = view;
         self.scroll = ScrollState::default();
         self.table_state = TableState::default();
+    }
+
+    /// Get the current view.
+    pub fn current_view(&self) -> ContentView {
+        self.view
     }
 
     /// Update questions data from AppData.
@@ -106,6 +131,59 @@ impl ContentPanel {
                 self.table_state.select(Some(questions.len() - 1));
             }
         }
+    }
+
+    /// Get the currently selected question ID.
+    pub fn get_selected_question_id(&self) -> Option<u32> {
+        if self.view != ContentView::Questions {
+            return None;
+        }
+        if let LoadState::Loaded(questions) = &self.questions {
+            if let Some(selected) = self.table_state.selected() {
+                return questions.get(selected).map(|q| q.id);
+            }
+        }
+        None
+    }
+
+    /// Set query result data and switch to QueryResult view.
+    pub fn set_query_result(&mut self, data: QueryResultData) {
+        self.query_result = Some(data);
+        self.result_table_state = TableState::default();
+        // Auto-select first row if available
+        if self
+            .query_result
+            .as_ref()
+            .is_some_and(|r| !r.rows.is_empty())
+        {
+            self.result_table_state.select(Some(0));
+        }
+        self.view = ContentView::QueryResult;
+    }
+
+    /// Clear query result and return to Questions view.
+    pub fn back_to_questions(&mut self) {
+        self.query_result = None;
+        self.result_table_state = TableState::default();
+        self.view = ContentView::Questions;
+    }
+
+    /// Navigate result table.
+    fn select_result_next(&mut self) {
+        if let Some(ref result) = self.query_result {
+            if result.rows.is_empty() {
+                return;
+            }
+            let current = self.result_table_state.selected().unwrap_or(0);
+            let next = (current + 1).min(result.rows.len() - 1);
+            self.result_table_state.select(Some(next));
+        }
+    }
+
+    fn select_result_previous(&mut self) {
+        let current = self.result_table_state.selected().unwrap_or(0);
+        let prev = current.saturating_sub(1);
+        self.result_table_state.select(Some(prev));
     }
 
     /// Render welcome view content.
@@ -347,20 +425,146 @@ impl ContentPanel {
             )
             .wrap(Wrap { trim: false })
     }
+
+    /// Render query result view with table.
+    fn render_query_result(&mut self, area: Rect, frame: &mut Frame, focused: bool) {
+        let border_style = if focused {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
+        match &self.query_result {
+            None => {
+                let paragraph = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "  No query result available",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ])
+                .block(
+                    Block::default()
+                        .title(" Query Result ")
+                        .borders(Borders::ALL)
+                        .border_style(border_style),
+                );
+                frame.render_widget(paragraph, area);
+            }
+            Some(result) => {
+                if result.rows.is_empty() {
+                    let paragraph = Paragraph::new(vec![
+                        Line::from(""),
+                        Line::from(Span::styled(
+                            format!("  Query: {}", result.question_name),
+                            Style::default()
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD),
+                        )),
+                        Line::from(""),
+                        Line::from(Span::styled(
+                            "  No data returned",
+                            Style::default().fg(Color::DarkGray),
+                        )),
+                        Line::from(""),
+                        Line::from(Span::styled(
+                            "  Press Esc to go back",
+                            Style::default().fg(Color::Yellow),
+                        )),
+                    ])
+                    .block(
+                        Block::default()
+                            .title(format!(" Query Result: {} (0 rows) ", result.question_name))
+                            .borders(Borders::ALL)
+                            .border_style(border_style),
+                    );
+                    frame.render_widget(paragraph, area);
+                } else {
+                    // Create dynamic column widths based on column count
+                    let col_count = result.columns.len();
+                    let constraints: Vec<Constraint> = if col_count <= 3 {
+                        result
+                            .columns
+                            .iter()
+                            .map(|_| Constraint::Ratio(1, col_count as u32))
+                            .collect()
+                    } else {
+                        // For many columns, use min width
+                        result.columns.iter().map(|_| Constraint::Min(15)).collect()
+                    };
+
+                    // Create table rows
+                    let rows: Vec<Row> = result
+                        .rows
+                        .iter()
+                        .map(|row| {
+                            let cells: Vec<Cell> =
+                                row.iter().map(|cell| Cell::from(cell.clone())).collect();
+                            Row::new(cells)
+                        })
+                        .collect();
+
+                    // Create header row
+                    let header_cells: Vec<Cell> = result
+                        .columns
+                        .iter()
+                        .map(|col| Cell::from(col.clone()))
+                        .collect();
+
+                    let table = Table::new(rows, constraints)
+                        .header(
+                            Row::new(header_cells)
+                                .style(
+                                    Style::default()
+                                        .fg(Color::Yellow)
+                                        .add_modifier(Modifier::BOLD),
+                                )
+                                .bottom_margin(1),
+                        )
+                        .block(
+                            Block::default()
+                                .title(format!(
+                                    " Query Result: {} ({} rows) [Esc: back] ",
+                                    result.question_name,
+                                    result.rows.len()
+                                ))
+                                .borders(Borders::ALL)
+                                .border_style(border_style),
+                        )
+                        .row_highlight_style(
+                            Style::default()
+                                .fg(Color::Black)
+                                .bg(Color::Green)
+                                .add_modifier(Modifier::BOLD),
+                        )
+                        .highlight_symbol("► ");
+
+                    frame.render_stateful_widget(table, area, &mut self.result_table_state);
+                }
+            }
+        }
+    }
 }
 
 impl Component for ContentPanel {
     fn draw(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
-        // Questions view renders directly (uses Table widget)
-        if self.view == ContentView::Questions {
-            self.render_questions(area, frame, focused);
-            return;
+        // Table-based views render directly (uses stateful Table widget)
+        match self.view {
+            ContentView::Questions => {
+                self.render_questions(area, frame, focused);
+                return;
+            }
+            ContentView::QueryResult => {
+                self.render_query_result(area, frame, focused);
+                return;
+            }
+            _ => {}
         }
 
         // Other views return Paragraph widgets
         let widget = match self.view {
             ContentView::Welcome => self.render_welcome(area, focused),
-            ContentView::Questions => unreachable!(), // Handled above
+            ContentView::Questions | ContentView::QueryResult => unreachable!(), // Handled above
             ContentView::Collections => self.render_placeholder("Collections", focused),
             ContentView::Databases => self.render_placeholder("Databases", focused),
             ContentView::Settings => self.render_placeholder("Settings", focused),
@@ -389,6 +593,20 @@ impl Component for ContentPanel {
                     self.select_last();
                     true
                 }
+                _ => false,
+            }
+        } else if self.view == ContentView::QueryResult {
+            // QueryResult view has result table navigation
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.select_result_previous();
+                    true
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.select_result_next();
+                    true
+                }
+                // Note: Esc is handled in App for returning to Questions
                 _ => false,
             }
         } else {
@@ -426,6 +644,7 @@ impl Component for ContentPanel {
             ContentView::Collections => "Collections",
             ContentView::Databases => "Databases",
             ContentView::Settings => "Settings",
+            ContentView::QueryResult => "Query Result",
         }
     }
 }
