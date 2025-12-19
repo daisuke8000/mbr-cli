@@ -1,6 +1,5 @@
 use clap::Parser;
 use mbr_core::storage::config::Config;
-use mbr_core::storage::credentials::Credentials;
 use std::path::PathBuf;
 
 mod cli;
@@ -27,9 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Determine the profile to use (default to "default" if not specified)
-    let profile_name = cli.profile.unwrap_or_else(|| "default".to_string());
-
-    // Profile creation and config file saving is now handled by Dispatcher::new()
+    let profile_name = cli.profile.clone().unwrap_or_else(|| "default".to_string());
 
     if cli.verbose {
         println!("Verbose mode is enabled");
@@ -40,21 +37,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if cli.api_key.as_ref().is_some_and(|key| !key.is_empty()) {
-            println!("Using API key Provided via env or command line");
+            println!("Using API key provided via env or command line");
         }
     }
 
-    // Load Credentials
-    let credentials = match Credentials::load(&profile_name) {
-        Ok(creds) => creds,
-        Err(err) => {
-            eprintln!("Error loading credentials: {}", err);
-            Credentials::new(profile_name.clone())
-        }
-    };
-
-    // Create dispatcher (handles profile creation and config file saving)
-    let dispatcher = Dispatcher::new(config, credentials, cli.verbose, cli.api_key, config_path);
+    // Create dispatcher
+    let dispatcher = Dispatcher::new(config, profile_name, cli.verbose, cli.api_key, config_path);
 
     // Execute the command
     if let Err(e) = dispatcher.dispatch(cli.command).await {

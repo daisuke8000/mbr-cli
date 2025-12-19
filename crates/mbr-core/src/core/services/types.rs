@@ -1,5 +1,4 @@
 use crate::error::ApiError;
-use crate::storage::credentials::AuthMode;
 use std::collections::HashMap;
 
 /// Service layer error types
@@ -16,15 +15,6 @@ pub enum ServiceError {
 
     #[error("Configuration error: {0}")]
     Config(String),
-}
-
-/// 認証状態情報
-#[derive(Debug, Clone)]
-pub struct AuthStatus {
-    pub is_authenticated: bool,
-    pub auth_mode: AuthMode,
-    pub profile_name: String,
-    pub session_active: bool,
 }
 
 /// 質問リスト取得パラメータ

@@ -30,16 +30,15 @@ where
     }
 }
 
-// Authentication models
-#[derive(Debug, Serialize)]
-pub struct LoginRequest {
-    pub username: String,
-    pub password: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct LoginResponse {
-    pub id: String, // session token
+// User models
+#[derive(Debug, Deserialize, Clone)]
+pub struct CurrentUser {
+    pub id: u32,
+    pub email: String,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub common_name: Option<String>,
+    pub is_superuser: Option<bool>,
 }
 
 // Question/Card models
@@ -141,15 +140,19 @@ mod tests {
     }
 
     #[test]
-    fn test_login_request_serialization() {
-        let request = LoginRequest {
-            username: "test_user".to_string(),
-            password: "test_pass".to_string(),
-        };
-
-        let json = serde_json::to_string(&request).unwrap();
-        assert!(json.contains("test_user"));
-        assert!(json.contains("test_pass"));
+    fn test_current_user_deserialization() {
+        let json = r#"{
+            "id": 1,
+            "email": "user@example.com",
+            "first_name": "John",
+            "last_name": "Doe",
+            "common_name": "John Doe",
+            "is_superuser": false
+        }"#;
+        let user: CurrentUser = serde_json::from_str(json).unwrap();
+        assert_eq!(user.id, 1);
+        assert_eq!(user.email, "user@example.com");
+        assert_eq!(user.first_name, Some("John".to_string()));
     }
 
     #[test]

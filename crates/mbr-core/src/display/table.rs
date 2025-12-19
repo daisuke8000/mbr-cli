@@ -137,24 +137,24 @@ impl TableDisplay {
             ]);
         }
 
-        if let Some(limit_val) = limit
-            && questions.len() > limit_val
-        {
-            let note = format!(
-                "... and {} more questions (use --full to see all)",
-                questions.len() - limit_val
-            );
-            if self.use_colors {
-                table.add_row(vec![
-                    Cell::new(""),
-                    Cell::new(note)
-                        .fg(Color::DarkGrey)
-                        .add_attribute(Attribute::Italic),
-                    Cell::new(""),
-                    Cell::new(""),
-                ]);
-            } else {
-                table.add_row(vec!["", &note, "", ""]);
+        if let Some(limit_val) = limit {
+            if questions.len() > limit_val {
+                let note = format!(
+                    "... and {} more questions (use --full to see all)",
+                    questions.len() - limit_val
+                );
+                if self.use_colors {
+                    table.add_row(vec![
+                        Cell::new(""),
+                        Cell::new(note)
+                            .fg(Color::DarkGrey)
+                            .add_attribute(Attribute::Italic),
+                        Cell::new(""),
+                        Cell::new(""),
+                    ]);
+                } else {
+                    table.add_row(vec!["", &note, "", ""]);
+                }
             }
         }
 
@@ -286,10 +286,10 @@ impl TableDisplay {
             range_info, info.total_records
         ));
 
-        if let Some(offset) = info.offset
-            && offset > 0
-        {
-            header.push_str(&format!(" | Offset: +{}", offset));
+        if let Some(offset) = info.offset {
+            if offset > 0 {
+                header.push_str(&format!(" | Offset: +{}", offset));
+            }
         }
 
         if info.is_filtered {
@@ -463,7 +463,6 @@ impl TableHeaderInfoBuilder {
 mod tests {
     use super::*;
     use crate::api::models::{Collection, Column, QueryData, QueryResult, Question};
-    use crate::utils::text::{center_text, pad_to_width};
     use serde_json::json;
 
     fn create_test_question(id: u32, name: &str) -> Question {

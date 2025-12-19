@@ -4,9 +4,8 @@ Rust-based CLI tool for Metabase API interaction.
 
 ## Features
 
-- **Authentication**: Login/logout with secure session management via service layer
-- **Configuration**: Multi-profile support with TOML configuration and validation  
-- **Secure Storage**: Keyring integration for credentials with dual-mode authentication
+- **API Key Authentication**: Simple authentication via `MBR_API_KEY` environment variable
+- **Configuration**: Multi-profile support with TOML configuration and validation
 - **Interactive Display**: Full-screen pagination and interactive table navigation
 - **Error Handling**: Hierarchical error system with comprehensive user feedback
 - **Async Operations**: Built on tokio for efficient I/O operations
@@ -17,7 +16,7 @@ Rust-based CLI tool for Metabase API interaction.
 
 ```
 CLI Layer (User Interface)
-├── Core Layer (Business Logic) 
+├── Core Layer (Business Logic)
 ├── Storage Layer (Data Persistence)
 └── Utils Layer (Shared Utilities)
 ```
@@ -33,76 +32,66 @@ See `ARCHITECTURE.md` for detailed system diagrams and implementation details.
 
 ## Quick Start
 
-### Development (cargo run)
+### 1. Set up authentication
+
 ```bash
-# View help and available commands
-cargo run -- --help
-
-# Initialize configuration (creates default config automatically)
-cargo run -- config show
-
-# Authenticate with your Metabase instance
-cargo run -- auth login
-
-# Verify authentication status
-cargo run -- auth status
+# Set your Metabase API key
+export MBR_API_KEY="your_api_key_here"
 ```
 
-### Production (release build)
+Generate an API key in Metabase: Settings → Admin settings → API Keys
+
+### 2. Configure your Metabase URL
+
 ```bash
-# Build the project
-cargo build --release
+# Option 1: Set via environment variable
+export MBR_URL="https://your-metabase.com"
+cargo run -- config set
 
-# View current configuration (creates default profile if none exists)
-./target/release/mbr-cli config show
-
-# Authenticate with Metabase
-./target/release/mbr-cli auth login
-
-# Verify authentication status
-./target/release/mbr-cli auth status
+# Option 2: Set via command line argument
+cargo run -- config set --url "https://your-metabase.com"
 ```
 
-### Custom Configuration
-The application automatically creates a default profile (`default`) pointing to `http://localhost:3000`. To customize your Metabase URL:
+### 3. Validate connection
 
 ```bash
-# Edit the configuration file manually
-mkdir -p ~/.config/mbr-cli
-cat > ~/.config/mbr-cli/config.toml << EOF
-[default]
-url = "https://your-metabase.com"
-email = "your-email@example.com"
-EOF
+# Verify your API key and connection
+cargo run -- config validate
+```
+
+### 4. Start querying
+
+```bash
+# List available questions
+cargo run -- query --list
+
+# Execute a question
+cargo run -- query 123
 ```
 
 ## Available Commands
 
-### Authentication (Implemented)
-- `auth login` - Login with username/password (supports CLI args, environment variables, and interactive input)  
-- `auth logout` - Clear stored session and credentials
-- `auth status` - Display current authentication status and profile information
-
-**Environment Variables for Authentication:**
-- `MBR_USERNAME` - Username for login (fallback when --username not provided)
-- `MBR_PASSWORD` - Password for login (fallback when --password not provided)
-
-### Configuration (Implemented)  
+### Configuration
 - `config show` - Display current configuration and all profiles
-- `config set` - Set configuration values (supports multiple input modes)
+- `config set` - Set configuration values (URL, email)
+- `config validate` - Validate API key and test connection to Metabase
 
-**Config Set Usage:**
+**Config Usage:**
 ```bash
-# Using environment variables (MBR_URL and MBR_USERNAME)
-export MBR_URL="https://your-metabase.com"
-export MBR_USERNAME="your-email@example.com"
-mbr-cli config set
+# View current configuration
+mbr-cli config show
 
-# Using CLI arguments (takes priority over env vars)
+# Set Metabase URL
+mbr-cli config set --url "https://metabase.com"
+
+# Set both URL and email
 mbr-cli config set --url "https://metabase.com" --email "user@example.com"
+
+# Validate API key and connection
+mbr-cli config validate
 ```
 
-### Query (Implemented)
+### Query
 - `query --list` - List available questions with search, limit, and collection filtering
 - `query <id>` - Execute question with parameters and display results with pagination
 
@@ -132,18 +121,19 @@ Available for all commands:
 - `--config-dir <DIR>` - Override default config directory
 - `--api-key <KEY>` - Set API key (also via `MBR_API_KEY` environment variable)
 
-### Environment Variables Summary
-- `MBR_API_KEY` - API key for authentication (alternative to username/password)
-- `MBR_USERNAME` - Username for login and profile email configuration
-- `MBR_PASSWORD` - Password for login
-- `MBR_URL` - Metabase server URL for profile configuration
+## Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `MBR_API_KEY` | Metabase API key for authentication | Yes |
+| `MBR_URL` | Metabase server URL | No (can use config) |
 
 ## License
 
-Licensed under the MIT License.  
+Licensed under the MIT License.
 See [LICENSE](LICENSE) file for details.
 
 ## Resources
 
 - [Metabase API Documentation](https://www.metabase.com/docs/latest/api-documentation.html)
-- [Metabase Authentication Guide](https://www.metabase.com/docs/latest/people-and-groups/start.html#authentication)
+- [Metabase API Keys Guide](https://www.metabase.com/docs/latest/people-and-groups/api-keys.html)
