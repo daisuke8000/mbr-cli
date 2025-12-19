@@ -17,9 +17,12 @@ use tokio::sync::mpsc;
 
 use crate::action::{AppAction, ContentTarget, DataRequest};
 use crate::components::{
-    ActivePanel, Component, ContentPanel, ContentView, NavigationPanel, StatusBar,
+    ActivePanel, Component, ContentPanel, ContentView, HelpOverlay, NavigationPanel, StatusBar,
 };
 use crate::event::{Event, EventHandler};
+use crate::layout::main::{
+    CONTENT_PANEL_WIDTH_PERCENT, HEADER_HEIGHT, NAV_PANEL_WIDTH_PERCENT, STATUS_BAR_HEIGHT,
+};
 use crate::service::{AppData, ConnectionStatus, LoadState, ServiceClient, init_service};
 
 /// The main application state.
@@ -44,6 +47,8 @@ pub struct App {
     action_tx: mpsc::UnboundedSender<AppAction>,
     /// Action receiver for processing
     action_rx: mpsc::UnboundedReceiver<AppAction>,
+    /// Whether to show help overlay
+    show_help: bool,
 }
 
 impl Default for App {
@@ -81,6 +86,7 @@ impl App {
             data: AppData::default(),
             action_tx,
             action_rx,
+            show_help: false,
         }
     }
 
@@ -265,6 +271,17 @@ impl App {
 
     /// Handle keyboard input.
     fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        // Help overlay takes priority when shown
+        if self.show_help {
+            match code {
+                KeyCode::Char('?') | KeyCode::Esc => {
+                    self.show_help = false;
+                }
+                _ => {} // Ignore other keys when help is shown
+            }
+            return;
+        }
+
         // Global keybindings (always active)
         match code {
             KeyCode::Char('q') | KeyCode::Char('Q') => {
@@ -277,6 +294,10 @@ impl App {
             }
             KeyCode::Esc => {
                 self.should_quit = true;
+                return;
+            }
+            KeyCode::Char('?') => {
+                self.show_help = true;
                 return;
             }
             KeyCode::Tab => {
@@ -338,16 +359,16 @@ impl App {
     }
 
     /// Draw the UI.
-    fn draw(&self, frame: &mut Frame) {
+    fn draw(&mut self, frame: &mut Frame) {
         let size = frame.area();
 
         // Create main layout: Header, Main, Footer
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3), // Header
-                Constraint::Min(0),    // Main content
-                Constraint::Length(3), // Status bar
+                Constraint::Length(HEADER_HEIGHT),
+                Constraint::Min(0), // Main content
+                Constraint::Length(STATUS_BAR_HEIGHT),
             ])
             .split(size);
 
@@ -358,8 +379,8 @@ impl App {
         let content_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(25), // Navigation panel
-                Constraint::Percentage(75), // Content panel
+                Constraint::Percentage(NAV_PANEL_WIDTH_PERCENT),
+                Constraint::Percentage(CONTENT_PANEL_WIDTH_PERCENT),
             ])
             .split(main_chunks[1]);
 
@@ -377,6 +398,11 @@ impl App {
 
         // Draw status bar
         self.status_bar.draw(frame, main_chunks[2], false);
+
+        // Draw help overlay if visible
+        if self.show_help {
+            HelpOverlay::render(frame, size);
+        }
     }
 
     /// Draw the header with connection status.

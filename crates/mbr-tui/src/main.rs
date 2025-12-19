@@ -13,7 +13,9 @@ use std::io::{self, stdout};
 mod action;
 mod app;
 mod components;
+mod error;
 mod event;
+mod layout;
 mod service;
 
 use app::App;

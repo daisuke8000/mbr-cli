@@ -95,7 +95,7 @@ impl NavigationPanel {
 }
 
 impl Component for NavigationPanel {
-    fn draw(&self, frame: &mut Frame, area: Rect, focused: bool) {
+    fn draw(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
         let border_style = if focused {
             Style::default().fg(Color::Cyan)
         } else {

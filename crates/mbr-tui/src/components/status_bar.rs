@@ -48,6 +48,7 @@ impl StatusBar {
                 KeyBinding::new("↑↓", "Navigate"),
                 KeyBinding::new("Enter", "Select"),
                 KeyBinding::new("r", "Refresh"),
+                KeyBinding::new("?", "Help"),
                 KeyBinding::new("q", "Quit"),
             ],
         }
@@ -60,7 +61,7 @@ impl StatusBar {
 }
 
 impl Component for StatusBar {
-    fn draw(&self, frame: &mut Frame, area: Rect, _focused: bool) {
+    fn draw(&mut self, frame: &mut Frame, area: Rect, _focused: bool) {
         let mut spans: Vec<Span> = Vec::new();
 
         // Add keybindings

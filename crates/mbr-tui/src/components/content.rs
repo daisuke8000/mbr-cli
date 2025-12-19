@@ -5,15 +5,16 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Constraint, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Wrap},
 };
 
 use mbr_core::api::models::Question;
 
 use super::{Component, ScrollState};
+use crate::layout::questions_table::{COLLECTION_WIDTH, ID_WIDTH, NAME_MIN_WIDTH};
 use crate::service::LoadState;
 
 /// Content view types.
@@ -33,8 +34,8 @@ pub struct ContentPanel {
     scroll: ScrollState,
     /// Questions data for the Questions view
     questions: LoadState<Vec<Question>>,
-    /// Selected question index in list view
-    selected_index: usize,
+    /// Table state for Questions view (manages selection and scroll)
+    table_state: TableState,
 }
 
 impl Default for ContentPanel {
@@ -50,7 +51,7 @@ impl ContentPanel {
             view: ContentView::Welcome,
             scroll: ScrollState::default(),
             questions: LoadState::default(),
-            selected_index: 0,
+            table_state: TableState::default(),
         }
     }
 
@@ -58,27 +59,52 @@ impl ContentPanel {
     pub fn set_view(&mut self, view: ContentView) {
         self.view = view;
         self.scroll = ScrollState::default();
-        self.selected_index = 0;
+        self.table_state = TableState::default();
     }
 
     /// Update questions data from AppData.
+    /// Automatically selects first item when data is loaded.
     pub fn update_questions(&mut self, questions: &LoadState<Vec<Question>>) {
         self.questions = questions.clone();
+
+        // Auto-select first item when data is loaded
+        if let LoadState::Loaded(items) = questions {
+            if !items.is_empty() && self.table_state.selected().is_none() {
+                self.table_state.select(Some(0));
+            }
+        }
     }
 
     /// Select next question in list.
     pub fn select_next(&mut self) {
         if let LoadState::Loaded(questions) = &self.questions {
-            if !questions.is_empty() {
-                self.selected_index = (self.selected_index + 1).min(questions.len() - 1);
+            if questions.is_empty() {
+                return;
             }
+            let current = self.table_state.selected().unwrap_or(0);
+            let next = (current + 1).min(questions.len() - 1);
+            self.table_state.select(Some(next));
         }
     }
 
     /// Select previous question in list.
     pub fn select_previous(&mut self) {
-        if self.selected_index > 0 {
-            self.selected_index -= 1;
+        let current = self.table_state.selected().unwrap_or(0);
+        let prev = current.saturating_sub(1);
+        self.table_state.select(Some(prev));
+    }
+
+    /// Select first question in list.
+    pub fn select_first(&mut self) {
+        self.table_state.select(Some(0));
+    }
+
+    /// Select last question in list.
+    pub fn select_last(&mut self) {
+        if let LoadState::Loaded(questions) = &self.questions {
+            if !questions.is_empty() {
+                self.table_state.select(Some(questions.len() - 1));
+            }
         }
     }
 
@@ -150,7 +176,7 @@ impl ContentPanel {
     }
 
     /// Render questions view with table.
-    fn render_questions(&self, area: Rect, frame: &mut Frame, focused: bool) {
+    fn render_questions(&mut self, area: Rect, frame: &mut Frame, focused: bool) {
         let border_style = if focused {
             Style::default().fg(Color::Cyan)
         } else {
@@ -228,20 +254,10 @@ impl ContentPanel {
                     );
                     frame.render_widget(paragraph, area);
                 } else {
-                    // Create table rows
+                    // Create table rows (no manual styling - TableState handles highlight)
                     let rows: Vec<Row> = questions
                         .iter()
-                        .enumerate()
-                        .map(|(i, q)| {
-                            let style = if i == self.selected_index {
-                                Style::default()
-                                    .fg(Color::Black)
-                                    .bg(Color::Cyan)
-                                    .add_modifier(Modifier::BOLD)
-                            } else {
-                                Style::default()
-                            };
-
+                        .map(|q| {
                             let collection_name = q
                                 .collection
                                 .as_ref()
@@ -253,16 +269,15 @@ impl ContentPanel {
                                 Cell::from(q.name.clone()),
                                 Cell::from(collection_name.to_string()),
                             ])
-                            .style(style)
                         })
                         .collect();
 
                     let table = Table::new(
                         rows,
                         [
-                            ratatui::layout::Constraint::Length(6),  // ID
-                            ratatui::layout::Constraint::Min(20),    // Name
-                            ratatui::layout::Constraint::Length(20), // Collection
+                            Constraint::Length(ID_WIDTH),
+                            Constraint::Min(NAME_MIN_WIDTH),
+                            Constraint::Length(COLLECTION_WIDTH),
                         ],
                     )
                     .header(
@@ -280,9 +295,16 @@ impl ContentPanel {
                             .borders(Borders::ALL)
                             .border_style(border_style),
                     )
-                    .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+                    .row_highlight_style(
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .highlight_symbol("► ");
 
-                    frame.render_widget(table, area);
+                    // Use stateful widget for automatic scroll management
+                    frame.render_stateful_widget(table, area, &mut self.table_state);
                 }
             }
         }
@@ -306,7 +328,12 @@ impl ContentPanel {
             )),
             Line::from(""),
             Line::from(Span::styled(
-                "  Coming soon in Phase 3...",
+                "  ⚠ Not implemented yet",
+                Style::default().fg(Color::Yellow),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  This feature is planned for future releases.",
                 Style::default().fg(Color::DarkGray),
             )),
         ];
@@ -323,7 +350,7 @@ impl ContentPanel {
 }
 
 impl Component for ContentPanel {
-    fn draw(&self, frame: &mut Frame, area: Rect, focused: bool) {
+    fn draw(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
         // Questions view renders directly (uses Table widget)
         if self.view == ContentView::Questions {
             self.render_questions(area, frame, focused);
@@ -355,15 +382,11 @@ impl Component for ContentPanel {
                     true
                 }
                 KeyCode::Home | KeyCode::Char('g') => {
-                    self.selected_index = 0;
+                    self.select_first();
                     true
                 }
                 KeyCode::End | KeyCode::Char('G') => {
-                    if let LoadState::Loaded(questions) = &self.questions {
-                        if !questions.is_empty() {
-                            self.selected_index = questions.len() - 1;
-                        }
-                    }
+                    self.select_last();
                     true
                 }
                 _ => false,
