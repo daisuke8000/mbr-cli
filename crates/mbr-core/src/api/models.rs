@@ -31,7 +31,7 @@ where
 }
 
 // User models
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct CurrentUser {
     pub id: u32,
     pub email: String,
@@ -42,7 +42,7 @@ pub struct CurrentUser {
 }
 
 // Question/Card models
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct Question {
     pub id: u32,
     pub name: String,
@@ -52,7 +52,7 @@ pub struct Question {
     pub collection: Option<Collection>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct Collection {
     #[serde(deserialize_with = "deserialize_collection_id", default)]
     pub id: Option<u32>,
