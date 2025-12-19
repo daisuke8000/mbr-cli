@@ -209,7 +209,8 @@ impl App {
                     .set_message(format!("Query '{}': {} rows", name, row_count));
             }
             AppAction::QueryFailed(error) => {
-                self.status_bar.set_message(format!("Query failed: {}", error));
+                self.status_bar
+                    .set_message(format!("Query failed: {}", error));
             }
             AppAction::BackToQuestions => {
                 self.content.back_to_questions();
@@ -435,9 +436,7 @@ impl App {
             }
             ActivePanel::Content => {
                 // Handle Enter in Questions view to execute query
-                if code == KeyCode::Enter
-                    && self.content.current_view() == ContentView::Questions
-                {
+                if code == KeyCode::Enter && self.content.current_view() == ContentView::Questions {
                     if let Some(question_id) = self.content.get_selected_question_id() {
                         let _ = self.action_tx.send(AppAction::ExecuteQuestion(question_id));
                         return;

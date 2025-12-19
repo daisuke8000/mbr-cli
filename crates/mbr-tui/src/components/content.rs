@@ -474,10 +474,7 @@ impl ContentPanel {
                     ])
                     .block(
                         Block::default()
-                            .title(format!(
-                                " Query Result: {} (0 rows) ",
-                                result.question_name
-                            ))
+                            .title(format!(" Query Result: {} (0 rows) ", result.question_name))
                             .borders(Borders::ALL)
                             .border_style(border_style),
                     );
@@ -493,11 +490,7 @@ impl ContentPanel {
                             .collect()
                     } else {
                         // For many columns, use min width
-                        result
-                            .columns
-                            .iter()
-                            .map(|_| Constraint::Min(15))
-                            .collect()
+                        result.columns.iter().map(|_| Constraint::Min(15)).collect()
                     };
 
                     // Create table rows
