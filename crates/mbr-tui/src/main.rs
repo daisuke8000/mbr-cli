@@ -10,13 +10,16 @@ use crossterm::{
 use ratatui::backend::CrosstermBackend;
 use std::io::{self, stdout};
 
+mod action;
 mod app;
 mod components;
 mod event;
+mod service;
 
 use app::App;
 
-fn main() -> std::io::Result<()> {
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -31,9 +34,9 @@ fn main() -> std::io::Result<()> {
         original_hook(panic_info);
     }));
 
-    // Create and run app
+    // Create and run app (async)
     let mut app = App::new();
-    let result = app.run(&mut terminal);
+    let result = app.run_async(&mut terminal).await;
 
     // Cleanup terminal
     restore_terminal()?;
