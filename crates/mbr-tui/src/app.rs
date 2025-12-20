@@ -17,24 +17,19 @@ use tokio::sync::mpsc;
 
 use crate::action::{AppAction, ContentTarget, DataRequest};
 use crate::components::{
-    ActivePanel, Component, ContentPanel, ContentView, HelpOverlay, NavigationPanel,
-    QueryResultData, StatusBar,
+    ActiveTab, Component, ContentPanel, ContentView, HelpOverlay, QueryResultData, StatusBar,
 };
 use crate::event::{Event, EventHandler};
-use crate::layout::main::{
-    CONTENT_PANEL_WIDTH_PERCENT, HEADER_HEIGHT, NAV_PANEL_WIDTH_PERCENT, STATUS_BAR_HEIGHT,
-};
+use crate::layout::main::{HEADER_HEIGHT, STATUS_BAR_HEIGHT};
 use crate::service::{AppData, ConnectionStatus, LoadState, ServiceClient, init_service};
 
 /// The main application state.
 pub struct App {
     /// Whether the application should quit
     pub should_quit: bool,
-    /// Currently active panel
-    active_panel: ActivePanel,
-    /// Navigation panel (left)
-    navigation: NavigationPanel,
-    /// Content panel (right)
+    /// Currently active tab
+    active_tab: ActiveTab,
+    /// Content panel (full width)
     content: ContentPanel,
     /// Status bar (bottom)
     status_bar: StatusBar,
@@ -76,11 +71,14 @@ impl App {
             Err(e) => (None, ConnectionStatus::Error(e)),
         };
 
+        // Set initial view to Questions
+        let mut content = ContentPanel::new();
+        content.set_view(ContentView::Questions);
+
         Self {
             should_quit: false,
-            active_panel: ActivePanel::Navigation,
-            navigation: NavigationPanel::new(),
-            content: ContentPanel::new(),
+            active_tab: ActiveTab::Questions,
+            content,
             status_bar: StatusBar::new(),
             service,
             connection_status,
@@ -103,6 +101,15 @@ impl App {
             if service.is_authenticated() {
                 self.validate_auth_async().await;
             }
+        }
+
+        // Auto-load Questions data on startup (initial view is Questions)
+        if self.content.current_view() == ContentView::Questions
+            && matches!(self.data.questions, LoadState::Idle)
+        {
+            let _ = self
+                .action_tx
+                .send(AppAction::LoadData(DataRequest::Questions));
         }
 
         while !self.should_quit {
@@ -137,10 +144,10 @@ impl App {
                 self.should_quit = true;
             }
             AppAction::NextPanel => {
-                self.active_panel = self.active_panel.next();
+                self.switch_to_tab(self.active_tab.next());
             }
             AppAction::PreviousPanel => {
-                self.active_panel = self.active_panel.previous();
+                self.switch_to_tab(self.active_tab.previous());
             }
             AppAction::Navigate(target) => {
                 let view = match target {
@@ -148,7 +155,6 @@ impl App {
                     ContentTarget::Questions => ContentView::Questions,
                     ContentTarget::Collections => ContentView::Collections,
                     ContentTarget::Databases => ContentView::Databases,
-                    ContentTarget::Settings => ContentView::Settings,
                 };
                 self.content.set_view(view);
             }
@@ -401,16 +407,31 @@ impl App {
                 self.show_help = true;
                 return;
             }
+            // Tab switching with number keys 1/2/3
+            KeyCode::Char('1') => {
+                self.switch_to_tab(ActiveTab::Questions);
+                return;
+            }
+            KeyCode::Char('2') => {
+                self.switch_to_tab(ActiveTab::Collections);
+                return;
+            }
+            KeyCode::Char('3') => {
+                self.switch_to_tab(ActiveTab::Databases);
+                return;
+            }
+            // Tab cycling with Tab/Shift+Tab
             KeyCode::Tab => {
-                self.active_panel = if modifiers.contains(KeyModifiers::SHIFT) {
-                    self.active_panel.previous()
+                let new_tab = if modifiers.contains(KeyModifiers::SHIFT) {
+                    self.active_tab.previous()
                 } else {
-                    self.active_panel.next()
+                    self.active_tab.next()
                 };
+                self.switch_to_tab(new_tab);
                 return;
             }
             KeyCode::BackTab => {
-                self.active_panel = self.active_panel.previous();
+                self.switch_to_tab(self.active_tab.previous());
                 return;
             }
             // Refresh data with 'r'
@@ -423,93 +444,58 @@ impl App {
             _ => {}
         }
 
-        // Panel-specific keybindings
-        match self.active_panel {
-            ActivePanel::Navigation => {
-                // Handle Enter to switch content view
-                if code == KeyCode::Enter {
-                    self.handle_navigation_select();
-                    return;
-                }
-                self.navigation
-                    .handle_key(crossterm::event::KeyEvent::new(code, modifiers));
-            }
-            ActivePanel::Content => {
-                // Handle Enter in Questions view to execute query
-                if code == KeyCode::Enter && self.content.current_view() == ContentView::Questions {
-                    if let Some(question_id) = self.content.get_selected_question_id() {
-                        let _ = self.action_tx.send(AppAction::ExecuteQuestion(question_id));
-                        return;
-                    }
-                }
-                self.content
-                    .handle_key(crossterm::event::KeyEvent::new(code, modifiers));
+        // Content panel keybindings
+        // Handle Enter in Questions view to execute query
+        if code == KeyCode::Enter && self.content.current_view() == ContentView::Questions {
+            if let Some(question_id) = self.content.get_selected_question_id() {
+                let _ = self.action_tx.send(AppAction::ExecuteQuestion(question_id));
+                return;
             }
         }
+        self.content
+            .handle_key(crossterm::event::KeyEvent::new(code, modifiers));
     }
 
-    /// Handle navigation item selection.
-    fn handle_navigation_select(&mut self) {
-        let view = match self.navigation.selected() {
-            0 => ContentView::Questions,
-            1 => ContentView::Collections,
-            2 => ContentView::Databases,
-            3 => ContentView::Settings,
-            _ => ContentView::Welcome,
+    /// Switch to a specific tab and update content view.
+    fn switch_to_tab(&mut self, tab: ActiveTab) {
+        self.active_tab = tab;
+        let view = match tab {
+            ActiveTab::Questions => ContentView::Questions,
+            ActiveTab::Collections => ContentView::Collections,
+            ActiveTab::Databases => ContentView::Databases,
         };
         self.content.set_view(view);
 
-        // Auto-load data when navigating to Questions view
+        // Auto-load data when switching to Questions view
         if view == ContentView::Questions && matches!(self.data.questions, LoadState::Idle) {
             let _ = self
                 .action_tx
                 .send(AppAction::LoadData(DataRequest::Questions));
         }
 
-        // Update status message
-        if let Some(item) = self.navigation.selected_item() {
-            self.status_bar
-                .set_message(format!("Viewing: {}", item.label));
-        }
+        self.status_bar
+            .set_message(format!("Viewing: {}", tab.label()));
     }
 
     /// Draw the UI.
     fn draw(&mut self, frame: &mut Frame) {
         let size = frame.area();
 
-        // Create main layout: Header, Main, Footer
+        // Create main layout: Header with tabs, Content (100% width), Status bar
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(HEADER_HEIGHT),
-                Constraint::Min(0), // Main content
+                Constraint::Min(0), // Main content (100% width)
                 Constraint::Length(STATUS_BAR_HEIGHT),
             ])
             .split(size);
 
-        // Draw header
-        self.draw_header(frame, main_chunks[0]);
+        // Draw header with integrated tabs
+        self.draw_header_with_tabs(frame, main_chunks[0]);
 
-        // Split main area into navigation (left) and content (right)
-        let content_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(NAV_PANEL_WIDTH_PERCENT),
-                Constraint::Percentage(CONTENT_PANEL_WIDTH_PERCENT),
-            ])
-            .split(main_chunks[1]);
-
-        // Draw panels with focus state
-        self.navigation.draw(
-            frame,
-            content_chunks[0],
-            self.active_panel == ActivePanel::Navigation,
-        );
-        self.content.draw(
-            frame,
-            content_chunks[1],
-            self.active_panel == ActivePanel::Content,
-        );
+        // Draw content panel (full width, always focused)
+        self.content.draw(frame, main_chunks[1], true);
 
         // Draw status bar
         self.status_bar.draw(frame, main_chunks[2], false);
@@ -520,52 +506,58 @@ impl App {
         }
     }
 
-    /// Draw the header with connection status.
-    fn draw_header(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
+    /// Draw the header with integrated tab bar.
+    fn draw_header_with_tabs(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
+        // Build connection indicator
         let connection_indicator = match &self.connection_status {
             ConnectionStatus::Disconnected => {
-                Span::styled(" ○ Disconnected ", Style::default().fg(Color::DarkGray))
+                Span::styled(" ○ ", Style::default().fg(Color::DarkGray))
             }
-            ConnectionStatus::Connecting => {
-                Span::styled(" ◐ Connecting... ", Style::default().fg(Color::Yellow))
+            ConnectionStatus::Connecting => Span::styled(" ◐ ", Style::default().fg(Color::Yellow)),
+            ConnectionStatus::Connected(_) => {
+                Span::styled(" ● ", Style::default().fg(Color::Green))
             }
-            ConnectionStatus::Connected(name) => {
-                Span::styled(format!(" ● {} ", name), Style::default().fg(Color::Green))
-            }
-            ConnectionStatus::Error(_) => {
-                Span::styled(" ✗ Error ", Style::default().fg(Color::Red))
-            }
+            ConnectionStatus::Error(_) => Span::styled(" ✗ ", Style::default().fg(Color::Red)),
         };
 
-        let header = Paragraph::new(Line::from(vec![
-            Span::styled(
-                " mbr-tui ",
+        // Build tab bar
+        let tabs = [
+            ActiveTab::Questions,
+            ActiveTab::Collections,
+            ActiveTab::Databases,
+        ];
+        let mut tab_spans: Vec<Span> = vec![Span::raw(" ")];
+
+        for (i, tab) in tabs.iter().enumerate() {
+            let is_active = *tab == self.active_tab;
+            let style = if is_active {
                 Style::default()
                     .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("- Metabase Terminal UI "),
-            Span::styled("│", Style::default().fg(Color::DarkGray)),
-            connection_indicator,
-            Span::styled("│", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                format!(" Active: {} ", self.active_panel_name()),
-                Style::default().fg(Color::Yellow),
-            ),
-        ]))
-        .block(
+                    .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            // Add tab with number key hint
+            tab_spans.push(Span::styled(format!(" {} {} ", i + 1, tab.label()), style));
+            tab_spans.push(Span::raw(" "));
+        }
+
+        // Add connection status at the end
+        tab_spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+        tab_spans.push(connection_indicator);
+
+        let header = Paragraph::new(Line::from(tab_spans)).block(
             Block::default()
+                .title(" mbr-tui ")
+                .title_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::DarkGray)),
         );
         frame.render_widget(header, area);
-    }
-
-    /// Get the name of the active panel.
-    fn active_panel_name(&self) -> &str {
-        match self.active_panel {
-            ActivePanel::Navigation => "Navigation",
-            ActivePanel::Content => "Content",
-        }
     }
 }
