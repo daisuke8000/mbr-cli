@@ -379,6 +379,22 @@ impl TableDisplay {
             serde_json::Value::Object(obj) => format!("{{{} items}}", obj.len()),
         }
     }
+
+    /// Render a simple table with custom headers and rows
+    pub fn render_simple_table(&self, headers: &[&str], rows: &[Vec<String>]) -> String {
+        let mut table = Table::new();
+        table.load_preset(presets::UTF8_FULL);
+        table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
+        self.configure_table_width(&mut table);
+        self.set_colored_headers(&mut table, headers, Color::Cyan);
+
+        for row in rows {
+            let cells: Vec<Cell> = row.iter().map(Cell::new).collect();
+            table.add_row(cells);
+        }
+
+        table.to_string()
+    }
 }
 
 impl Default for TableDisplay {

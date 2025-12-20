@@ -1,5 +1,5 @@
 use crate::cli::interactive_display::InteractiveDisplay;
-use crate::cli::main_types::{ConfigCommands, QueryArgs};
+use crate::cli::main_types::{CollectionCommands, ConfigCommands, DatabaseCommands, QueryArgs};
 use mbr_core::api::client::MetabaseClient;
 use mbr_core::core::services::config_service::ConfigService;
 use mbr_core::display::{
@@ -393,6 +393,192 @@ impl QueryHandler {
                         )
                         .await?;
                 }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+pub struct CollectionHandler;
+
+impl CollectionHandler {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub async fn handle(
+        &self,
+        command: CollectionCommands,
+        client: MetabaseClient,
+        verbose: bool,
+    ) -> Result<(), AppError> {
+        match command {
+            CollectionCommands::List { format } => self.handle_list(&format, client, verbose).await,
+        }
+    }
+
+    async fn handle_list(
+        &self,
+        format: &str,
+        client: MetabaseClient,
+        verbose: bool,
+    ) -> Result<(), AppError> {
+        print_verbose(verbose, "Listing collections");
+
+        let mut spinner = ProgressSpinner::new("Fetching collections...".to_string());
+        spinner.start();
+
+        let collections = client.list_collections().await?;
+        spinner.stop(Some("✅ Collections fetched successfully"));
+
+        if collections.is_empty() {
+            display_status("Collection search", OperationStatus::Warning);
+            println!("No collections found.");
+            return Ok(());
+        }
+
+        display_status(
+            &format!("Retrieved {} collections", collections.len()),
+            OperationStatus::Success,
+        );
+
+        match format {
+            "json" => {
+                let json_output = serde_json::to_string_pretty(&collections).map_err(|e| {
+                    AppError::Cli(CliError::InvalidArguments(format!(
+                        "Failed to serialize to JSON: {}",
+                        e
+                    )))
+                })?;
+                println!("{}", json_output);
+            }
+            "csv" => {
+                println!("id,name,description,personal_owner_id");
+                for collection in &collections {
+                    println!(
+                        "{},{},{},{}",
+                        collection.id.map(|id| id.to_string()).unwrap_or_default(),
+                        collection.name,
+                        collection.description.as_deref().unwrap_or(""),
+                        collection
+                            .personal_owner_id
+                            .map(|id| id.to_string())
+                            .unwrap_or_default()
+                    );
+                }
+            }
+            _ => {
+                let table_display = TableDisplay::new();
+                let headers = vec!["ID", "Name", "Description", "Personal"];
+                let rows: Vec<Vec<String>> = collections
+                    .iter()
+                    .map(|c| {
+                        vec![
+                            c.id.map(|id| id.to_string()).unwrap_or("-".to_string()),
+                            c.name.clone(),
+                            c.description.as_deref().unwrap_or("-").to_string(),
+                            if c.personal_owner_id.is_some() {
+                                "Yes"
+                            } else {
+                                "No"
+                            }
+                            .to_string(),
+                        ]
+                    })
+                    .collect();
+                let table = table_display.render_simple_table(&headers, &rows);
+                println!("{}", table);
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+pub struct DatabaseHandler;
+
+impl DatabaseHandler {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub async fn handle(
+        &self,
+        command: DatabaseCommands,
+        client: MetabaseClient,
+        verbose: bool,
+    ) -> Result<(), AppError> {
+        match command {
+            DatabaseCommands::List { format } => self.handle_list(&format, client, verbose).await,
+        }
+    }
+
+    async fn handle_list(
+        &self,
+        format: &str,
+        client: MetabaseClient,
+        verbose: bool,
+    ) -> Result<(), AppError> {
+        print_verbose(verbose, "Listing databases");
+
+        let mut spinner = ProgressSpinner::new("Fetching databases...".to_string());
+        spinner.start();
+
+        let databases = client.list_databases().await?;
+        spinner.stop(Some("✅ Databases fetched successfully"));
+
+        if databases.is_empty() {
+            display_status("Database search", OperationStatus::Warning);
+            println!("No databases found.");
+            return Ok(());
+        }
+
+        display_status(
+            &format!("Retrieved {} databases", databases.len()),
+            OperationStatus::Success,
+        );
+
+        match format {
+            "json" => {
+                let json_output = serde_json::to_string_pretty(&databases).map_err(|e| {
+                    AppError::Cli(CliError::InvalidArguments(format!(
+                        "Failed to serialize to JSON: {}",
+                        e
+                    )))
+                })?;
+                println!("{}", json_output);
+            }
+            "csv" => {
+                println!("id,name,engine,is_sample");
+                for db in &databases {
+                    println!(
+                        "{},{},{},{}",
+                        db.id,
+                        db.name,
+                        db.engine.as_deref().unwrap_or(""),
+                        db.is_sample
+                    );
+                }
+            }
+            _ => {
+                let table_display = TableDisplay::new();
+                let headers = vec!["ID", "Name", "Engine", "Sample"];
+                let rows: Vec<Vec<String>> = databases
+                    .iter()
+                    .map(|db| {
+                        vec![
+                            db.id.to_string(),
+                            db.name.clone(),
+                            db.engine.as_deref().unwrap_or("-").to_string(),
+                            if db.is_sample { "Yes" } else { "No" }.to_string(),
+                        ]
+                    })
+                    .collect();
+                let table = table_display.render_simple_table(&headers, &rows);
+                println!("{}", table);
             }
         }
 
