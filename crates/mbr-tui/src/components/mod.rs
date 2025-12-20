@@ -8,10 +8,12 @@ use ratatui::layout::Rect;
 
 mod content;
 mod help_overlay;
+mod record_detail;
 mod status_bar;
 
 pub use content::{ContentPanel, ContentView, QueryResultData};
 pub use help_overlay::HelpOverlay;
+pub use record_detail::RecordDetailOverlay;
 pub use status_bar::StatusBar;
 
 /// Active tab for navigation.

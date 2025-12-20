@@ -17,7 +17,8 @@ use tokio::sync::mpsc;
 
 use crate::action::{AppAction, ContentTarget, DataRequest};
 use crate::components::{
-    ActiveTab, Component, ContentPanel, ContentView, HelpOverlay, QueryResultData, StatusBar,
+    ActiveTab, Component, ContentPanel, ContentView, HelpOverlay, QueryResultData,
+    RecordDetailOverlay, StatusBar,
 };
 use crate::event::{Event, EventHandler};
 use crate::layout::main::{HEADER_HEIGHT, STATUS_BAR_HEIGHT};
@@ -47,6 +48,10 @@ pub struct App {
     show_help: bool,
     /// Current query request ID for race condition prevention
     current_request_id: u64,
+    /// Whether to show record detail overlay
+    show_record_detail: bool,
+    /// Record detail overlay state
+    record_detail: Option<RecordDetailOverlay>,
 }
 
 impl Default for App {
@@ -89,6 +94,8 @@ impl App {
             action_rx,
             show_help: false,
             current_request_id: 0,
+            show_record_detail: false,
+            record_detail: None,
         }
     }
 
@@ -391,6 +398,28 @@ impl App {
 
     /// Handle keyboard input.
     fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        // Record detail overlay takes priority when shown
+        if self.show_record_detail {
+            match code {
+                KeyCode::Esc | KeyCode::Enter => {
+                    self.show_record_detail = false;
+                    self.record_detail = None;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if let Some(ref mut detail) = self.record_detail {
+                        detail.scroll_up();
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let Some(ref mut detail) = self.record_detail {
+                        detail.scroll_down();
+                    }
+                }
+                _ => {} // Ignore other keys when detail is shown
+            }
+            return;
+        }
+
         // Help overlay takes priority when shown
         if self.show_help {
             match code {
@@ -470,6 +499,16 @@ impl App {
                 return;
             }
         }
+
+        // Handle Enter in QueryResult view to show record detail
+        if code == KeyCode::Enter && self.content.current_view() == ContentView::QueryResult {
+            if let Some((columns, values)) = self.content.get_selected_record() {
+                self.record_detail = Some(RecordDetailOverlay::new(columns, values));
+                self.show_record_detail = true;
+                return;
+            }
+        }
+
         self.content
             .handle_key(crossterm::event::KeyEvent::new(code, modifiers));
     }
@@ -521,6 +560,13 @@ impl App {
         // Draw help overlay if visible
         if self.show_help {
             HelpOverlay::render(frame, size);
+        }
+
+        // Draw record detail overlay if visible
+        if self.show_record_detail {
+            if let Some(ref detail) = self.record_detail {
+                detail.render(frame, size);
+            }
         }
     }
 

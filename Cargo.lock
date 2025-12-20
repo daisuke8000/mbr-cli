@@ -992,6 +992,7 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
+ "unicode-width 0.1.14",
 ]
 
 [[package]]
