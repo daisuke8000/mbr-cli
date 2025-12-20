@@ -223,10 +223,23 @@ impl App {
                     .set_message(format!("Connected as {}", display_name));
                 self.data.current_user = Some(user);
             }
-            AppAction::LoadFailed(error) => {
-                self.data.questions = LoadState::Error(error.clone());
-                // Sync to content panel for display
-                self.content.update_questions(&self.data.questions);
+            AppAction::LoadFailed(request, error) => {
+                // Set error state on the appropriate data based on request type
+                match request {
+                    DataRequest::Questions | DataRequest::Refresh => {
+                        self.data.questions = LoadState::Error(error.clone());
+                        self.content.update_questions(&self.data.questions);
+                    }
+                    DataRequest::Collections => {
+                        self.data.collections = LoadState::Error(error.clone());
+                        self.content.update_collections(&self.data.collections);
+                    }
+                    DataRequest::Databases => {
+                        self.data.databases = LoadState::Error(error.clone());
+                        self.content.update_databases(&self.data.databases);
+                    }
+                    _ => {} // QuestionDetails and Execute don't use LoadState
+                }
                 self.status_bar.set_message(format!("Error: {}", error));
             }
             // === Query Execution (Phase 6) ===
@@ -296,7 +309,7 @@ impl App {
                             let _ = tx.send(AppAction::QuestionsLoaded(questions));
                         }
                         Err(e) => {
-                            let _ = tx.send(AppAction::LoadFailed(e));
+                            let _ = tx.send(AppAction::LoadFailed(DataRequest::Questions, e));
                         }
                     }
                 });
@@ -320,7 +333,7 @@ impl App {
                             let _ = tx.send(AppAction::CollectionsLoaded(collections));
                         }
                         Err(e) => {
-                            let _ = tx.send(AppAction::LoadFailed(e));
+                            let _ = tx.send(AppAction::LoadFailed(DataRequest::Collections, e));
                         }
                     }
                 });
@@ -344,7 +357,7 @@ impl App {
                             let _ = tx.send(AppAction::DatabasesLoaded(databases));
                         }
                         Err(e) => {
-                            let _ = tx.send(AppAction::LoadFailed(e));
+                            let _ = tx.send(AppAction::LoadFailed(DataRequest::Databases, e));
                         }
                     }
                 });

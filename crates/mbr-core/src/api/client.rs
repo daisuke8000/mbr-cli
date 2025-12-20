@@ -62,32 +62,7 @@ impl MetabaseClient {
             .await
             .map_err(|e| AppError::Api(convert_request_error(e, endpoint)))?;
 
-        let status = response.status();
-
-        if status.is_success() {
-            let user: crate::api::models::CurrentUser = response
-                .json()
-                .await
-                .map_err(|e| AppError::Api(convert_json_error(e, endpoint)))?;
-            Ok(user)
-        } else if status == reqwest::StatusCode::UNAUTHORIZED {
-            Err(AppError::Api(ApiError::Unauthorized {
-                status: status.as_u16(),
-                endpoint: endpoint.to_string(),
-                server_message: "Invalid API key".to_string(),
-            }))
-        } else {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-
-            Err(AppError::Api(ApiError::Http {
-                status: status.as_u16(),
-                endpoint: endpoint.to_string(),
-                message: error_text,
-            }))
-        }
+        Self::handle_response(response, endpoint).await
     }
 
     /// List questions from Metabase with optional search, limit, and collection filters
@@ -98,72 +73,39 @@ impl MetabaseClient {
         collection: Option<&str>,
     ) -> Result<Vec<crate::api::models::Question>, AppError> {
         // Build query parameters
-        let mut params = Vec::new();
-        params.push("f=all".to_string());
+        let mut params = vec!["f=all".to_string()];
 
-        // Add search parameter if provided
         if let Some(search_term) = search {
             if !search_term.is_empty() {
                 params.push(format!("q={}", search_term));
             }
         }
 
-        // Add collection parameter if provided
         if let Some(collection_id) = collection {
             if !collection_id.is_empty() {
                 params.push(format!("collection={}", collection_id));
             }
         }
 
-        // Build endpoint with parameters
-        let endpoint = if params.is_empty() {
-            "/api/card".to_string()
-        } else {
-            format!("/api/card?{}", params.join("&"))
-        };
+        let endpoint = format!("/api/card?{}", params.join("&"));
 
-        // Build and send request
         let response = self
             .build_request(Method::GET, &endpoint)
             .send()
             .await
             .map_err(|e| AppError::Api(convert_request_error(e, &endpoint)))?;
 
-        let status = response.status();
+        let mut questions: Vec<crate::api::models::Question> =
+            Self::handle_response(response, &endpoint).await?;
 
-        if status.is_success() {
-            // Parse response as Vec<Question>
-            let mut questions: Vec<crate::api::models::Question> = response
-                .json()
-                .await
-                .map_err(|e| AppError::Api(convert_json_error(e, &endpoint)))?;
-
-            // Apply limit if specified
-            if let Some(limit_value) = limit {
-                if limit_value > 0 {
-                    questions.truncate(limit_value as usize);
-                }
+        // Apply client-side limit if specified
+        if let Some(limit_value) = limit {
+            if limit_value > 0 {
+                questions.truncate(limit_value as usize);
             }
-
-            Ok(questions)
-        } else if status == reqwest::StatusCode::UNAUTHORIZED {
-            Err(AppError::Api(ApiError::Unauthorized {
-                status: status.as_u16(),
-                endpoint,
-                server_message: "Authentication failed - check MBR_API_KEY".to_string(),
-            }))
-        } else {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-
-            Err(AppError::Api(ApiError::Http {
-                status: status.as_u16(),
-                endpoint,
-                message: error_text,
-            }))
         }
+
+        Ok(questions)
     }
 
     /// Execute a question and return query results
@@ -174,19 +116,17 @@ impl MetabaseClient {
     ) -> Result<crate::api::models::QueryResult, AppError> {
         let endpoint = format!("/api/card/{}/query", question_id);
 
-        // Build request with longer timeout for query execution
         let mut request = self.build_request(Method::POST, &endpoint);
 
-        // Add parameters as JSON body if provided
         if let Some(params) = parameters {
             if !params.is_empty() {
                 request = request.json(&params);
             }
         }
 
-        // Send request with extended timeout
+        // Extended timeout for query execution
         let response = request
-            .timeout(Duration::from_secs(60)) // 60 second timeout for query execution
+            .timeout(Duration::from_secs(60))
             .send()
             .await
             .map_err(|_e| {
@@ -196,40 +136,16 @@ impl MetabaseClient {
                 })
             })?;
 
-        let status = response.status();
-
-        if status.is_success() {
-            // Parse response as QueryResult
-            let query_result: crate::api::models::QueryResult = response
-                .json()
-                .await
-                .map_err(|e| AppError::Api(convert_json_error(e, &endpoint)))?;
-
-            Ok(query_result)
-        } else if status == reqwest::StatusCode::NOT_FOUND {
-            Err(AppError::Api(ApiError::Http {
+        // Handle 404 with custom message before generic handling
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err(AppError::Api(ApiError::Http {
                 status: 404,
                 endpoint,
                 message: format!("Question with ID {} not found", question_id),
-            }))
-        } else if status == reqwest::StatusCode::UNAUTHORIZED {
-            Err(AppError::Api(ApiError::Unauthorized {
-                status: status.as_u16(),
-                endpoint,
-                server_message: "Authentication failed - check MBR_API_KEY".to_string(),
-            }))
-        } else {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-
-            Err(AppError::Api(ApiError::Http {
-                status: status.as_u16(),
-                endpoint,
-                message: error_text,
-            }))
+            }));
         }
+
+        Self::handle_response(response, &endpoint).await
     }
 
     /// List all collections from Metabase
@@ -244,37 +160,11 @@ impl MetabaseClient {
             .await
             .map_err(|e| AppError::Api(convert_request_error(e, endpoint)))?;
 
-        let status = response.status();
+        let collections: Vec<crate::api::models::CollectionItem> =
+            Self::handle_response(response, endpoint).await?;
 
-        if status.is_success() {
-            let collections: Vec<crate::api::models::CollectionItem> = response
-                .json()
-                .await
-                .map_err(|e| AppError::Api(convert_json_error(e, endpoint)))?;
-
-            // Filter out archived collections
-            let active_collections: Vec<_> =
-                collections.into_iter().filter(|c| !c.archived).collect();
-
-            Ok(active_collections)
-        } else if status == reqwest::StatusCode::UNAUTHORIZED {
-            Err(AppError::Api(ApiError::Unauthorized {
-                status: status.as_u16(),
-                endpoint: endpoint.to_string(),
-                server_message: "Authentication failed - check MBR_API_KEY".to_string(),
-            }))
-        } else {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-
-            Err(AppError::Api(ApiError::Http {
-                status: status.as_u16(),
-                endpoint: endpoint.to_string(),
-                message: error_text,
-            }))
-        }
+        // Filter out archived collections
+        Ok(collections.into_iter().filter(|c| !c.archived).collect())
     }
 
     /// List all databases from Metabase
@@ -287,75 +177,52 @@ impl MetabaseClient {
             .await
             .map_err(|e| AppError::Api(convert_request_error(e, endpoint)))?;
 
-        let status = response.status();
-
-        if status.is_success() {
-            // Metabase returns { "data": [...] } for databases
-            #[derive(serde::Deserialize)]
-            struct DatabaseResponse {
-                data: Vec<crate::api::models::Database>,
-            }
-
-            let response_body: DatabaseResponse = response
-                .json()
-                .await
-                .map_err(|e| AppError::Api(convert_json_error(e, endpoint)))?;
-
-            Ok(response_body.data)
-        } else if status == reqwest::StatusCode::UNAUTHORIZED {
-            Err(AppError::Api(ApiError::Unauthorized {
-                status: status.as_u16(),
-                endpoint: endpoint.to_string(),
-                server_message: "Authentication failed - check MBR_API_KEY".to_string(),
-            }))
-        } else {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-
-            Err(AppError::Api(ApiError::Http {
-                status: status.as_u16(),
-                endpoint: endpoint.to_string(),
-                message: error_text,
-            }))
+        // Metabase returns { "data": [...] } for databases
+        #[derive(serde::Deserialize)]
+        struct DatabaseResponse {
+            data: Vec<crate::api::models::Database>,
         }
+
+        let response_body: DatabaseResponse = Self::handle_response(response, endpoint).await?;
+
+        Ok(response_body.data)
     }
 
-    pub async fn handle_response<T>(response: Response, endpoint: &str) -> Result<T, ApiError>
+    /// Common HTTP response handler for all API methods.
+    /// Handles success/error responses with consistent error mapping.
+    async fn handle_response<T>(response: Response, endpoint: &str) -> Result<T, AppError>
     where
         T: serde::de::DeserializeOwned,
     {
         let status = response.status();
 
         if status.is_success() {
-            response.json::<T>().await.map_err(|e| ApiError::Http {
-                status: status.as_u16(),
-                endpoint: endpoint.to_string(),
-                message: format!("Failed to parse response: {}", e),
-            })
+            response
+                .json::<T>()
+                .await
+                .map_err(|e| AppError::Api(convert_json_error(e, endpoint)))
         } else {
             let error_text = response
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
 
-            match status.as_u16() {
-                401 | 403 => Err(ApiError::Unauthorized {
+            Err(AppError::Api(match status.as_u16() {
+                401 | 403 => ApiError::Unauthorized {
                     status: status.as_u16(),
                     endpoint: endpoint.to_string(),
                     server_message: error_text,
-                }),
-                408 | 504 => Err(ApiError::Timeout {
+                },
+                408 | 504 => ApiError::Timeout {
                     timeout_secs: DEFAULT_TIMEOUT_SECS,
                     endpoint: endpoint.to_string(),
-                }),
-                _ => Err(ApiError::Http {
+                },
+                _ => ApiError::Http {
                     status: status.as_u16(),
                     endpoint: endpoint.to_string(),
                     message: error_text,
-                }),
-            }
+                },
+            }))
         }
     }
 }
