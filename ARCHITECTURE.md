@@ -4,324 +4,260 @@
 
 ```mermaid
 graph TB
-    subgraph "CLI Layer"
-        CLI[main.rs]
-        Auth[auth commands]
-        Config[config commands]
-        Query[query commands]
+    subgraph Presentation["Presentation Layer"]
+        CLI[mbr-cli]
+        TUI[mbr-tui]
     end
-    
-    subgraph "Core Layer"
-        AuthCore[Authentication Service]
-        ProfileCore[Profile Management]
-        QuestionCore[Question Service]
+
+    subgraph Core["Core Layer - mbr-core"]
+        Services[Service Layer]
+        API[API Client]
+        Storage[Storage]
+        Display[Display]
+        Utils[Utils]
     end
-    
-    subgraph "Storage Layer"
-        ConfigStore[Config Files]
-        SecureStore[Keyring Storage]
-        SessionStore[Session Cache]
-    end
-    
-    subgraph "Utils Layer"
-        Interactive[Interactive Input]
-        Display[Table Display]
-        Progress[Progress Indicators]
-    end
-    
-    subgraph "External"
+
+    subgraph External["External Systems"]
         Metabase[Metabase API]
-        FileSystem[~/.config/mbr-cli/]
-        Keychain[System Keychain]
+        FileSystem[Config Files]
+        EnvVar[MBR_API_KEY]
     end
-    
-    CLI --> AuthCore
-    CLI --> ProfileCore
-    CLI --> QuestionCore
-    
-    AuthCore --> SecureStore
-    ProfileCore --> ConfigStore
-    QuestionCore --> Metabase
-    
-    ConfigStore --> FileSystem
-    SecureStore --> Keychain
-    
-    AuthCore --> Interactive
-    QuestionCore --> Display
-    QuestionCore --> Progress
-    
-    %% Error Flow
-    AuthCore -.-> ErrorHandler[Error Handler]
-    ProfileCore -.-> ErrorHandler
-    QuestionCore -.-> ErrorHandler
-    ErrorHandler --> CLI
+
+    CLI --> Services
+    TUI --> Services
+
+    Services --> API
+    Services --> Storage
+    Services --> Display
+
+    API --> Metabase
+    Storage --> FileSystem
+    Storage --> EnvVar
 ```
+
+## Workspace Structure
+
+The project is organized as a Cargo Workspace with three crates:
+
+### 1. mbr-core (Foundation Library)
+
+The shared library containing all business logic, API communication, and data management.
+
+**Modules:**
+- `api/` - Metabase HTTP client and data models
+- `core/services/` - Business logic services (ConfigService, QuestionService)
+- `storage/` - Configuration (TOML) and credential management
+- `utils/` - Validation, text formatting, data helpers
+- `display/` - Table rendering, pagination, progress indicators
+- `error.rs` - Hierarchical error system
+
+### 2. mbr-cli (Command Line Interface)
+
+Thin CLI wrapper using clap for argument parsing.
+
+**Modules:**
+- `cli/main_types.rs` - Command definitions with clap derive
+- `cli/dispatcher.rs` - Facade delegating to services
+- `cli/command_handlers.rs` - Config, Query handlers
+- `cli/interactive_display.rs` - Paginated output
+
+### 3. mbr-tui (Terminal User Interface)
+
+Interactive TUI using ratatui framework.
+
+**Modules:**
+- `app.rs` - Application state and event loop
+- `components/` - UI components (content views, modals, status bar)
+- `event.rs` - Keyboard/mouse event handling
+- `action.rs` - User action definitions
+- `service.rs` - API service integration
 
 ## Authentication Flow
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant CLI
-    participant AuthCore
-    participant SecureStore
-    participant Metabase
-    participant Keychain
-    
-    Note over User,Keychain: Initial Login
-    User->>CLI: mbr-cli auth login
-    CLI->>AuthCore: authenticate()
-    AuthCore->>User: Prompt: Enter API Key
-    User->>AuthCore: API Key
-    AuthCore->>Metabase: POST /api/session
-    Metabase-->>AuthCore: session token
-    AuthCore->>SecureStore: save_session(token)
-    SecureStore->>Keychain: secure_store(token)
-    AuthCore-->>CLI: Authentication Success
-    CLI-->>User: "Login successful"
-    
-    Note over User,Keychain: Authenticated Operations
-    User->>CLI: mbr-cli query --list
-    CLI->>AuthCore: check_authentication()
-    AuthCore->>SecureStore: get_session()
-    SecureStore->>Keychain: retrieve_token()
-    Keychain-->>SecureStore: session_token
-    SecureStore-->>AuthCore: valid_session
-    AuthCore->>Metabase: GET /api/card (with token)
-    Metabase-->>AuthCore: questions_data
-    AuthCore-->>CLI: questions
-    CLI-->>User: Display table format
-    
-    Note over User,Keychain: Session Expired
-    User->>CLI: mbr-cli query 123
-    CLI->>AuthCore: check_authentication()
-    AuthCore->>Metabase: validate session
-    Metabase-->>AuthCore: 401 Unauthorized
-    AuthCore->>SecureStore: clear_session()
-    AuthCore-->>CLI: AuthRequired Error
-    CLI-->>User: "Please login again: mbr-cli auth login"
+    participant App
+    participant Storage
+    participant Client
+    participant API
+
+    User->>App: Set MBR_API_KEY env var
+    App->>Storage: get_api_key()
+    Storage-->>App: API Key
+    App->>Client: new(url, api_key)
+    Client->>API: GET /api/user/current
+    API-->>Client: User info
+    Client-->>App: Authenticated
+```
+
+**Key Points:**
+- Authentication is stateless via `MBR_API_KEY` environment variable
+- No session management or token storage
+- API key is passed with each request as `x-api-key` header
+
+## Error Handling Hierarchy
+
+```mermaid
+graph TD
+    AppError[AppError] --> CliError
+    AppError --> ApiError
+    AppError --> ConfigError
+    AppError --> AuthError
+    AppError --> StorageError
+    AppError --> DisplayError
+    AppError --> QuestionError
+    AppError --> ServiceError
+    AppError --> UtilsError
+
+    CliError --> C1[AuthRequired]
+    CliError --> C2[InvalidArguments]
+    CliError --> C3[NotImplemented]
+
+    ApiError --> A1[Timeout]
+    ApiError --> A2[Http]
+    ApiError --> A3[Unauthorized]
+
+    AuthError --> AU1[MissingApiKey]
+    AuthError --> AU2[ApiKeyInvalid]
+    AuthError --> AU3[AuthFailed]
+
+    ConfigError --> CF1[FileNotFound]
+    ConfigError --> CF2[MissingField]
+    ConfigError --> CF3[InvalidValue]
+```
+
+**Features:**
+- Domain-specific error variants with context fields
+- Severity levels (Critical, High, Medium, Low)
+- Troubleshooting hints for common errors
+- Automatic conversion via `thiserror` derive
+
+## TUI Architecture
+
+The TUI follows a unidirectional data flow pattern:
+
+```mermaid
+flowchart TD
+    Init[App::new] --> Events
+
+    Events[Events] --> Update[Update State]
+    Update --> Render[Render Frame]
+    Render --> Draw[Draw to Terminal]
+    Draw --> Events
+
+    Update --> Action[Trigger Action]
+    Action --> Service[Service Call]
+    Service --> Core[mbr-core API]
+    Core --> Result[Result]
+    Result --> Events
+```
+
+**Components:**
+- `App` - Centralized state with `should_quit`, `active_tab`, `data`
+- `ContentPanel` - Main content area with tabs
+- `StatusBar` - Connection status and keybindings
+- `HelpOverlay` - Modal help display
+- `RecordDetailOverlay` - Record inspection view
+
+## Configuration Management
+
+```mermaid
+flowchart LR
+    subgraph Input["Input Sources"]
+        CLI_Args[CLI Arguments]
+        Env[Environment]
+        TOML[config.toml]
+    end
+
+    subgraph Resolution["Resolution"]
+        Parser[Arg Parser]
+        Resolver[Config Resolver]
+    end
+
+    subgraph Priority["Priority Order"]
+        P1[1. CLI --api-key]
+        P2[2. MBR_API_KEY env]
+        P3[3. config.toml]
+    end
+
+    CLI_Args --> Parser
+    Env --> Resolver
+    TOML --> Resolver
+
+    Parser --> P1
+    Resolver --> P2
+    Resolver --> P3
+```
+
+**Configuration File:** `~/.config/mbr-cli/config.toml`
+
+```toml
+[profiles.default]
+url = "https://metabase.example.com"
+
+[profiles.production]
+url = "https://metabase.prod.example.com"
 ```
 
 ## Query Execution Flow
 
 ```mermaid
 flowchart TD
-    Start([mbr-cli query 123]) --> Auth{Check Auth}
-    Auth -->|Not Authenticated| AuthError[Show Auth Error]
-    Auth -->|Authenticated| GetQ[Get Question Details]
-    
-    GetQ --> CheckParams{Parameters Required?}
-    CheckParams -->|No| ExecQ[Execute Question]
-    CheckParams -->|Yes| ParseParams[Parse Parameters]
-    
-    ParseParams --> ValidParams{Valid Parameters?}
-    ValidParams -->|Invalid| ParamError[Parameter Error]
-    ValidParams -->|Valid| ExecQ
-    
-    ExecQ --> Progress[Start Progress Display]
-    Progress --> APICall[Call Metabase API]
-    APICall --> APIResult{API Result}
-    
-    APIResult -->|Success| FormatResult[Format Results]
-    APIResult -->|Error| APIError[Handle API Error]
-    
-    FormatResult --> DisplayTable[Display Table]
-    DisplayTable --> End([Complete])
-    
+    Start([query 123]) --> CheckAuth{API Key Set?}
+    CheckAuth -->|No| AuthError[Show Auth Error]
+    CheckAuth -->|Yes| GetQuestion[Get Question Details]
+
+    GetQuestion --> HasParams{Parameters?}
+    HasParams -->|No| Execute[Execute Question]
+    HasParams -->|Yes| ParseParams[Parse --param args]
+
+    ParseParams --> ValidParams{Valid?}
+    ValidParams -->|No| ParamError[Parameter Error]
+    ValidParams -->|Yes| Execute
+
+    Execute --> Progress[Show Progress]
+    Progress --> APICall[POST /api/card/:id/query]
+    APICall --> Result{Success?}
+
+    Result -->|Yes| Format[Format Output]
+    Result -->|No| APIError[Handle Error]
+
+    Format --> Display[Display Table/JSON/CSV]
+    Display --> End([Complete])
+
     AuthError --> End
     ParamError --> End
     APIError --> End
-    
-    style Start fill:#e1f5fe
-    style End fill:#f3e5f5
-    style Auth fill:#fff3e0
-    style ExecQ fill:#e8f5e8
-```
-
-## Configuration Management Flow
-
-```mermaid
-stateDiagram-v2
-    [*] --> CheckConfig: App Start
-    
-    CheckConfig --> ConfigExists: Check Config File
-    ConfigExists --> LoadConfig: ~/.config/mbr-cli/config.toml exists
-    ConfigExists --> CreateDefault: Config file missing
-    
-    CreateDefault --> DefaultCreated: Create default config
-    DefaultCreated --> LoadConfig
-    
-    LoadConfig --> ValidateConfig: Validate config
-    ValidateConfig --> ConfigReady: Validation success
-    ValidateConfig --> ConfigError: Validation failed
-    
-    ConfigReady --> ResolveProfile: Resolve profile
-    ResolveProfile --> EnvOverride: Environment override
-    EnvOverride --> FinalConfig: Final config
-    
-    ConfigError --> ShowError: Show error message
-    ShowError --> [*]
-    
-    FinalConfig --> [*]: Config complete
-    
-    note right of CreateDefault
-        Default config:
-        - development profile
-        - localhost:3000
-        - table output format
-    end note
-    
-    note right of EnvOverride
-        Environment priority:
-        1. MBR_API_KEY
-        2. MBR_PROFILE
-        3. MBR_CONFIG_DIR
-    end note
-```
-
-## Error Handling Hierarchy
-
-```mermaid
-graph TD
-    AppError[AppError<br/>Top Level Error] --> CliError[CliError<br/>CLI Operation Error]
-    AppError --> ApiError[ApiError<br/>API Communication Error]
-    AppError --> ConfigError[ConfigError<br/>Configuration Error]
-    AppError --> AuthError[AuthError<br/>Authentication Error]
-    AppError --> StorageError[StorageError<br/>Storage Error]
-    AppError --> QuestionError[QuestionError<br/>Question Operation Error]
-    
-    CliError --> AuthRequired[Authentication Required]
-    CliError --> InvalidArgs[Invalid Arguments]
-    
-    ApiError --> Timeout[Timeout]
-    ApiError --> Http[HTTP Error]
-    ApiError --> Unauthorized[Authentication Failed]
-    ApiError --> RateLimit[Rate Limited]
-    
-    ConfigError --> FileNotFound[Config File Not Found]
-    ConfigError --> InvalidFormat[Invalid Format]
-    ConfigError --> MissingField[Missing Required Field]
-    
-    AuthError --> InvalidCredentials[Invalid Credentials]
-    AuthError --> SessionExpired[Session Expired]
-    
-    StorageError --> KeyringError[Keychain Error]
-    StorageError --> FilePermission[File Permission Error]
-    
-    style AppError fill:#ffcdd2
-    style CliError fill:#fff3e0
-    style ApiError fill:#e8f5e8
-    style ConfigError fill:#e1f5fe
-    style AuthError fill:#fce4ec
-    style StorageError fill:#f3e5f5
-```
-
-## Data Flow Overview
-
-```mermaid
-flowchart LR
-    subgraph Input
-        CLI_Args[CLI Arguments]
-        Env_Vars[Environment Variables]
-        Config_File[Config File]
-    end
-    
-    subgraph Processing
-        Parser[Argument Parser]
-        Resolver[Config Resolver]
-        Validator[Validation]
-        Executor[Command Executor]
-    end
-    
-    subgraph Output
-        Table[Table Display]
-        JSON[JSON Output]
-        Error_Msg[Error Messages]
-    end
-    
-    subgraph External
-        Metabase_API[Metabase API]
-        System_Keychain[System Keychain]
-    end
-    
-    CLI_Args --> Parser
-    Env_Vars --> Resolver
-    Config_File --> Resolver
-    
-    Parser --> Validator
-    Resolver --> Validator
-    Validator --> Executor
-    
-    Executor <--> Metabase_API
-    Executor <--> System_Keychain
-    
-    Executor --> Table
-    Executor --> JSON
-    Executor --> Error_Msg
-    
-    style Processing fill:#e8f5e8
-    style External fill:#fff3e0
 ```
 
 ## Architecture Principles
 
 ### Layer Dependencies
-- **CLI Layer**: User interface, argument parsing
-- **Core Layer**: Business logic, domain services
-- **Storage Layer**: Data persistence, secure storage
-- **Utils Layer**: Common utilities, display functions
 
-### Error-First Design
-1. **Failure Pattern First**: Design all possible failure cases upfront
-2. **Hierarchical Error Handling**: Domain-specific errors → unified errors
-3. **Usability Focus**: Practical error messages and recovery procedures
+Each layer only depends on layers below it:
 
-### Async-First Architecture
-- **tokio runtime**: All I/O operations handled asynchronously
-- **reqwest**: Async HTTP communication execution
-- **async/await**: Explicit async boundary management
+```
+CLI/TUI --> Core --> Storage --> Utils
+                       |
+                       v
+                      API
+```
 
-## Current Implementation Status
+### Design Patterns
 
-### ✅ Implemented Components (4-Layer Architecture Complete)
+- **Facade Pattern**: CLI dispatcher delegates to services
+- **Service Layer**: Business logic separated from presentation
+- **Component-Based UI**: TUI uses reusable components
+- **Error-First Design**: Comprehensive error handling with hints
 
-#### CLI Layer (User Interface)
-- **main_types.rs**: Hierarchical command structure with clap derive macros
-- **dispatcher.rs**: Thin facade layer delegating to service handlers (~186 lines)
-- **command_handlers.rs**: Dedicated handlers for Auth, Config, Query commands (~443 lines)
-- **interactive_display.rs**: Full-screen pagination and interactive display logic (~357 lines)
+### Key Dependencies
 
-#### Core Layer (Business Logic)
-- **auth.rs**: LoginInput struct for authentication input handling and validation
-- **services/auth_service.rs**: Authentication service with session management
-- **services/config_service.rs**: Configuration service with profile management
-- **services/question_service.rs**: Question service foundation for future expansion
-- **services/types.rs**: Service layer data models (AuthStatus, ListParams, ExecuteParams)
-
-#### Storage Layer (Data Persistence)
-- **config.rs**: TOML configuration with profile management and Default trait
-- **credentials.rs**: Dual-mode authentication (API key priority, keyring integration)
-
-#### Utils Layer (Shared Utilities)
-- **validation.rs**: URL and email validation functions
-- **memory.rs**: Memory estimation and management utilities (moved from display)
-- **data.rs**: Offset management and data processing (moved from display)
-- **file.rs**: File operations and directory management
-- **input.rs**: Interactive input handling utilities
-
-#### Support Modules
-- **API Layer**: MetabaseClient with HTTP communication, API data models
-- **Display Layer**: UI-only components (table, pagination, progress indicators)
-- **Error System**: Hierarchical error handling with ServiceError, UtilsError integration
-
-### 🎯 Architecture Achievements
-- **4-Layer Dependency Flow**: CLI → Core → Storage → Utils properly maintained
-- **Service Layer Pattern**: Business logic separated from CLI with facade pattern
-- **Single Responsibility**: Each module has clear, focused responsibilities
-- **Zero Circular Dependencies**: Architecture validation confirms clean separation
-- **Quality Gates**: Zero clippy warnings, comprehensive test coverage (110 tests)
-
-### ⏳ Future Enhancements
-- **Query Commands**: Enhanced query operations with additional filtering options
-- **Cache System**: Response caching for improved performance
-- **Batch Operations**: Support for executing multiple queries
+| Crate | Purpose |
+|-------|---------|
+| clap 4.5 | CLI argument parsing |
+| tokio 1.40 | Async runtime |
+| reqwest 0.11 | HTTP client |
+| ratatui 0.29 | Terminal UI framework |
+| thiserror 1.0 | Error type derivation |
+| serde 1.0 | Serialization |
