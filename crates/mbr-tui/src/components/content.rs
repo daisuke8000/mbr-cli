@@ -707,10 +707,10 @@ impl ContentPanel {
         self.search_query.pop();
     }
 
-    /// Get the currently selected record in QueryResult view.
+    /// Get the currently selected record in QueryResult or TablePreview view.
     /// Returns (columns, values) tuple for the selected row.
     pub fn get_selected_record(&self) -> Option<(Vec<String>, Vec<String>)> {
-        if self.view != ContentView::QueryResult {
+        if self.view != ContentView::QueryResult && self.view != ContentView::TablePreview {
             return None;
         }
         if let Some(ref result) = self.query_result {
