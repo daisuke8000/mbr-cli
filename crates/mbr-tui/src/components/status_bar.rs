@@ -47,6 +47,7 @@ impl StatusBar {
                 KeyBinding::new("1/2/3", "Tab"),
                 KeyBinding::new("↑↓", "Nav"),
                 KeyBinding::new("←→", "Scroll"),
+                KeyBinding::new("n/p", "Page"),
                 KeyBinding::new("Enter", "Run"),
                 KeyBinding::new("?", "Help"),
                 KeyBinding::new("q", "Quit"),

@@ -30,8 +30,11 @@ impl HelpOverlay {
         ("↓ / j", "Move down"),
         ("← / h", "Scroll left (columns)"),
         ("→ / l", "Scroll right (columns)"),
-        ("Home / g", "Go to first item"),
-        ("End / G", "Go to last item"),
+        ("PgUp / PgDn", "Scroll page up/down"),
+        ("n", "Next page"),
+        ("p", "Previous page"),
+        ("Home / g", "First page / First item"),
+        ("End / G", "Last page / Last item"),
         ("Enter", "Execute query"),
         ("Esc", "Back to Questions list"),
     ];
