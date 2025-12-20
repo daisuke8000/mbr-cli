@@ -71,6 +71,13 @@ pub enum AppAction {
 
     /// Return to Questions list from query result view
     BackToQuestions,
+
+    // === Collection Drill-down (Phase 3) ===
+    /// Drill down into a collection to view its questions
+    DrillDownCollection(u32, String), // (collection_id, collection_name)
+
+    /// Return to Collections list from collection questions view
+    BackToCollections,
 }
 
 /// Target content views for navigation
@@ -93,6 +100,8 @@ pub enum DataRequest {
     Questions,
     /// Search questions by query string
     SearchQuestions(String),
+    /// Load questions filtered by collection ID
+    FilterQuestionsByCollection(u32),
     /// Load collections list
     Collections,
     /// Load databases list

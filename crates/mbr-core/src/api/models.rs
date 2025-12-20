@@ -87,6 +87,25 @@ pub struct Database {
     pub is_saved_questions: bool,
 }
 
+/// Search API response wrapper from /api/search
+#[derive(Debug, Deserialize, Clone)]
+pub struct SearchResponse {
+    pub data: Vec<SearchResultItem>,
+}
+
+/// Individual search result item (used for cards/questions)
+#[derive(Debug, Deserialize, Clone)]
+pub struct SearchResultItem {
+    pub id: u32,
+    pub name: String,
+    pub description: Option<String>,
+    #[serde(deserialize_with = "deserialize_collection_id", default)]
+    pub collection_id: Option<u32>,
+    pub collection: Option<Collection>,
+    /// Model type (e.g., "card", "dashboard", "collection")
+    pub model: String,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct QueryResult {
     pub data: QueryData,

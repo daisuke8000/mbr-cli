@@ -72,14 +72,15 @@ impl MetabaseClient {
         limit: Option<u32>,
         collection: Option<&str>,
     ) -> Result<Vec<crate::api::models::Question>, AppError> {
-        // Build query parameters
-        let mut params = vec!["f=all".to_string()];
-
+        // If search term is provided, use /api/search endpoint
         if let Some(search_term) = search {
             if !search_term.is_empty() {
-                params.push(format!("q={}", search_term));
+                return self.search_questions(search_term, limit).await;
             }
         }
+
+        // Otherwise, use /api/card endpoint for listing all questions
+        let mut params = vec!["f=all".to_string()];
 
         if let Some(collection_id) = collection {
             if !collection_id.is_empty() {
@@ -97,6 +98,55 @@ impl MetabaseClient {
 
         let mut questions: Vec<crate::api::models::Question> =
             Self::handle_response(response, &endpoint).await?;
+
+        // Apply client-side limit if specified
+        if let Some(limit_value) = limit {
+            if limit_value > 0 {
+                questions.truncate(limit_value as usize);
+            }
+        }
+
+        Ok(questions)
+    }
+
+    /// Search questions using /api/search endpoint.
+    /// Uses reqwest's .query() for proper URL encoding of search terms,
+    /// including multibyte characters (Japanese, etc.).
+    async fn search_questions(
+        &self,
+        search_term: &str,
+        limit: Option<u32>,
+    ) -> Result<Vec<crate::api::models::Question>, AppError> {
+        use crate::api::models::{Collection, Question, SearchResponse};
+
+        let endpoint = "/api/search";
+
+        // Use reqwest's .query() for safe URL encoding (handles UTF-8 correctly)
+        let response = self
+            .build_request(Method::GET, endpoint)
+            .query(&[("q", search_term), ("models", "card")])
+            .send()
+            .await
+            .map_err(|e| AppError::Api(convert_request_error(e, endpoint)))?;
+
+        let search_response: SearchResponse = Self::handle_response(response, endpoint).await?;
+
+        // Convert SearchResultItem to Question
+        let mut questions: Vec<Question> = search_response
+            .data
+            .into_iter()
+            .filter(|item| item.model == "card")
+            .map(|item| Question {
+                id: item.id,
+                name: item.name,
+                description: item.description,
+                collection_id: item.collection_id,
+                collection: item.collection.map(|c| Collection {
+                    id: c.id,
+                    name: c.name,
+                }),
+            })
+            .collect();
 
         // Apply client-side limit if specified
         if let Some(limit_value) = limit {

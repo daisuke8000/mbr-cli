@@ -226,7 +226,10 @@ impl App {
             AppAction::LoadFailed(request, error) => {
                 // Set error state on the appropriate data based on request type
                 match request {
-                    DataRequest::Questions | DataRequest::Refresh => {
+                    DataRequest::Questions
+                    | DataRequest::Refresh
+                    | DataRequest::SearchQuestions(_)
+                    | DataRequest::FilterQuestionsByCollection(_) => {
                         self.data.questions = LoadState::Error(error.clone());
                         self.content.update_questions(&self.data.questions);
                     }
@@ -271,6 +274,23 @@ impl App {
                 self.data.query_result = None;
                 self.content.back_to_questions();
                 self.status_bar.set_message("Returned to Questions list");
+            }
+            // === Collection Drill-down (Phase 3) ===
+            AppAction::DrillDownCollection(collection_id, collection_name) => {
+                // Enter collection questions view
+                self.content
+                    .enter_collection_questions(collection_id, collection_name.clone());
+                self.status_bar
+                    .set_message(format!("Viewing questions in '{}'", collection_name));
+                // Trigger data load
+                let _ = self.action_tx.send(AppAction::LoadData(
+                    DataRequest::FilterQuestionsByCollection(collection_id),
+                ));
+            }
+            AppAction::BackToCollections => {
+                // Exit collection questions view
+                self.content.exit_collection_questions();
+                self.status_bar.set_message("Returned to Collections list");
             }
         }
     }
@@ -335,6 +355,37 @@ impl App {
                         }
                         Err(e) => {
                             let _ = tx.send(AppAction::LoadFailed(DataRequest::Questions, e));
+                        }
+                    }
+                });
+            }
+            DataRequest::FilterQuestionsByCollection(collection_id) => {
+                // Guard: prevent duplicate requests while loading
+                if matches!(self.data.questions, LoadState::Loading) {
+                    return;
+                }
+
+                // Set loading state
+                self.data.questions = LoadState::Loading;
+                // Sync to content panel for display
+                self.content.update_questions(&self.data.questions);
+
+                let collection_str = collection_id.to_string();
+
+                // Spawn background task with collection filter
+                tokio::spawn(async move {
+                    match service
+                        .fetch_questions_by_collection(&collection_str, Some(100))
+                        .await
+                    {
+                        Ok(questions) => {
+                            let _ = tx.send(AppAction::QuestionsLoaded(questions));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppAction::LoadFailed(
+                                DataRequest::FilterQuestionsByCollection(collection_id),
+                                e,
+                            ));
                         }
                     }
                 });
@@ -578,6 +629,9 @@ impl App {
                 // If viewing query result, go back to Questions instead of quitting
                 if self.content.current_view() == ContentView::QueryResult {
                     let _ = self.action_tx.send(AppAction::BackToQuestions);
+                } else if self.content.current_view() == ContentView::CollectionQuestions {
+                    // Return to Collections list from collection questions view
+                    let _ = self.action_tx.send(AppAction::BackToCollections);
                 } else if self.content.get_active_search().is_some() {
                     // Clear active search and reload all questions
                     self.content.clear_search();
@@ -646,6 +700,28 @@ impl App {
         if code == KeyCode::Enter && self.content.current_view() == ContentView::Questions {
             if let Some(question_id) = self.content.get_selected_question_id() {
                 let _ = self.action_tx.send(AppAction::ExecuteQuestion(question_id));
+                return;
+            }
+        }
+
+        // Handle Enter in CollectionQuestions view to execute query
+        if code == KeyCode::Enter && self.content.current_view() == ContentView::CollectionQuestions
+        {
+            if let Some(question_id) = self.content.get_selected_question_id() {
+                let _ = self.action_tx.send(AppAction::ExecuteQuestion(question_id));
+                return;
+            }
+        }
+
+        // Handle Enter in Collections view to drill down into collection
+        if code == KeyCode::Enter && self.content.current_view() == ContentView::Collections {
+            if let Some((collection_id, collection_name)) =
+                self.content.get_selected_collection_info()
+            {
+                let _ = self.action_tx.send(AppAction::DrillDownCollection(
+                    collection_id,
+                    collection_name,
+                ));
                 return;
             }
         }
