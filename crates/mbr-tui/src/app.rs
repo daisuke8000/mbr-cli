@@ -929,7 +929,11 @@ impl App {
         }
 
         // Handle Enter in QueryResult view to show record detail
-        if code == KeyCode::Enter && self.content.current_view() == ContentView::QueryResult {
+        // Skip if sort modal is active (Enter applies sort in modal)
+        if code == KeyCode::Enter
+            && self.content.current_view() == ContentView::QueryResult
+            && !self.content.is_sort_mode_active()
+        {
             if let Some((columns, values)) = self.content.get_selected_record() {
                 self.record_detail = Some(RecordDetailOverlay::new(columns, values));
                 self.show_record_detail = true;
@@ -938,7 +942,11 @@ impl App {
         }
 
         // Handle Enter in TablePreview view to show record detail
-        if code == KeyCode::Enter && self.content.current_view() == ContentView::TablePreview {
+        // Skip if sort modal is active (Enter applies sort in modal)
+        if code == KeyCode::Enter
+            && self.content.current_view() == ContentView::TablePreview
+            && !self.content.is_sort_mode_active()
+        {
             if let Some((columns, values)) = self.content.get_selected_record() {
                 self.record_detail = Some(RecordDetailOverlay::new(columns, values));
                 self.show_record_detail = true;

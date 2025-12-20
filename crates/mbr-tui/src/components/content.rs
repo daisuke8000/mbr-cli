@@ -27,6 +27,18 @@ pub enum InputMode {
     Search,
 }
 
+/// Sort order for query results.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortOrder {
+    /// No sorting applied
+    #[default]
+    None,
+    /// Ascending order (A-Z, 0-9)
+    Ascending,
+    /// Descending order (Z-A, 9-0)
+    Descending,
+}
+
 /// Content view types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ContentView {
@@ -90,6 +102,9 @@ pub struct ContentPanel {
     tables_table_state: TableState,
     /// Query result data for QueryResult view
     query_result: Option<QueryResultData>,
+    /// Sorted row indices (None = original order, Some = sorted indices)
+    /// Using indices instead of copying rows for memory efficiency
+    sort_indices: Option<Vec<usize>>,
     /// Table state for query result table
     result_table_state: TableState,
     /// Current page for query result pagination (0-indexed)
@@ -114,6 +129,14 @@ pub struct ContentPanel {
     /// Used for: Databases → Schemas → Tables → Preview
     ///           Collections → Questions → QueryResult
     navigation_stack: Vec<ContentView>,
+    /// Sort order for query results
+    sort_order: SortOrder,
+    /// Column index currently being sorted (None = no sort)
+    sort_column_index: Option<usize>,
+    /// Whether sort column selection modal is active
+    sort_mode_active: bool,
+    /// Selected column index in sort modal
+    sort_modal_selection: usize,
 }
 
 impl Default for ContentPanel {
@@ -140,6 +163,7 @@ impl ContentPanel {
             tables: LoadState::default(),
             tables_table_state: TableState::default(),
             query_result: None,
+            sort_indices: None,
             result_table_state: TableState::default(),
             result_page: 0,
             rows_per_page: DEFAULT_ROWS_PER_PAGE,
@@ -151,6 +175,10 @@ impl ContentPanel {
             schema_context: None,
             table_context: None,
             navigation_stack: Vec::new(),
+            sort_order: SortOrder::None,
+            sort_column_index: None,
+            sort_mode_active: false,
+            sort_modal_selection: 0,
         }
     }
 
@@ -592,9 +620,14 @@ impl ContentPanel {
         self.table_context = Some((database_id, table_id, table_name));
         // Reset query result for new load
         self.query_result = None;
+        self.sort_indices = None;
         self.result_table_state = TableState::default();
         self.result_page = 0;
         self.scroll_x = 0;
+        // Reset sort state
+        self.sort_order = SortOrder::None;
+        self.sort_column_index = None;
+        self.sort_mode_active = false;
         // Push current view (SchemaTables) to stack before switching
         self.push_view(ContentView::TablePreview);
     }
@@ -603,9 +636,14 @@ impl ContentPanel {
     pub fn exit_table_preview(&mut self) {
         self.table_context = None;
         self.query_result = None;
+        self.sort_indices = None;
         self.result_table_state = TableState::default();
         self.result_page = 0;
         self.scroll_x = 0;
+        // Reset sort state
+        self.sort_order = SortOrder::None;
+        self.sort_column_index = None;
+        self.sort_mode_active = false;
         // Pop from navigation stack (defaults to SchemaTables if stack is empty)
         if self.pop_view().is_none() {
             self.view = ContentView::SchemaTables;
@@ -615,9 +653,15 @@ impl ContentPanel {
     /// Set table preview data (used when data is loaded after entering preview view).
     /// Does not change navigation state since enter_table_preview already handled that.
     pub fn set_table_preview_data(&mut self, data: QueryResultData) {
+        // Clear sort indices for new data (no need to clone rows)
+        self.sort_indices = None;
         self.query_result = Some(data);
         self.result_table_state = TableState::default();
         self.result_page = 0;
+        // Reset sort state for new data
+        self.sort_order = SortOrder::None;
+        self.sort_column_index = None;
+        self.sort_mode_active = false;
         // Auto-select first row if available
         if self
             .query_result
@@ -709,18 +753,20 @@ impl ContentPanel {
 
     /// Get the currently selected record in QueryResult or TablePreview view.
     /// Returns (columns, values) tuple for the selected row.
+    /// Respects sort order when sorting is active.
     pub fn get_selected_record(&self) -> Option<(Vec<String>, Vec<String>)> {
         if self.view != ContentView::QueryResult && self.view != ContentView::TablePreview {
             return None;
         }
         if let Some(ref result) = self.query_result {
             if let Some(selected) = self.result_table_state.selected() {
-                // Calculate actual row index considering pagination
+                // Calculate logical index considering pagination
                 let page_start = self.result_page * self.rows_per_page;
-                let actual_index = page_start + selected;
+                let logical_index = page_start + selected;
 
-                if actual_index < result.rows.len() {
-                    return Some((result.columns.clone(), result.rows[actual_index].clone()));
+                // Get row using sorted index if sorting is active
+                if let Some(row) = self.get_sorted_row(logical_index) {
+                    return Some((result.columns.clone(), row.clone()));
                 }
             }
         }
@@ -730,10 +776,16 @@ impl ContentPanel {
     /// Set query result data and switch to QueryResult view.
     /// Uses navigation stack to enable returning to the originating view.
     pub fn set_query_result(&mut self, data: QueryResultData) {
+        // Clear sort indices for new data (no need to clone rows)
+        self.sort_indices = None;
         self.query_result = Some(data);
         self.result_table_state = TableState::default();
         self.result_page = 0; // Reset to first page
         self.scroll_x = 0;
+        // Reset sort state for new data
+        self.sort_order = SortOrder::None;
+        self.sort_column_index = None;
+        self.sort_mode_active = false;
         // Auto-select first row if available
         if self
             .query_result
@@ -750,9 +802,14 @@ impl ContentPanel {
     /// Uses navigation stack to return to the correct originating view.
     pub fn back_to_questions(&mut self) {
         self.query_result = None;
+        self.sort_indices = None;
         self.result_table_state = TableState::default();
         self.result_page = 0;
         self.scroll_x = 0;
+        // Clear sort state
+        self.sort_order = SortOrder::None;
+        self.sort_column_index = None;
+        self.sort_mode_active = false;
         // Pop from navigation stack (defaults to Questions if stack is empty)
         if self.pop_view().is_none() {
             self.view = ContentView::Questions;
@@ -854,6 +911,270 @@ impl ContentPanel {
                 page_end - page_start
             })
             .unwrap_or(0)
+    }
+
+    // === Sort functionality ===
+
+    /// Check if sort modal is active.
+    pub fn is_sort_mode_active(&self) -> bool {
+        self.sort_mode_active
+    }
+
+    /// Open sort column selection modal.
+    pub fn open_sort_modal(&mut self) {
+        if let Some(ref result) = self.query_result {
+            if !result.columns.is_empty() {
+                self.sort_mode_active = true;
+                // Start at currently sorted column or first column
+                self.sort_modal_selection = self.sort_column_index.unwrap_or(0);
+            }
+        }
+    }
+
+    /// Close sort modal without applying.
+    pub fn close_sort_modal(&mut self) {
+        self.sort_mode_active = false;
+    }
+
+    /// Move selection up in sort modal.
+    pub fn sort_modal_up(&mut self) {
+        if self.sort_modal_selection > 0 {
+            self.sort_modal_selection -= 1;
+        }
+    }
+
+    /// Move selection down in sort modal.
+    pub fn sort_modal_down(&mut self) {
+        if let Some(ref result) = self.query_result {
+            if self.sort_modal_selection < result.columns.len().saturating_sub(1) {
+                self.sort_modal_selection += 1;
+            }
+        }
+    }
+
+    /// Apply sort on selected column.
+    /// If same column is selected, toggles between Ascending -> Descending -> None.
+    pub fn apply_sort(&mut self) {
+        let selected_col = self.sort_modal_selection;
+
+        // Toggle sort order
+        if self.sort_column_index == Some(selected_col) {
+            // Same column - cycle through orders
+            self.sort_order = match self.sort_order {
+                SortOrder::None => SortOrder::Ascending,
+                SortOrder::Ascending => SortOrder::Descending,
+                SortOrder::Descending => SortOrder::None,
+            };
+            if self.sort_order == SortOrder::None {
+                // Restore original order by clearing indices
+                self.sort_column_index = None;
+                self.sort_indices = None;
+            } else {
+                // Sort indices (not data)
+                self.update_sort_indices();
+            }
+        } else {
+            // New column - start with ascending
+            self.sort_column_index = Some(selected_col);
+            self.sort_order = SortOrder::Ascending;
+            // Sort indices (not data)
+            self.update_sort_indices();
+        }
+
+        // Close modal
+        self.sort_mode_active = false;
+
+        // Reset to first page and first row after sort
+        self.result_page = 0;
+        self.result_table_state.select(Some(0));
+    }
+
+    /// Clear sort and restore original order.
+    #[allow(dead_code)] // Designed for future features
+    pub fn clear_sort(&mut self) {
+        self.sort_order = SortOrder::None;
+        self.sort_column_index = None;
+        self.sort_indices = None;
+    }
+
+    /// Update sort indices based on current sort column and order.
+    /// Uses index-based sorting for memory efficiency (no data cloning).
+    fn update_sort_indices(&mut self) {
+        if self.sort_order == SortOrder::None {
+            self.sort_indices = None;
+            return;
+        }
+
+        let col_idx = match self.sort_column_index {
+            Some(idx) => idx,
+            None => {
+                self.sort_indices = None;
+                return;
+            }
+        };
+
+        if let Some(ref result) = self.query_result {
+            if col_idx >= result.columns.len() {
+                self.sort_indices = None;
+                return;
+            }
+
+            // Create index array [0, 1, 2, ..., n-1]
+            let mut indices: Vec<usize> = (0..result.rows.len()).collect();
+
+            // Sort indices based on row values at col_idx
+            let order = self.sort_order;
+            indices.sort_by(|&a, &b| {
+                let val_a = result.rows[a]
+                    .get(col_idx)
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
+                let val_b = result.rows[b]
+                    .get(col_idx)
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
+
+                // Try numeric comparison first
+                let cmp = match (val_a.parse::<f64>(), val_b.parse::<f64>()) {
+                    (Ok(num_a), Ok(num_b)) => num_a
+                        .partial_cmp(&num_b)
+                        .unwrap_or(std::cmp::Ordering::Equal),
+                    _ => val_a.cmp(val_b), // Fall back to string comparison
+                };
+
+                match order {
+                    SortOrder::Ascending => cmp,
+                    SortOrder::Descending => cmp.reverse(),
+                    SortOrder::None => std::cmp::Ordering::Equal,
+                }
+            });
+
+            self.sort_indices = Some(indices);
+        }
+    }
+
+    /// Get row at logical index (respects sort order if active).
+    /// Returns the actual row from query_result based on sort indices.
+    fn get_sorted_row(&self, logical_index: usize) -> Option<&Vec<String>> {
+        self.query_result.as_ref().and_then(|result| {
+            let actual_index = if let Some(ref indices) = self.sort_indices {
+                // Use sorted index
+                indices.get(logical_index).copied()?
+            } else {
+                // Use original order
+                logical_index
+            };
+            result.rows.get(actual_index)
+        })
+    }
+
+    /// Get current sort info for display.
+    pub fn get_sort_info(&self) -> Option<(String, SortOrder)> {
+        if let (Some(col_idx), Some(result)) = (self.sort_column_index, &self.query_result) {
+            if col_idx < result.columns.len() && self.sort_order != SortOrder::None {
+                return Some((result.columns[col_idx].clone(), self.sort_order));
+            }
+        }
+        None
+    }
+
+    /// Render sort column selection modal as an overlay.
+    fn render_sort_modal(&self, frame: &mut Frame, area: Rect) {
+        let result = match &self.query_result {
+            Some(r) => r,
+            None => return,
+        };
+
+        // Calculate modal dimensions (40% width, centered, max height for columns + header/footer)
+        let modal_width = (area.width as f32 * 0.4).clamp(30.0, 60.0) as u16;
+        let max_height = (result.columns.len() + 4).min(20) as u16; // +4 for borders and title/footer
+        let modal_height = max_height.min(area.height.saturating_sub(4));
+
+        let modal_x = (area.width.saturating_sub(modal_width)) / 2;
+        let modal_y = (area.height.saturating_sub(modal_height)) / 2;
+
+        let modal_area = Rect::new(
+            area.x + modal_x,
+            area.y + modal_y,
+            modal_width,
+            modal_height,
+        );
+
+        // Create background overlay (semi-transparent effect via clearing)
+        let overlay = Block::default().style(Style::default().bg(Color::Black));
+        frame.render_widget(overlay, modal_area);
+
+        // Build column list items
+        let items: Vec<Line> = result
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(i, col)| {
+                let is_selected = i == self.sort_modal_selection;
+                let is_sorted = self.sort_column_index == Some(i);
+
+                // Build column text with sort indicator
+                let sort_indicator = if is_sorted {
+                    match self.sort_order {
+                        SortOrder::Ascending => " ↑",
+                        SortOrder::Descending => " ↓",
+                        SortOrder::None => "",
+                    }
+                } else {
+                    ""
+                };
+
+                let prefix = if is_selected { "► " } else { "  " };
+                let text = format!("{}{}{}", prefix, col, sort_indicator);
+
+                let style = if is_selected {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else if is_sorted {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+
+                Line::from(Span::styled(text, style))
+            })
+            .collect();
+
+        let paragraph = Paragraph::new(items)
+            .block(
+                Block::default()
+                    .title(" Sort by Column ")
+                    .title_style(
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            )
+            .style(Style::default().bg(Color::Black));
+
+        frame.render_widget(paragraph, modal_area);
+
+        // Render footer hint
+        if modal_area.height > 2 {
+            let footer_area = Rect::new(
+                modal_area.x + 1,
+                modal_area.y + modal_area.height.saturating_sub(1),
+                modal_area.width.saturating_sub(2),
+                1,
+            );
+            let hint = Paragraph::new(Line::from(vec![
+                Span::styled("Enter", Style::default().fg(Color::Yellow)),
+                Span::styled(": Select  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("Esc", Style::default().fg(Color::Yellow)),
+                Span::styled(": Cancel", Style::default().fg(Color::DarkGray)),
+            ]))
+            .style(Style::default().bg(Color::Black));
+            frame.render_widget(hint, footer_area);
+        }
     }
 
     /// Scroll result table up by multiple rows (PageUp).
@@ -1954,7 +2275,6 @@ impl ContentPanel {
                     let total_pages = self.total_pages();
                     let page_start = self.result_page * self.rows_per_page;
                     let page_end = (page_start + self.rows_per_page).min(total_rows);
-                    let page_rows = &result.rows[page_start..page_end];
 
                     let total_cols = result.columns.len();
                     let scroll_x = self.scroll_x.min(total_cols.saturating_sub(1));
@@ -1979,8 +2299,10 @@ impl ContentPanel {
                             .collect()
                     };
 
-                    let rows: Vec<Row> = page_rows
-                        .iter()
+                    // Create table rows with sliced cells (only current page)
+                    // Uses sort indices if sorting is active, otherwise original order
+                    let rows: Vec<Row> = (page_start..page_end)
+                        .filter_map(|logical_idx| self.get_sorted_row(logical_idx))
                         .map(|row| {
                             let cells: Vec<Cell> = row[scroll_x..end_col.min(row.len())]
                                 .iter()
@@ -1990,9 +2312,29 @@ impl ContentPanel {
                         })
                         .collect();
 
+                    // Create header row with sort indicators
                     let header_cells: Vec<Cell> = visible_columns
                         .iter()
-                        .map(|col| Cell::from(col.clone()))
+                        .enumerate()
+                        .map(|(visible_idx, col)| {
+                            // Calculate the actual column index (accounting for scroll)
+                            let actual_col_idx = scroll_x + visible_idx;
+                            let is_sorted = self.sort_column_index == Some(actual_col_idx);
+
+                            // Add sort indicator if this column is sorted
+                            let header_text = if is_sorted {
+                                let indicator = match self.sort_order {
+                                    SortOrder::Ascending => " ↑",
+                                    SortOrder::Descending => " ↓",
+                                    SortOrder::None => "",
+                                };
+                                format!("{}{}", col, indicator)
+                            } else {
+                                col.clone()
+                            };
+
+                            Cell::from(header_text)
+                        })
                         .collect();
 
                     let col_indicator = if total_cols > visible_cols {
@@ -2023,6 +2365,18 @@ impl ContentPanel {
                         format!(" {} rows", total_rows)
                     };
 
+                    // Build sort indicator for title
+                    let sort_indicator = if let Some((col_name, order)) = self.get_sort_info() {
+                        let arrow = match order {
+                            SortOrder::Ascending => "↑",
+                            SortOrder::Descending => "↓",
+                            SortOrder::None => "",
+                        };
+                        format!(" [Sort: {} {}]", col_name, arrow)
+                    } else {
+                        String::new()
+                    };
+
                     let table = Table::new(rows, constraints)
                         .header(
                             Row::new(header_cells)
@@ -2036,8 +2390,8 @@ impl ContentPanel {
                         .block(
                             Block::default()
                                 .title(format!(
-                                    " {} - Preview{}{}",
-                                    table_name, page_indicator, col_indicator
+                                    " {} - Preview{}{}{}",
+                                    table_name, page_indicator, col_indicator, sort_indicator
                                 ))
                                 .borders(Borders::ALL)
                                 .border_style(border_style),
@@ -2051,6 +2405,11 @@ impl ContentPanel {
                         .highlight_symbol("► ");
 
                     frame.render_stateful_widget(table, area, &mut self.result_table_state);
+
+                    // Render sort modal overlay if active
+                    if self.sort_mode_active {
+                        self.render_sort_modal(frame, area);
+                    }
                 }
             }
         }
@@ -2115,7 +2474,6 @@ impl ContentPanel {
                     let total_pages = self.total_pages();
                     let page_start = self.result_page * self.rows_per_page;
                     let page_end = (page_start + self.rows_per_page).min(total_rows);
-                    let page_rows = &result.rows[page_start..page_end];
 
                     // Calculate visible columns based on scroll_x
                     let total_cols = result.columns.len();
@@ -2145,8 +2503,9 @@ impl ContentPanel {
                     };
 
                     // Create table rows with sliced cells (only current page)
-                    let rows: Vec<Row> = page_rows
-                        .iter()
+                    // Uses sort indices if sorting is active, otherwise original order
+                    let rows: Vec<Row> = (page_start..page_end)
+                        .filter_map(|logical_idx| self.get_sorted_row(logical_idx))
                         .map(|row| {
                             let cells: Vec<Cell> = row[scroll_x..end_col.min(row.len())]
                                 .iter()
@@ -2156,10 +2515,29 @@ impl ContentPanel {
                         })
                         .collect();
 
-                    // Create header row
+                    // Create header row with sort indicators
                     let header_cells: Vec<Cell> = visible_columns
                         .iter()
-                        .map(|col| Cell::from(col.clone()))
+                        .enumerate()
+                        .map(|(visible_idx, col)| {
+                            // Calculate the actual column index (accounting for scroll)
+                            let actual_col_idx = scroll_x + visible_idx;
+                            let is_sorted = self.sort_column_index == Some(actual_col_idx);
+
+                            // Add sort indicator if this column is sorted
+                            let header_text = if is_sorted {
+                                let indicator = match self.sort_order {
+                                    SortOrder::Ascending => " ↑",
+                                    SortOrder::Descending => " ↓",
+                                    SortOrder::None => "",
+                                };
+                                format!("{}{}", col, indicator)
+                            } else {
+                                col.clone()
+                            };
+
+                            Cell::from(header_text)
+                        })
                         .collect();
 
                     // Build column indicator (e.g., "← 1-5 of 12 →")
@@ -2192,6 +2570,18 @@ impl ContentPanel {
                         format!(" {} rows", total_rows)
                     };
 
+                    // Build sort indicator for title
+                    let sort_indicator = if let Some((col_name, order)) = self.get_sort_info() {
+                        let arrow = match order {
+                            SortOrder::Ascending => "↑",
+                            SortOrder::Descending => "↓",
+                            SortOrder::None => "",
+                        };
+                        format!(" [Sort: {} {}]", col_name, arrow)
+                    } else {
+                        String::new()
+                    };
+
                     let table = Table::new(rows, constraints)
                         .header(
                             Row::new(header_cells)
@@ -2205,8 +2595,11 @@ impl ContentPanel {
                         .block(
                             Block::default()
                                 .title(format!(
-                                    " {}{}{}",
-                                    result.question_name, page_indicator, col_indicator
+                                    " {}{}{}{}",
+                                    result.question_name,
+                                    page_indicator,
+                                    col_indicator,
+                                    sort_indicator
                                 ))
                                 .borders(Borders::ALL)
                                 .border_style(border_style),
@@ -2220,6 +2613,11 @@ impl ContentPanel {
                         .highlight_symbol("► ");
 
                     frame.render_stateful_widget(table, area, &mut self.result_table_state);
+
+                    // Render sort modal overlay if active
+                    if self.sort_mode_active {
+                        self.render_sort_modal(frame, area);
+                    }
                 }
             }
         }
@@ -2375,54 +2773,82 @@ impl Component for ContentPanel {
                 _ => false,
             }
         } else if self.view == ContentView::QueryResult {
-            // QueryResult view has result table navigation + horizontal scroll + pagination
-            match key.code {
-                KeyCode::Up | KeyCode::Char('k') => {
-                    self.select_result_previous();
-                    true
+            // Sort modal takes priority when active
+            if self.sort_mode_active {
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.sort_modal_up();
+                        true
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.sort_modal_down();
+                        true
+                    }
+                    KeyCode::Enter => {
+                        self.apply_sort();
+                        true
+                    }
+                    KeyCode::Esc | KeyCode::Char('s') => {
+                        self.close_sort_modal();
+                        true
+                    }
+                    _ => false,
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    self.select_result_next();
-                    true
+            } else {
+                // QueryResult view has result table navigation + horizontal scroll + pagination
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.select_result_previous();
+                        true
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.select_result_next();
+                        true
+                    }
+                    // Horizontal scroll with h/l or Left/Right arrows
+                    KeyCode::Left | KeyCode::Char('h') => {
+                        self.scroll_left();
+                        true
+                    }
+                    KeyCode::Right | KeyCode::Char('l') => {
+                        self.scroll_right();
+                        true
+                    }
+                    // Pagination: n for next page, p for previous page (matches CLI)
+                    KeyCode::Char('n') => {
+                        self.next_page();
+                        true
+                    }
+                    KeyCode::Char('p') => {
+                        self.prev_page();
+                        true
+                    }
+                    // PageUp/PageDown for scrolling within page (matches CLI)
+                    KeyCode::PageUp => {
+                        self.scroll_result_page_up();
+                        true
+                    }
+                    KeyCode::PageDown => {
+                        self.scroll_result_page_down();
+                        true
+                    }
+                    // First/Last page with g/G
+                    KeyCode::Home | KeyCode::Char('g') => {
+                        self.first_page();
+                        true
+                    }
+                    KeyCode::End | KeyCode::Char('G') => {
+                        self.last_page();
+                        true
+                    }
+                    // Sort: s to open sort modal
+                    KeyCode::Char('s') => {
+                        self.open_sort_modal();
+                        true
+                    }
+                    // Note: Esc is handled in App for returning to Questions
+                    _ => false,
                 }
-                // Horizontal scroll with h/l or Left/Right arrows
-                KeyCode::Left | KeyCode::Char('h') => {
-                    self.scroll_left();
-                    true
-                }
-                KeyCode::Right | KeyCode::Char('l') => {
-                    self.scroll_right();
-                    true
-                }
-                // Pagination: n for next page, p for previous page (matches CLI)
-                KeyCode::Char('n') => {
-                    self.next_page();
-                    true
-                }
-                KeyCode::Char('p') => {
-                    self.prev_page();
-                    true
-                }
-                // PageUp/PageDown for scrolling within page (matches CLI)
-                KeyCode::PageUp => {
-                    self.scroll_result_page_up();
-                    true
-                }
-                KeyCode::PageDown => {
-                    self.scroll_result_page_down();
-                    true
-                }
-                // First/Last page with g/G
-                KeyCode::Home | KeyCode::Char('g') => {
-                    self.first_page();
-                    true
-                }
-                KeyCode::End | KeyCode::Char('G') => {
-                    self.last_page();
-                    true
-                }
-                // Note: Esc is handled in App for returning to Questions
-                _ => false,
             }
         } else if self.view == ContentView::DatabaseSchemas {
             // DatabaseSchemas view has list navigation
@@ -2469,50 +2895,78 @@ impl Component for ContentPanel {
                 _ => false,
             }
         } else if self.view == ContentView::TablePreview {
-            // TablePreview view has result table navigation (same as QueryResult)
-            match key.code {
-                KeyCode::Up | KeyCode::Char('k') => {
-                    self.select_result_previous();
-                    true
+            // Sort modal takes priority when active
+            if self.sort_mode_active {
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.sort_modal_up();
+                        true
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.sort_modal_down();
+                        true
+                    }
+                    KeyCode::Enter => {
+                        self.apply_sort();
+                        true
+                    }
+                    KeyCode::Esc | KeyCode::Char('s') => {
+                        self.close_sort_modal();
+                        true
+                    }
+                    _ => false,
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    self.select_result_next();
-                    true
+            } else {
+                // TablePreview view has result table navigation (same as QueryResult)
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.select_result_previous();
+                        true
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.select_result_next();
+                        true
+                    }
+                    KeyCode::Left | KeyCode::Char('h') => {
+                        self.scroll_left();
+                        true
+                    }
+                    KeyCode::Right | KeyCode::Char('l') => {
+                        self.scroll_right();
+                        true
+                    }
+                    KeyCode::Char('n') => {
+                        self.next_page();
+                        true
+                    }
+                    KeyCode::Char('p') => {
+                        self.prev_page();
+                        true
+                    }
+                    KeyCode::PageUp => {
+                        self.scroll_result_page_up();
+                        true
+                    }
+                    KeyCode::PageDown => {
+                        self.scroll_result_page_down();
+                        true
+                    }
+                    KeyCode::Home | KeyCode::Char('g') => {
+                        self.first_page();
+                        true
+                    }
+                    KeyCode::End | KeyCode::Char('G') => {
+                        self.last_page();
+                        true
+                    }
+                    // Sort: s to open sort modal
+                    KeyCode::Char('s') => {
+                        self.open_sort_modal();
+                        true
+                    }
+                    // Note: Esc is handled in App for returning to SchemaTables
+                    _ => false,
                 }
-                KeyCode::Left | KeyCode::Char('h') => {
-                    self.scroll_left();
-                    true
-                }
-                KeyCode::Right | KeyCode::Char('l') => {
-                    self.scroll_right();
-                    true
-                }
-                KeyCode::Char('n') => {
-                    self.next_page();
-                    true
-                }
-                KeyCode::Char('p') => {
-                    self.prev_page();
-                    true
-                }
-                KeyCode::PageUp => {
-                    self.scroll_result_page_up();
-                    true
-                }
-                KeyCode::PageDown => {
-                    self.scroll_result_page_down();
-                    true
-                }
-                KeyCode::Home | KeyCode::Char('g') => {
-                    self.first_page();
-                    true
-                }
-                KeyCode::End | KeyCode::Char('G') => {
-                    self.last_page();
-                    true
-                }
-                // Note: Esc is handled in App for returning to SchemaTables
-                _ => false,
             }
         } else {
             // Other views use scroll
