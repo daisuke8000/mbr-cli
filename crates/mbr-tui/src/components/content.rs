@@ -11,7 +11,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Wrap},
 };
 
-use mbr_core::api::models::{CollectionItem, Database, Question};
+use mbr_core::api::models::{CollectionItem, Database, Question, TableInfo};
 
 use super::{Component, ScrollState};
 use crate::layout::questions_table::{COLLECTION_WIDTH, ID_WIDTH, NAME_MIN_WIDTH};
@@ -38,6 +38,12 @@ pub enum ContentView {
     QueryResult,
     /// Questions filtered by a specific collection
     CollectionQuestions,
+    /// Schemas in a specific database
+    DatabaseSchemas,
+    /// Tables in a specific schema
+    SchemaTables,
+    /// Table data preview
+    TablePreview,
 }
 
 /// Query result data for display in TUI.
@@ -74,6 +80,14 @@ pub struct ContentPanel {
     databases: LoadState<Vec<Database>>,
     /// Table state for Databases view
     databases_table_state: TableState,
+    /// Schemas data for the DatabaseSchemas view
+    schemas: LoadState<Vec<String>>,
+    /// Table state for Schemas view
+    schemas_table_state: TableState,
+    /// Tables data for the SchemaTables view
+    tables: LoadState<Vec<TableInfo>>,
+    /// Table state for Tables view
+    tables_table_state: TableState,
     /// Query result data for QueryResult view
     query_result: Option<QueryResultData>,
     /// Table state for query result table
@@ -90,6 +104,12 @@ pub struct ContentPanel {
     active_search: Option<String>,
     /// Current collection context for CollectionQuestions view (id, name)
     collection_context: Option<(u32, String)>,
+    /// Current database context for DatabaseSchemas view (id, name)
+    database_context: Option<(u32, String)>,
+    /// Current schema context for SchemaTables view (database_id, schema_name)
+    schema_context: Option<(u32, String)>,
+    /// Current table context for TablePreview view (database_id, table_id, table_name)
+    table_context: Option<(u32, u32, String)>,
     /// Navigation stack for multi-level drill-down (supports 4+ levels)
     /// Used for: Databases → Schemas → Tables → Preview
     ///           Collections → Questions → QueryResult
@@ -115,6 +135,10 @@ impl ContentPanel {
             collections_table_state: TableState::default(),
             databases: LoadState::default(),
             databases_table_state: TableState::default(),
+            schemas: LoadState::default(),
+            schemas_table_state: TableState::default(),
+            tables: LoadState::default(),
+            tables_table_state: TableState::default(),
             query_result: None,
             result_table_state: TableState::default(),
             result_page: 0,
@@ -123,6 +147,9 @@ impl ContentPanel {
             search_query: String::new(),
             active_search: None,
             collection_context: None,
+            database_context: None,
+            schema_context: None,
+            table_context: None,
             navigation_stack: Vec::new(),
         }
     }
@@ -209,6 +236,32 @@ impl ContentPanel {
         if let LoadState::Loaded(items) = databases {
             if !items.is_empty() && self.databases_table_state.selected().is_none() {
                 self.databases_table_state.select(Some(0));
+            }
+        }
+    }
+
+    /// Update schemas data from AppData.
+    /// Automatically selects first item when data is loaded.
+    pub fn update_schemas(&mut self, schemas: &LoadState<Vec<String>>) {
+        self.schemas = schemas.clone();
+
+        // Auto-select first item when data is loaded
+        if let LoadState::Loaded(items) = schemas {
+            if !items.is_empty() && self.schemas_table_state.selected().is_none() {
+                self.schemas_table_state.select(Some(0));
+            }
+        }
+    }
+
+    /// Update tables data from AppData.
+    /// Automatically selects first item when data is loaded.
+    pub fn update_tables(&mut self, tables: &LoadState<Vec<TableInfo>>) {
+        self.tables = tables.clone();
+
+        // Auto-select first item when data is loaded
+        if let LoadState::Loaded(items) = tables {
+            if !items.is_empty() && self.tables_table_state.selected().is_none() {
+                self.tables_table_state.select(Some(0));
             }
         }
     }
@@ -317,6 +370,76 @@ impl ContentPanel {
         }
     }
 
+    // === Schemas view navigation ===
+
+    /// Select next schema in list.
+    fn select_schemas_next(&mut self) {
+        if let LoadState::Loaded(schemas) = &self.schemas {
+            if schemas.is_empty() {
+                return;
+            }
+            let current = self.schemas_table_state.selected().unwrap_or(0);
+            let next = (current + 1).min(schemas.len() - 1);
+            self.schemas_table_state.select(Some(next));
+        }
+    }
+
+    /// Select previous schema in list.
+    fn select_schemas_previous(&mut self) {
+        let current = self.schemas_table_state.selected().unwrap_or(0);
+        let prev = current.saturating_sub(1);
+        self.schemas_table_state.select(Some(prev));
+    }
+
+    /// Select first schema in list.
+    fn select_schemas_first(&mut self) {
+        self.schemas_table_state.select(Some(0));
+    }
+
+    /// Select last schema in list.
+    fn select_schemas_last(&mut self) {
+        if let LoadState::Loaded(schemas) = &self.schemas {
+            if !schemas.is_empty() {
+                self.schemas_table_state.select(Some(schemas.len() - 1));
+            }
+        }
+    }
+
+    // === Tables view navigation ===
+
+    /// Select next table in list.
+    fn select_tables_next(&mut self) {
+        if let LoadState::Loaded(tables) = &self.tables {
+            if tables.is_empty() {
+                return;
+            }
+            let current = self.tables_table_state.selected().unwrap_or(0);
+            let next = (current + 1).min(tables.len() - 1);
+            self.tables_table_state.select(Some(next));
+        }
+    }
+
+    /// Select previous table in list.
+    fn select_tables_previous(&mut self) {
+        let current = self.tables_table_state.selected().unwrap_or(0);
+        let prev = current.saturating_sub(1);
+        self.tables_table_state.select(Some(prev));
+    }
+
+    /// Select first table in list.
+    fn select_tables_first(&mut self) {
+        self.tables_table_state.select(Some(0));
+    }
+
+    /// Select last table in list.
+    fn select_tables_last(&mut self) {
+        if let LoadState::Loaded(tables) = &self.tables {
+            if !tables.is_empty() {
+                self.tables_table_state.select(Some(tables.len() - 1));
+            }
+        }
+    }
+
     /// Get the currently selected question ID.
     /// Works in both Questions and CollectionQuestions views.
     pub fn get_selected_question_id(&self) -> Option<u32> {
@@ -376,6 +499,149 @@ impl ContentPanel {
     #[allow(dead_code)] // Designed for future features
     pub fn get_collection_context(&self) -> Option<&(u32, String)> {
         self.collection_context.as_ref()
+    }
+
+    // === Database Drill-down View ===
+
+    /// Get the currently selected database info (id, name).
+    pub fn get_selected_database_info(&self) -> Option<(u32, String)> {
+        if self.view != ContentView::Databases {
+            return None;
+        }
+        if let LoadState::Loaded(databases) = &self.databases {
+            if let Some(selected) = self.databases_table_state.selected() {
+                return databases.get(selected).map(|db| (db.id, db.name.clone()));
+            }
+        }
+        None
+    }
+
+    /// Get the currently selected schema name.
+    pub fn get_selected_schema(&self) -> Option<String> {
+        if self.view != ContentView::DatabaseSchemas {
+            return None;
+        }
+        if let LoadState::Loaded(schemas) = &self.schemas {
+            if let Some(selected) = self.schemas_table_state.selected() {
+                return schemas.get(selected).cloned();
+            }
+        }
+        None
+    }
+
+    /// Get the currently selected table info (table_id, table_name).
+    pub fn get_selected_table_info(&self) -> Option<(u32, String)> {
+        if self.view != ContentView::SchemaTables {
+            return None;
+        }
+        if let LoadState::Loaded(tables) = &self.tables {
+            if let Some(selected) = self.tables_table_state.selected() {
+                return tables.get(selected).map(|t| (t.id, t.name.clone()));
+            }
+        }
+        None
+    }
+
+    /// Enter database schemas view to show schemas in a specific database.
+    /// Uses navigation stack for proper back navigation.
+    pub fn enter_database_schemas(&mut self, database_id: u32, database_name: String) {
+        self.database_context = Some((database_id, database_name));
+        // Reset schemas state for new load
+        self.schemas = LoadState::Idle;
+        self.schemas_table_state = TableState::default();
+        // Push current view (Databases) to stack before switching
+        self.push_view(ContentView::DatabaseSchemas);
+    }
+
+    /// Exit database schemas view and return to previous view.
+    pub fn exit_database_schemas(&mut self) {
+        self.database_context = None;
+        self.schemas = LoadState::Idle;
+        self.schemas_table_state = TableState::default();
+        // Pop from navigation stack (defaults to Databases if stack is empty)
+        if self.pop_view().is_none() {
+            self.view = ContentView::Databases;
+        }
+    }
+
+    /// Enter schema tables view to show tables in a specific schema.
+    /// Uses navigation stack for proper back navigation.
+    pub fn enter_schema_tables(&mut self, database_id: u32, schema_name: String) {
+        self.schema_context = Some((database_id, schema_name));
+        // Reset tables state for new load
+        self.tables = LoadState::Idle;
+        self.tables_table_state = TableState::default();
+        // Push current view (DatabaseSchemas) to stack before switching
+        self.push_view(ContentView::SchemaTables);
+    }
+
+    /// Exit schema tables view and return to previous view.
+    pub fn exit_schema_tables(&mut self) {
+        self.schema_context = None;
+        self.tables = LoadState::Idle;
+        self.tables_table_state = TableState::default();
+        // Pop from navigation stack (defaults to DatabaseSchemas if stack is empty)
+        if self.pop_view().is_none() {
+            self.view = ContentView::DatabaseSchemas;
+        }
+    }
+
+    /// Enter table preview view to show sample data from a table.
+    /// Uses navigation stack for proper back navigation.
+    pub fn enter_table_preview(&mut self, database_id: u32, table_id: u32, table_name: String) {
+        self.table_context = Some((database_id, table_id, table_name));
+        // Reset query result for new load
+        self.query_result = None;
+        self.result_table_state = TableState::default();
+        self.result_page = 0;
+        self.scroll_x = 0;
+        // Push current view (SchemaTables) to stack before switching
+        self.push_view(ContentView::TablePreview);
+    }
+
+    /// Exit table preview view and return to previous view.
+    pub fn exit_table_preview(&mut self) {
+        self.table_context = None;
+        self.query_result = None;
+        self.result_table_state = TableState::default();
+        self.result_page = 0;
+        self.scroll_x = 0;
+        // Pop from navigation stack (defaults to SchemaTables if stack is empty)
+        if self.pop_view().is_none() {
+            self.view = ContentView::SchemaTables;
+        }
+    }
+
+    /// Set table preview data (used when data is loaded after entering preview view).
+    /// Does not change navigation state since enter_table_preview already handled that.
+    pub fn set_table_preview_data(&mut self, data: QueryResultData) {
+        self.query_result = Some(data);
+        self.result_table_state = TableState::default();
+        self.result_page = 0;
+        // Auto-select first row if available
+        if self
+            .query_result
+            .as_ref()
+            .is_some_and(|r| !r.rows.is_empty())
+        {
+            self.result_table_state.select(Some(0));
+        }
+    }
+
+    /// Get the current database context (id, name) for DatabaseSchemas view.
+    pub fn get_database_context(&self) -> Option<&(u32, String)> {
+        self.database_context.as_ref()
+    }
+
+    /// Get the current schema context (database_id, schema_name) for SchemaTables view.
+    pub fn get_schema_context(&self) -> Option<&(u32, String)> {
+        self.schema_context.as_ref()
+    }
+
+    /// Get the current table context (database_id, table_id, table_name) for TablePreview view.
+    #[allow(dead_code)] // Designed for future features
+    pub fn get_table_context(&self) -> Option<&(u32, u32, String)> {
+        self.table_context.as_ref()
     }
 
     // === Search functionality ===
@@ -1328,6 +1594,468 @@ impl ContentPanel {
         }
     }
 
+    /// Render database schemas view with table.
+    /// Shows schemas in a specific database.
+    fn render_database_schemas(&mut self, area: Rect, frame: &mut Frame, focused: bool) {
+        let border_style = if focused {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
+        // Get database name for title
+        let database_name = self
+            .database_context
+            .as_ref()
+            .map(|(_, name)| name.as_str())
+            .unwrap_or("Unknown");
+
+        match &self.schemas {
+            LoadState::Idle => {
+                let paragraph = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("  Loading schemas from '{}'...", database_name),
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ])
+                .block(
+                    Block::default()
+                        .title(format!(" {} - Schemas ", database_name))
+                        .borders(Borders::ALL)
+                        .border_style(border_style),
+                );
+                frame.render_widget(paragraph, area);
+            }
+            LoadState::Loading => {
+                let paragraph = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("  ⏳ Loading schemas from '{}'...", database_name),
+                        Style::default().fg(Color::Yellow),
+                    )),
+                ])
+                .block(
+                    Block::default()
+                        .title(format!(" {} - Schemas ", database_name))
+                        .borders(Borders::ALL)
+                        .border_style(border_style),
+                );
+                frame.render_widget(paragraph, area);
+            }
+            LoadState::Error(msg) => {
+                let paragraph = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("  ❌ Error: {}", msg),
+                        Style::default().fg(Color::Red),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "  Press 'r' to retry or Esc to go back",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ])
+                .block(
+                    Block::default()
+                        .title(format!(" {} - Schemas ", database_name))
+                        .borders(Borders::ALL)
+                        .border_style(border_style),
+                );
+                frame.render_widget(paragraph, area);
+            }
+            LoadState::Loaded(schemas) => {
+                if schemas.is_empty() {
+                    let paragraph = Paragraph::new(vec![
+                        Line::from(""),
+                        Line::from(Span::styled(
+                            format!("  No schemas found in '{}'", database_name),
+                            Style::default().fg(Color::DarkGray),
+                        )),
+                        Line::from(""),
+                        Line::from(Span::styled(
+                            "  Press Esc to go back",
+                            Style::default().fg(Color::DarkGray),
+                        )),
+                    ])
+                    .block(
+                        Block::default()
+                            .title(format!(" {} - Schemas (0) ", database_name))
+                            .borders(Borders::ALL)
+                            .border_style(border_style),
+                    );
+                    frame.render_widget(paragraph, area);
+                } else {
+                    // Create table rows
+                    let rows: Vec<Row> = schemas
+                        .iter()
+                        .enumerate()
+                        .map(|(i, schema)| {
+                            Row::new(vec![
+                                Cell::from(format!("{}", i + 1)),
+                                Cell::from(schema.clone()),
+                            ])
+                        })
+                        .collect();
+
+                    let table = Table::new(
+                        rows,
+                        [
+                            Constraint::Length(ID_WIDTH),
+                            Constraint::Min(NAME_MIN_WIDTH),
+                        ],
+                    )
+                    .header(
+                        Row::new(vec!["#", "Schema Name"])
+                            .style(
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD),
+                            )
+                            .bottom_margin(1),
+                    )
+                    .block(
+                        Block::default()
+                            .title(format!(
+                                " {} - Schemas ({}) - Press Esc to go back ",
+                                database_name,
+                                schemas.len()
+                            ))
+                            .borders(Borders::ALL)
+                            .border_style(border_style),
+                    )
+                    .row_highlight_style(
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .highlight_symbol("► ");
+
+                    frame.render_stateful_widget(table, area, &mut self.schemas_table_state);
+                }
+            }
+        }
+    }
+
+    /// Render schema tables view with table.
+    /// Shows tables in a specific schema.
+    fn render_schema_tables(&mut self, area: Rect, frame: &mut Frame, focused: bool) {
+        let border_style = if focused {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
+        // Get schema name for title
+        let schema_name = self
+            .schema_context
+            .as_ref()
+            .map(|(_, name)| name.as_str())
+            .unwrap_or("Unknown");
+
+        match &self.tables {
+            LoadState::Idle => {
+                let paragraph = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("  Loading tables from '{}'...", schema_name),
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ])
+                .block(
+                    Block::default()
+                        .title(format!(" {} - Tables ", schema_name))
+                        .borders(Borders::ALL)
+                        .border_style(border_style),
+                );
+                frame.render_widget(paragraph, area);
+            }
+            LoadState::Loading => {
+                let paragraph = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("  ⏳ Loading tables from '{}'...", schema_name),
+                        Style::default().fg(Color::Yellow),
+                    )),
+                ])
+                .block(
+                    Block::default()
+                        .title(format!(" {} - Tables ", schema_name))
+                        .borders(Borders::ALL)
+                        .border_style(border_style),
+                );
+                frame.render_widget(paragraph, area);
+            }
+            LoadState::Error(msg) => {
+                let paragraph = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("  ❌ Error: {}", msg),
+                        Style::default().fg(Color::Red),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "  Press 'r' to retry or Esc to go back",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ])
+                .block(
+                    Block::default()
+                        .title(format!(" {} - Tables ", schema_name))
+                        .borders(Borders::ALL)
+                        .border_style(border_style),
+                );
+                frame.render_widget(paragraph, area);
+            }
+            LoadState::Loaded(tables) => {
+                if tables.is_empty() {
+                    let paragraph = Paragraph::new(vec![
+                        Line::from(""),
+                        Line::from(Span::styled(
+                            format!("  No tables found in '{}'", schema_name),
+                            Style::default().fg(Color::DarkGray),
+                        )),
+                        Line::from(""),
+                        Line::from(Span::styled(
+                            "  Press Esc to go back",
+                            Style::default().fg(Color::DarkGray),
+                        )),
+                    ])
+                    .block(
+                        Block::default()
+                            .title(format!(" {} - Tables (0) ", schema_name))
+                            .borders(Borders::ALL)
+                            .border_style(border_style),
+                    );
+                    frame.render_widget(paragraph, area);
+                } else {
+                    // Create table rows
+                    let rows: Vec<Row> = tables
+                        .iter()
+                        .map(|t| {
+                            let display_name = t.display_name.as_deref().unwrap_or(t.name.as_str());
+                            let desc = t.description.as_deref().unwrap_or("—");
+                            Row::new(vec![
+                                Cell::from(format!("{}", t.id)),
+                                Cell::from(t.name.clone()),
+                                Cell::from(display_name.to_string()),
+                                Cell::from(desc.to_string()),
+                            ])
+                        })
+                        .collect();
+
+                    let table = Table::new(
+                        rows,
+                        [
+                            Constraint::Length(ID_WIDTH),
+                            Constraint::Min(NAME_MIN_WIDTH),
+                            Constraint::Length(20), // Display Name
+                            Constraint::Min(20),    // Description
+                        ],
+                    )
+                    .header(
+                        Row::new(vec!["ID", "Name", "Display Name", "Description"])
+                            .style(
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD),
+                            )
+                            .bottom_margin(1),
+                    )
+                    .block(
+                        Block::default()
+                            .title(format!(
+                                " {} - Tables ({}) - Press Esc to go back ",
+                                schema_name,
+                                tables.len()
+                            ))
+                            .borders(Borders::ALL)
+                            .border_style(border_style),
+                    )
+                    .row_highlight_style(
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .highlight_symbol("► ");
+
+                    frame.render_stateful_widget(table, area, &mut self.tables_table_state);
+                }
+            }
+        }
+    }
+
+    /// Render table preview view with query result table.
+    /// Shows sample data from a table (reuses query result rendering).
+    fn render_table_preview(&mut self, area: Rect, frame: &mut Frame, focused: bool) {
+        let border_style = if focused {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
+        // Get table name for title
+        let table_name = self
+            .table_context
+            .as_ref()
+            .map(|(_, _, name)| name.as_str())
+            .unwrap_or("Unknown");
+
+        match &self.query_result {
+            None => {
+                let paragraph = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("  Loading preview for '{}'...", table_name),
+                        Style::default().fg(Color::Yellow),
+                    )),
+                ])
+                .block(
+                    Block::default()
+                        .title(format!(" {} - Preview ", table_name))
+                        .borders(Borders::ALL)
+                        .border_style(border_style),
+                );
+                frame.render_widget(paragraph, area);
+            }
+            Some(result) => {
+                if result.rows.is_empty() {
+                    let paragraph = Paragraph::new(vec![
+                        Line::from(""),
+                        Line::from(Span::styled(
+                            format!("  Table: {}", table_name),
+                            Style::default()
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD),
+                        )),
+                        Line::from(""),
+                        Line::from(Span::styled(
+                            "  No data in table",
+                            Style::default().fg(Color::DarkGray),
+                        )),
+                        Line::from(""),
+                        Line::from(Span::styled(
+                            "  Press Esc to go back",
+                            Style::default().fg(Color::Yellow),
+                        )),
+                    ])
+                    .block(
+                        Block::default()
+                            .title(format!(" {} - Preview (0 rows) ", table_name))
+                            .borders(Borders::ALL)
+                            .border_style(border_style),
+                    );
+                    frame.render_widget(paragraph, area);
+                } else {
+                    // Reuse query result rendering logic
+                    let total_rows = result.rows.len();
+                    let total_pages = self.total_pages();
+                    let page_start = self.result_page * self.rows_per_page;
+                    let page_end = (page_start + self.rows_per_page).min(total_rows);
+                    let page_rows = &result.rows[page_start..page_end];
+
+                    let total_cols = result.columns.len();
+                    let scroll_x = self.scroll_x.min(total_cols.saturating_sub(1));
+
+                    let available_width = area.width.saturating_sub(4) as usize;
+                    let min_col_width = 15usize;
+                    let visible_cols = (available_width / min_col_width).max(1).min(total_cols);
+                    let end_col = (scroll_x + visible_cols).min(total_cols);
+
+                    let visible_columns: Vec<String> = result.columns[scroll_x..end_col].to_vec();
+                    let visible_col_count = visible_columns.len();
+
+                    let constraints: Vec<Constraint> = if visible_col_count <= 3 {
+                        visible_columns
+                            .iter()
+                            .map(|_| Constraint::Ratio(1, visible_col_count as u32))
+                            .collect()
+                    } else {
+                        visible_columns
+                            .iter()
+                            .map(|_| Constraint::Min(15))
+                            .collect()
+                    };
+
+                    let rows: Vec<Row> = page_rows
+                        .iter()
+                        .map(|row| {
+                            let cells: Vec<Cell> = row[scroll_x..end_col.min(row.len())]
+                                .iter()
+                                .map(|cell| Cell::from(cell.clone()))
+                                .collect();
+                            Row::new(cells)
+                        })
+                        .collect();
+
+                    let header_cells: Vec<Cell> = visible_columns
+                        .iter()
+                        .map(|col| Cell::from(col.clone()))
+                        .collect();
+
+                    let col_indicator = if total_cols > visible_cols {
+                        let left_arrow = if scroll_x > 0 { "← " } else { "  " };
+                        let right_arrow = if end_col < total_cols { " →" } else { "  " };
+                        format!(
+                            " {}Col {}-{}/{}{}",
+                            left_arrow,
+                            scroll_x + 1,
+                            end_col,
+                            total_cols,
+                            right_arrow
+                        )
+                    } else {
+                        String::new()
+                    };
+
+                    let page_indicator = if total_pages > 1 {
+                        format!(
+                            " Page {}/{} (rows {}-{} of {})",
+                            self.result_page + 1,
+                            total_pages,
+                            page_start + 1,
+                            page_end,
+                            total_rows
+                        )
+                    } else {
+                        format!(" {} rows", total_rows)
+                    };
+
+                    let table = Table::new(rows, constraints)
+                        .header(
+                            Row::new(header_cells)
+                                .style(
+                                    Style::default()
+                                        .fg(Color::Yellow)
+                                        .add_modifier(Modifier::BOLD),
+                                )
+                                .bottom_margin(1),
+                        )
+                        .block(
+                            Block::default()
+                                .title(format!(
+                                    " {} - Preview{}{}",
+                                    table_name, page_indicator, col_indicator
+                                ))
+                                .borders(Borders::ALL)
+                                .border_style(border_style),
+                        )
+                        .row_highlight_style(
+                            Style::default()
+                                .fg(Color::Black)
+                                .bg(Color::Green)
+                                .add_modifier(Modifier::BOLD),
+                        )
+                        .highlight_symbol("► ");
+
+                    frame.render_stateful_widget(table, area, &mut self.result_table_state);
+                }
+            }
+        }
+    }
+
     /// Render query result view with table.
     fn render_query_result(&mut self, area: Rect, frame: &mut Frame, focused: bool) {
         let border_style = if focused {
@@ -1522,6 +2250,18 @@ impl Component for ContentPanel {
                 self.render_collection_questions(area, frame, focused);
                 return;
             }
+            ContentView::DatabaseSchemas => {
+                self.render_database_schemas(area, frame, focused);
+                return;
+            }
+            ContentView::SchemaTables => {
+                self.render_schema_tables(area, frame, focused);
+                return;
+            }
+            ContentView::TablePreview => {
+                self.render_table_preview(area, frame, focused);
+                return;
+            }
             ContentView::Welcome => {}
         }
 
@@ -1682,6 +2422,96 @@ impl Component for ContentPanel {
                     true
                 }
                 // Note: Esc is handled in App for returning to Questions
+                _ => false,
+            }
+        } else if self.view == ContentView::DatabaseSchemas {
+            // DatabaseSchemas view has list navigation
+            // Enter/Esc handled by App
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.select_schemas_previous();
+                    true
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.select_schemas_next();
+                    true
+                }
+                KeyCode::Home | KeyCode::Char('g') => {
+                    self.select_schemas_first();
+                    true
+                }
+                KeyCode::End | KeyCode::Char('G') => {
+                    self.select_schemas_last();
+                    true
+                }
+                _ => false,
+            }
+        } else if self.view == ContentView::SchemaTables {
+            // SchemaTables view has list navigation
+            // Enter/Esc handled by App
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.select_tables_previous();
+                    true
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.select_tables_next();
+                    true
+                }
+                KeyCode::Home | KeyCode::Char('g') => {
+                    self.select_tables_first();
+                    true
+                }
+                KeyCode::End | KeyCode::Char('G') => {
+                    self.select_tables_last();
+                    true
+                }
+                _ => false,
+            }
+        } else if self.view == ContentView::TablePreview {
+            // TablePreview view has result table navigation (same as QueryResult)
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.select_result_previous();
+                    true
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.select_result_next();
+                    true
+                }
+                KeyCode::Left | KeyCode::Char('h') => {
+                    self.scroll_left();
+                    true
+                }
+                KeyCode::Right | KeyCode::Char('l') => {
+                    self.scroll_right();
+                    true
+                }
+                KeyCode::Char('n') => {
+                    self.next_page();
+                    true
+                }
+                KeyCode::Char('p') => {
+                    self.prev_page();
+                    true
+                }
+                KeyCode::PageUp => {
+                    self.scroll_result_page_up();
+                    true
+                }
+                KeyCode::PageDown => {
+                    self.scroll_result_page_down();
+                    true
+                }
+                KeyCode::Home | KeyCode::Char('g') => {
+                    self.first_page();
+                    true
+                }
+                KeyCode::End | KeyCode::Char('G') => {
+                    self.last_page();
+                    true
+                }
+                // Note: Esc is handled in App for returning to SchemaTables
                 _ => false,
             }
         } else {

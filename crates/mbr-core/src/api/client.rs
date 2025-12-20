@@ -238,6 +238,91 @@ impl MetabaseClient {
         Ok(response_body.data)
     }
 
+    /// List schemas for a specific database.
+    /// Returns a list of schema names.
+    pub async fn list_schemas(&self, database_id: u32) -> Result<Vec<String>, AppError> {
+        let endpoint = format!("/api/database/{}/schemas", database_id);
+
+        let response = self
+            .build_request(Method::GET, &endpoint)
+            .send()
+            .await
+            .map_err(|e| AppError::Api(convert_request_error(e, &endpoint)))?;
+
+        // Handle 404 with custom message
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err(AppError::Api(ApiError::Http {
+                status: 404,
+                endpoint,
+                message: format!("Database with ID {} not found", database_id),
+            }));
+        }
+
+        Self::handle_response(response, &endpoint).await
+    }
+
+    /// List tables in a specific schema of a database.
+    pub async fn list_tables(
+        &self,
+        database_id: u32,
+        schema: &str,
+    ) -> Result<Vec<crate::api::models::TableInfo>, AppError> {
+        let endpoint = format!("/api/database/{}/schema/{}", database_id, schema);
+
+        let response = self
+            .build_request(Method::GET, &endpoint)
+            .send()
+            .await
+            .map_err(|e| AppError::Api(convert_request_error(e, &endpoint)))?;
+
+        // Handle 404 with custom message
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err(AppError::Api(ApiError::Http {
+                status: 404,
+                endpoint,
+                message: format!("Schema '{}' not found in database {}", schema, database_id),
+            }));
+        }
+
+        Self::handle_response(response, &endpoint).await
+    }
+
+    /// Preview table data (fetch sample rows).
+    /// Uses POST /api/dataset to query the table directly.
+    pub async fn preview_table(
+        &self,
+        database_id: u32,
+        table_id: u32,
+        limit: u32,
+    ) -> Result<crate::api::models::QueryResult, AppError> {
+        let endpoint = "/api/dataset";
+
+        // Build the query payload for table preview
+        let query_payload = serde_json::json!({
+            "database": database_id,
+            "type": "query",
+            "query": {
+                "source-table": table_id,
+                "limit": limit
+            }
+        });
+
+        let response = self
+            .build_request(Method::POST, endpoint)
+            .json(&query_payload)
+            .timeout(std::time::Duration::from_secs(60))
+            .send()
+            .await
+            .map_err(|_e| {
+                AppError::Api(ApiError::Timeout {
+                    timeout_secs: 60,
+                    endpoint: endpoint.to_string(),
+                })
+            })?;
+
+        Self::handle_response(response, endpoint).await
+    }
+
     /// Common HTTP response handler for all API methods.
     /// Handles success/error responses with consistent error mapping.
     async fn handle_response<T>(response: Response, endpoint: &str) -> Result<T, AppError>
