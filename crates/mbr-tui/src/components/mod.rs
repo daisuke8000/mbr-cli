@@ -9,6 +9,7 @@ use ratatui::layout::Rect;
 mod content;
 mod help_overlay;
 mod record_detail;
+pub mod state_renderer;
 mod status_bar;
 
 pub use content::{ContentPanel, ContentView, InputMode, QueryResultData};
