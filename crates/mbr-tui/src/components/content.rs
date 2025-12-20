@@ -90,8 +90,10 @@ pub struct ContentPanel {
     active_search: Option<String>,
     /// Current collection context for CollectionQuestions view (id, name)
     collection_context: Option<(u32, String)>,
-    /// Previous view before entering QueryResult (for proper back navigation)
-    previous_view: Option<ContentView>,
+    /// Navigation stack for multi-level drill-down (supports 4+ levels)
+    /// Used for: Databases → Schemas → Tables → Preview
+    ///           Collections → Questions → QueryResult
+    navigation_stack: Vec<ContentView>,
 }
 
 impl Default for ContentPanel {
@@ -121,21 +123,55 @@ impl ContentPanel {
             search_query: String::new(),
             active_search: None,
             collection_context: None,
-            previous_view: None,
+            navigation_stack: Vec::new(),
         }
     }
 
-    /// Set the current view.
+    /// Set the current view (used for tab switching).
+    /// Clears navigation stack since tab changes reset the navigation context.
     pub fn set_view(&mut self, view: ContentView) {
         self.view = view;
         self.scroll = ScrollState::default();
         self.scroll_x = 0;
         self.table_state = TableState::default();
+        // Clear navigation stack on tab switch
+        self.clear_navigation_stack();
     }
 
     /// Get the current view.
     pub fn current_view(&self) -> ContentView {
         self.view
+    }
+
+    // === Navigation Stack Methods ===
+
+    /// Push current view to stack and navigate to new view.
+    /// Used for drill-down navigation (e.g., Collections → Questions).
+    pub fn push_view(&mut self, new_view: ContentView) {
+        self.navigation_stack.push(self.view);
+        self.view = new_view;
+    }
+
+    /// Pop from navigation stack and return to previous view.
+    /// Returns the view that was popped to, or None if stack was empty.
+    pub fn pop_view(&mut self) -> Option<ContentView> {
+        if let Some(previous) = self.navigation_stack.pop() {
+            self.view = previous;
+            Some(previous)
+        } else {
+            None
+        }
+    }
+
+    /// Get the depth of the navigation stack.
+    #[allow(dead_code)] // Useful for debugging and future features
+    pub fn navigation_depth(&self) -> usize {
+        self.navigation_stack.len()
+    }
+
+    /// Clear the navigation stack (used when switching tabs).
+    pub fn clear_navigation_stack(&mut self) {
+        self.navigation_stack.clear();
     }
 
     /// Update questions data from AppData.
@@ -313,21 +349,27 @@ impl ContentPanel {
     // === Collection Questions View ===
 
     /// Enter collection questions view to show questions from a specific collection.
+    /// Uses navigation stack for proper back navigation.
     pub fn enter_collection_questions(&mut self, collection_id: u32, collection_name: String) {
         self.collection_context = Some((collection_id, collection_name));
-        self.view = ContentView::CollectionQuestions;
         // Reset questions state for new load
         self.questions = LoadState::Idle;
         self.table_state = TableState::default();
+        // Push current view (Collections) to stack before switching
+        self.push_view(ContentView::CollectionQuestions);
     }
 
-    /// Exit collection questions view and return to collections list.
+    /// Exit collection questions view and return to previous view.
+    /// Uses navigation stack to return to the correct originating view.
     pub fn exit_collection_questions(&mut self) {
         self.collection_context = None;
-        self.view = ContentView::Collections;
         // Reset questions state
         self.questions = LoadState::Idle;
         self.table_state = TableState::default();
+        // Pop from navigation stack (defaults to Collections if stack is empty)
+        if self.pop_view().is_none() {
+            self.view = ContentView::Collections;
+        }
     }
 
     /// Get the current collection context (id, name) for CollectionQuestions view.
@@ -420,9 +462,8 @@ impl ContentPanel {
     }
 
     /// Set query result data and switch to QueryResult view.
+    /// Uses navigation stack to enable returning to the originating view.
     pub fn set_query_result(&mut self, data: QueryResultData) {
-        // Save current view for back navigation
-        self.previous_view = Some(self.view);
         self.query_result = Some(data);
         self.result_table_state = TableState::default();
         self.result_page = 0; // Reset to first page
@@ -435,17 +476,21 @@ impl ContentPanel {
         {
             self.result_table_state.select(Some(0));
         }
-        self.view = ContentView::QueryResult;
+        // Push current view to stack before switching
+        self.push_view(ContentView::QueryResult);
     }
 
     /// Clear query result and return to previous view.
+    /// Uses navigation stack to return to the correct originating view.
     pub fn back_to_questions(&mut self) {
         self.query_result = None;
         self.result_table_state = TableState::default();
         self.result_page = 0;
         self.scroll_x = 0;
-        // Return to previous view (default to Questions if none)
-        self.view = self.previous_view.take().unwrap_or(ContentView::Questions);
+        // Pop from navigation stack (defaults to Questions if stack is empty)
+        if self.pop_view().is_none() {
+            self.view = ContentView::Questions;
+        }
     }
 
     /// Get total number of pages for query result.
