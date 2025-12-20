@@ -72,14 +72,15 @@ impl MetabaseClient {
         limit: Option<u32>,
         collection: Option<&str>,
     ) -> Result<Vec<crate::api::models::Question>, AppError> {
-        // Build query parameters
-        let mut params = vec!["f=all".to_string()];
-
+        // If search term is provided, use /api/search endpoint
         if let Some(search_term) = search {
             if !search_term.is_empty() {
-                params.push(format!("q={}", search_term));
+                return self.search_questions(search_term, limit).await;
             }
         }
+
+        // Otherwise, use /api/card endpoint for listing all questions
+        let mut params = vec!["f=all".to_string()];
 
         if let Some(collection_id) = collection {
             if !collection_id.is_empty() {
@@ -97,6 +98,67 @@ impl MetabaseClient {
 
         let mut questions: Vec<crate::api::models::Question> =
             Self::handle_response(response, &endpoint).await?;
+
+        // Apply client-side limit if specified
+        if let Some(limit_value) = limit {
+            if limit_value > 0 {
+                questions.truncate(limit_value as usize);
+            }
+        }
+
+        Ok(questions)
+    }
+
+    /// Search questions using /api/search endpoint
+    async fn search_questions(
+        &self,
+        search_term: &str,
+        limit: Option<u32>,
+    ) -> Result<Vec<crate::api::models::Question>, AppError> {
+        use crate::api::models::{Collection, Question, SearchResponse};
+
+        // Simple URL encoding for search term (spaces to %20, etc.)
+        let encoded_term: String = search_term
+            .chars()
+            .map(|c| match c {
+                ' ' => "%20".to_string(),
+                '&' => "%26".to_string(),
+                '=' => "%3D".to_string(),
+                '?' => "%3F".to_string(),
+                '#' => "%23".to_string(),
+                '+' => "%2B".to_string(),
+                _ if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '~' => {
+                    c.to_string()
+                }
+                _ => format!("%{:02X}", c as u8),
+            })
+            .collect();
+        let endpoint = format!("/api/search?q={}&models=card", encoded_term);
+
+        let response = self
+            .build_request(Method::GET, &endpoint)
+            .send()
+            .await
+            .map_err(|e| AppError::Api(convert_request_error(e, &endpoint)))?;
+
+        let search_response: SearchResponse = Self::handle_response(response, &endpoint).await?;
+
+        // Convert SearchResultItem to Question
+        let mut questions: Vec<Question> = search_response
+            .data
+            .into_iter()
+            .filter(|item| item.model == "card")
+            .map(|item| Question {
+                id: item.id,
+                name: item.name,
+                description: item.description,
+                collection_id: item.collection_id,
+                collection: item.collection.map(|c| Collection {
+                    id: c.id,
+                    name: c.name,
+                }),
+            })
+            .collect();
 
         // Apply client-side limit if specified
         if let Some(limit_value) = limit {
