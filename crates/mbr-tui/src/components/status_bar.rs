@@ -44,11 +44,10 @@ impl StatusBar {
         Self {
             message: String::new(),
             bindings: vec![
-                KeyBinding::new("Tab", "Switch"),
-                KeyBinding::new("↑↓", "Navigate"),
-                KeyBinding::new("Enter", "Select/Run"),
-                KeyBinding::new("Esc", "Back"),
-                KeyBinding::new("r", "Refresh"),
+                KeyBinding::new("1/2/3", "Tab"),
+                KeyBinding::new("↑↓", "Nav"),
+                KeyBinding::new("←→", "Scroll"),
+                KeyBinding::new("Enter", "Run"),
                 KeyBinding::new("?", "Help"),
                 KeyBinding::new("q", "Quit"),
             ],

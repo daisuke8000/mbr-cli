@@ -8,36 +8,57 @@ use ratatui::layout::Rect;
 
 mod content;
 mod help_overlay;
-mod navigation;
 mod status_bar;
 
 pub use content::{ContentPanel, ContentView, QueryResultData};
 pub use help_overlay::HelpOverlay;
-pub use navigation::NavigationPanel;
 pub use status_bar::StatusBar;
 
-/// Active panel for focus management.
+/// Active tab for navigation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ActivePanel {
+pub enum ActiveTab {
     #[default]
-    Navigation,
-    Content,
+    Questions,
+    Collections,
+    Databases,
 }
 
-impl ActivePanel {
-    /// Cycle to the next panel (Tab key).
-    pub fn next(self) -> Self {
+impl ActiveTab {
+    /// Get the index of this tab.
+    pub fn index(self) -> usize {
         match self {
-            ActivePanel::Navigation => ActivePanel::Content,
-            ActivePanel::Content => ActivePanel::Navigation,
+            ActiveTab::Questions => 0,
+            ActiveTab::Collections => 1,
+            ActiveTab::Databases => 2,
         }
     }
 
-    /// Cycle to the previous panel (Shift+Tab).
+    /// Create from index.
+    pub fn from_index(index: usize) -> Self {
+        match index {
+            0 => ActiveTab::Questions,
+            1 => ActiveTab::Collections,
+            2 => ActiveTab::Databases,
+            _ => ActiveTab::Questions,
+        }
+    }
+
+    /// Get the next tab (cycling).
+    pub fn next(self) -> Self {
+        Self::from_index((self.index() + 1) % 3)
+    }
+
+    /// Get the previous tab (cycling).
     pub fn previous(self) -> Self {
+        Self::from_index((self.index() + 2) % 3)
+    }
+
+    /// Get display label with icon.
+    pub fn label(self) -> &'static str {
         match self {
-            ActivePanel::Navigation => ActivePanel::Content,
-            ActivePanel::Content => ActivePanel::Navigation,
+            ActiveTab::Questions => "📋 Questions",
+            ActiveTab::Collections => "📁 Collections",
+            ActiveTab::Databases => "🗄️ Databases",
         }
     }
 }

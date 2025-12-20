@@ -25,7 +25,6 @@ pub enum ContentView {
     Questions,
     Collections,
     Databases,
-    Settings,
     QueryResult,
 }
 
@@ -46,6 +45,8 @@ pub struct QueryResultData {
 pub struct ContentPanel {
     view: ContentView,
     scroll: ScrollState,
+    /// Horizontal scroll offset (column index)
+    scroll_x: usize,
     /// Questions data for the Questions view
     questions: LoadState<Vec<Question>>,
     /// Table state for Questions view (manages selection and scroll)
@@ -68,6 +69,7 @@ impl ContentPanel {
         Self {
             view: ContentView::Welcome,
             scroll: ScrollState::default(),
+            scroll_x: 0,
             questions: LoadState::default(),
             table_state: TableState::default(),
             query_result: None,
@@ -79,6 +81,7 @@ impl ContentPanel {
     pub fn set_view(&mut self, view: ContentView) {
         self.view = view;
         self.scroll = ScrollState::default();
+        self.scroll_x = 0;
         self.table_state = TableState::default();
     }
 
@@ -165,7 +168,34 @@ impl ContentPanel {
     pub fn back_to_questions(&mut self) {
         self.query_result = None;
         self.result_table_state = TableState::default();
+        self.scroll_x = 0;
         self.view = ContentView::Questions;
+    }
+
+    /// Scroll left (show previous columns).
+    fn scroll_left(&mut self) {
+        self.scroll_x = self.scroll_x.saturating_sub(1);
+    }
+
+    /// Scroll right (show next columns).
+    fn scroll_right(&mut self) {
+        let total_cols = self.get_total_columns();
+        if total_cols > 0 && self.scroll_x < total_cols.saturating_sub(1) {
+            self.scroll_x += 1;
+        }
+    }
+
+    /// Get total number of columns for current view.
+    fn get_total_columns(&self) -> usize {
+        match self.view {
+            ContentView::QueryResult => self
+                .query_result
+                .as_ref()
+                .map(|r| r.columns.len())
+                .unwrap_or(0),
+            ContentView::Questions => 3, // ID, Name, Collection
+            _ => 0,
+        }
     }
 
     /// Navigate result table.
@@ -480,36 +510,67 @@ impl ContentPanel {
                     );
                     frame.render_widget(paragraph, area);
                 } else {
-                    // Create dynamic column widths based on column count
-                    let col_count = result.columns.len();
-                    let constraints: Vec<Constraint> = if col_count <= 3 {
-                        result
-                            .columns
+                    // Calculate visible columns based on scroll_x
+                    let total_cols = result.columns.len();
+                    let scroll_x = self.scroll_x.min(total_cols.saturating_sub(1));
+
+                    // Calculate how many columns can fit (estimate based on min width)
+                    let available_width = area.width.saturating_sub(4) as usize; // borders + highlight symbol
+                    let min_col_width = 15usize;
+                    let visible_cols = (available_width / min_col_width).max(1).min(total_cols);
+                    let end_col = (scroll_x + visible_cols).min(total_cols);
+
+                    // Slice columns and rows based on scroll position
+                    let visible_columns: Vec<String> = result.columns[scroll_x..end_col].to_vec();
+                    let visible_col_count = visible_columns.len();
+
+                    // Create dynamic column widths
+                    let constraints: Vec<Constraint> = if visible_col_count <= 3 {
+                        visible_columns
                             .iter()
-                            .map(|_| Constraint::Ratio(1, col_count as u32))
+                            .map(|_| Constraint::Ratio(1, visible_col_count as u32))
                             .collect()
                     } else {
-                        // For many columns, use min width
-                        result.columns.iter().map(|_| Constraint::Min(15)).collect()
+                        visible_columns
+                            .iter()
+                            .map(|_| Constraint::Min(15))
+                            .collect()
                     };
 
-                    // Create table rows
+                    // Create table rows with sliced cells
                     let rows: Vec<Row> = result
                         .rows
                         .iter()
                         .map(|row| {
-                            let cells: Vec<Cell> =
-                                row.iter().map(|cell| Cell::from(cell.clone())).collect();
+                            let cells: Vec<Cell> = row[scroll_x..end_col.min(row.len())]
+                                .iter()
+                                .map(|cell| Cell::from(cell.clone()))
+                                .collect();
                             Row::new(cells)
                         })
                         .collect();
 
                     // Create header row
-                    let header_cells: Vec<Cell> = result
-                        .columns
+                    let header_cells: Vec<Cell> = visible_columns
                         .iter()
                         .map(|col| Cell::from(col.clone()))
                         .collect();
+
+                    // Build column indicator (e.g., "← 1-5 of 12 →")
+                    let col_indicator = if total_cols > visible_cols {
+                        let left_arrow = if scroll_x > 0 { "← " } else { "  " };
+                        let right_arrow = if end_col < total_cols { " →" } else { "  " };
+                        format!(
+                            " {}Col {}-{} of {}{}",
+                            left_arrow,
+                            scroll_x + 1,
+                            end_col,
+                            total_cols,
+                            right_arrow
+                        )
+                    } else {
+                        format!(" {} cols", total_cols)
+                    };
 
                     let table = Table::new(rows, constraints)
                         .header(
@@ -524,9 +585,10 @@ impl ContentPanel {
                         .block(
                             Block::default()
                                 .title(format!(
-                                    " Query Result: {} ({} rows) [Esc: back] ",
+                                    " {} ({} rows){} [h/l: scroll, Esc: back] ",
                                     result.question_name,
-                                    result.rows.len()
+                                    result.rows.len(),
+                                    col_indicator
                                 ))
                                 .borders(Borders::ALL)
                                 .border_style(border_style),
@@ -567,7 +629,6 @@ impl Component for ContentPanel {
             ContentView::Questions | ContentView::QueryResult => unreachable!(), // Handled above
             ContentView::Collections => self.render_placeholder("Collections", focused),
             ContentView::Databases => self.render_placeholder("Databases", focused),
-            ContentView::Settings => self.render_placeholder("Settings", focused),
         };
 
         frame.render_widget(widget, area);
@@ -596,7 +657,7 @@ impl Component for ContentPanel {
                 _ => false,
             }
         } else if self.view == ContentView::QueryResult {
-            // QueryResult view has result table navigation
+            // QueryResult view has result table navigation + horizontal scroll
             match key.code {
                 KeyCode::Up | KeyCode::Char('k') => {
                     self.select_result_previous();
@@ -604,6 +665,15 @@ impl Component for ContentPanel {
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     self.select_result_next();
+                    true
+                }
+                // Horizontal scroll with h/l or Left/Right arrows
+                KeyCode::Left | KeyCode::Char('h') => {
+                    self.scroll_left();
+                    true
+                }
+                KeyCode::Right | KeyCode::Char('l') => {
+                    self.scroll_right();
                     true
                 }
                 // Note: Esc is handled in App for returning to Questions
@@ -643,7 +713,6 @@ impl Component for ContentPanel {
             ContentView::Questions => "Questions",
             ContentView::Collections => "Collections",
             ContentView::Databases => "Databases",
-            ContentView::Settings => "Settings",
             ContentView::QueryResult => "Query Result",
         }
     }

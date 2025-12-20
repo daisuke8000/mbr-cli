@@ -4,17 +4,11 @@
 
 /// Main layout constants.
 pub mod main {
-    /// Header panel height in rows.
+    /// Header panel height in rows (includes tab bar).
     pub const HEADER_HEIGHT: u16 = 3;
 
     /// Status bar height in rows.
     pub const STATUS_BAR_HEIGHT: u16 = 3;
-
-    /// Navigation panel width percentage.
-    pub const NAV_PANEL_WIDTH_PERCENT: u16 = 25;
-
-    /// Content panel width percentage.
-    pub const CONTENT_PANEL_WIDTH_PERCENT: u16 = 75;
 }
 
 /// Questions table column widths.

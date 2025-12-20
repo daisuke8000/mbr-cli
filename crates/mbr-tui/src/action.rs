@@ -78,8 +78,6 @@ pub enum ContentTarget {
     Collections,
     /// Databases list view
     Databases,
-    /// Settings view
-    Settings,
 }
 
 /// Data loading requests
@@ -101,7 +99,6 @@ impl From<usize> for ContentTarget {
             0 => ContentTarget::Questions,
             1 => ContentTarget::Collections,
             2 => ContentTarget::Databases,
-            3 => ContentTarget::Settings,
             _ => ContentTarget::Welcome,
         }
     }

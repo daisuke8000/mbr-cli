@@ -18,8 +18,9 @@ impl HelpOverlay {
     const GLOBAL_KEYS: &'static [(&'static str, &'static str)] = &[
         ("q", "Quit application"),
         ("Esc", "Quit / Back from result"),
-        ("Tab", "Switch between panels"),
-        ("Shift+Tab", "Switch panels (reverse)"),
+        ("1 / 2 / 3", "Switch to Questions/Collections/DBs"),
+        ("Tab", "Next tab"),
+        ("Shift+Tab", "Previous tab"),
         ("r", "Refresh data"),
         ("?", "Toggle help"),
     ];
@@ -27,10 +28,12 @@ impl HelpOverlay {
     const NAVIGATION_KEYS: &'static [(&'static str, &'static str)] = &[
         ("↑ / k", "Move up"),
         ("↓ / j", "Move down"),
+        ("← / h", "Scroll left (columns)"),
+        ("→ / l", "Scroll right (columns)"),
         ("Home / g", "Go to first item"),
         ("End / G", "Go to last item"),
-        ("Enter", "Select / Execute query"),
-        ("Esc", "Back (in result view)"),
+        ("Enter", "Execute query"),
+        ("Esc", "Back to Questions list"),
     ];
 
     /// Render the help overlay centered on screen.
