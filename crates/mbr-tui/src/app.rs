@@ -45,6 +45,8 @@ pub struct App {
     action_rx: mpsc::UnboundedReceiver<AppAction>,
     /// Whether to show help overlay
     show_help: bool,
+    /// Current query request ID for race condition prevention
+    current_request_id: u64,
 }
 
 impl Default for App {
@@ -86,6 +88,7 @@ impl App {
             action_tx,
             action_rx,
             show_help: false,
+            current_request_id: 0,
         }
     }
 
@@ -207,18 +210,29 @@ impl App {
             AppAction::ExecuteQuestion(id) => {
                 self.execute_question(id);
             }
-            AppAction::QueryResultLoaded(result_data) => {
-                let row_count = result_data.rows.len();
-                let name = result_data.question_name.clone();
-                self.content.set_query_result(result_data);
-                self.status_bar
-                    .set_message(format!("Query '{}': {} rows", name, row_count));
+            AppAction::QueryResultLoaded(request_id, result_data) => {
+                // Only process if this is the current request (ignore stale results)
+                if request_id == self.current_request_id {
+                    let row_count = result_data.rows.len();
+                    let name = result_data.question_name.clone();
+                    // Store in centralized App.data
+                    self.data.query_result = Some(result_data.clone());
+                    // Sync to ContentPanel for display
+                    self.content.set_query_result(result_data);
+                    self.status_bar
+                        .set_message(format!("Query '{}': {} rows", name, row_count));
+                }
             }
-            AppAction::QueryFailed(error) => {
-                self.status_bar
-                    .set_message(format!("Query failed: {}", error));
+            AppAction::QueryFailed(request_id, error) => {
+                // Only process if this is the current request (ignore stale errors)
+                if request_id == self.current_request_id {
+                    self.status_bar
+                        .set_message(format!("Query failed: {}", error));
+                }
             }
             AppAction::BackToQuestions => {
+                // Clear centralized query result data
+                self.data.query_result = None;
                 self.content.back_to_questions();
                 self.status_bar.set_message("Returned to Questions list");
             }
@@ -313,6 +327,10 @@ impl App {
             }
         };
 
+        // Increment request ID to invalidate any in-flight requests
+        self.current_request_id = self.current_request_id.wrapping_add(1);
+        let request_id = self.current_request_id;
+
         // Get question name from loaded questions
         let question_name = self
             .data
@@ -362,10 +380,10 @@ impl App {
                         rows,
                     };
 
-                    let _ = tx.send(AppAction::QueryResultLoaded(result_data));
+                    let _ = tx.send(AppAction::QueryResultLoaded(request_id, result_data));
                 }
                 Err(e) => {
-                    let _ = tx.send(AppAction::QueryFailed(e));
+                    let _ = tx.send(AppAction::QueryFailed(request_id, e));
                 }
             }
         });
