@@ -39,8 +39,12 @@ pub enum SortOrder {
     Descending,
 }
 
-/// Content view types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Content view types with embedded navigation context.
+///
+/// Views that represent drill-down navigation carry their context data directly,
+/// eliminating the need for separate context fields and ensuring consistency
+/// between the navigation stack and the current state.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ContentView {
     #[default]
     Welcome,
@@ -48,14 +52,27 @@ pub enum ContentView {
     Collections,
     Databases,
     QueryResult,
-    /// Questions filtered by a specific collection
-    CollectionQuestions,
-    /// Schemas in a specific database
-    DatabaseSchemas,
-    /// Tables in a specific schema
-    SchemaTables,
-    /// Table data preview
-    TablePreview,
+    /// Questions filtered by a specific collection (id, name)
+    CollectionQuestions {
+        id: u32,
+        name: String,
+    },
+    /// Schemas in a specific database (db_id, db_name)
+    DatabaseSchemas {
+        db_id: u32,
+        db_name: String,
+    },
+    /// Tables in a specific schema (db_id, schema_name)
+    SchemaTables {
+        db_id: u32,
+        schema_name: String,
+    },
+    /// Table data preview (db_id, table_id, table_name)
+    TablePreview {
+        db_id: u32,
+        table_id: u32,
+        table_name: String,
+    },
 }
 
 /// Query result data for display in TUI.
@@ -117,15 +134,8 @@ pub struct ContentPanel {
     search_query: String,
     /// Active search query (used for display after search is executed)
     active_search: Option<String>,
-    /// Current collection context for CollectionQuestions view (id, name)
-    collection_context: Option<(u32, String)>,
-    /// Current database context for DatabaseSchemas view (id, name)
-    database_context: Option<(u32, String)>,
-    /// Current schema context for SchemaTables view (database_id, schema_name)
-    schema_context: Option<(u32, String)>,
-    /// Current table context for TablePreview view (database_id, table_id, table_name)
-    table_context: Option<(u32, u32, String)>,
     /// Navigation stack for multi-level drill-down (supports 4+ levels)
+    /// Context data is now embedded directly in ContentView variants.
     /// Used for: Databases → Schemas → Tables → Preview
     ///           Collections → Questions → QueryResult
     navigation_stack: Vec<ContentView>,
@@ -190,10 +200,6 @@ impl ContentPanel {
             input_mode: InputMode::Normal,
             search_query: String::new(),
             active_search: None,
-            collection_context: None,
-            database_context: None,
-            schema_context: None,
-            table_context: None,
             navigation_stack: Vec::new(),
             sort_order: SortOrder::None,
             sort_column_index: None,
@@ -222,9 +228,51 @@ impl ContentPanel {
         self.clear_navigation_stack();
     }
 
-    /// Get the current view.
+    /// Get the current view (cloned since ContentView now contains data).
     pub fn current_view(&self) -> ContentView {
-        self.view
+        self.view.clone()
+    }
+
+    /// Check if the current view is a specific type (ignoring embedded data).
+    #[allow(dead_code)] // Utility method for future use
+    pub fn is_view(&self, view_type: &ContentView) -> bool {
+        std::mem::discriminant(&self.view) == std::mem::discriminant(view_type)
+    }
+
+    /// Check if current view is Questions or CollectionQuestions.
+    pub fn is_questions_view(&self) -> bool {
+        matches!(
+            self.view,
+            ContentView::Questions | ContentView::CollectionQuestions { .. }
+        )
+    }
+
+    /// Check if current view is CollectionQuestions.
+    pub fn is_collection_questions_view(&self) -> bool {
+        matches!(self.view, ContentView::CollectionQuestions { .. })
+    }
+
+    /// Check if current view is DatabaseSchemas.
+    pub fn is_database_schemas_view(&self) -> bool {
+        matches!(self.view, ContentView::DatabaseSchemas { .. })
+    }
+
+    /// Check if current view is SchemaTables.
+    pub fn is_schema_tables_view(&self) -> bool {
+        matches!(self.view, ContentView::SchemaTables { .. })
+    }
+
+    /// Check if current view is TablePreview.
+    pub fn is_table_preview_view(&self) -> bool {
+        matches!(self.view, ContentView::TablePreview { .. })
+    }
+
+    /// Check if current view is QueryResult or TablePreview (both show query results).
+    pub fn is_result_view(&self) -> bool {
+        matches!(
+            self.view,
+            ContentView::QueryResult | ContentView::TablePreview { .. }
+        )
     }
 
     // === Navigation Stack Methods ===
@@ -232,7 +280,7 @@ impl ContentPanel {
     /// Push current view to stack and navigate to new view.
     /// Used for drill-down navigation (e.g., Collections → Questions).
     pub fn push_view(&mut self, new_view: ContentView) {
-        self.navigation_stack.push(self.view);
+        self.navigation_stack.push(self.view.clone());
         self.view = new_view;
     }
 
@@ -240,7 +288,7 @@ impl ContentPanel {
     /// Returns the view that was popped to, or None if stack was empty.
     pub fn pop_view(&mut self) -> Option<ContentView> {
         if let Some(previous) = self.navigation_stack.pop() {
-            self.view = previous;
+            self.view = previous.clone();
             Some(previous)
         } else {
             None
@@ -500,7 +548,7 @@ impl ContentPanel {
     /// Get the currently selected question ID.
     /// Works in both Questions and CollectionQuestions views.
     pub fn get_selected_question_id(&self) -> Option<u32> {
-        if self.view != ContentView::Questions && self.view != ContentView::CollectionQuestions {
+        if !self.is_questions_view() {
             return None;
         }
         if let LoadState::Loaded(questions) = &self.questions {
@@ -531,18 +579,19 @@ impl ContentPanel {
     /// Enter collection questions view to show questions from a specific collection.
     /// Uses navigation stack for proper back navigation.
     pub fn enter_collection_questions(&mut self, collection_id: u32, collection_name: String) {
-        self.collection_context = Some((collection_id, collection_name));
         // Reset questions state for new load
         self.questions = LoadState::Idle;
         self.table_state = TableState::default();
-        // Push current view (Collections) to stack before switching
-        self.push_view(ContentView::CollectionQuestions);
+        // Push new view with embedded context
+        self.push_view(ContentView::CollectionQuestions {
+            id: collection_id,
+            name: collection_name,
+        });
     }
 
     /// Exit collection questions view and return to previous view.
     /// Uses navigation stack to return to the correct originating view.
     pub fn exit_collection_questions(&mut self) {
-        self.collection_context = None;
         // Reset questions state
         self.questions = LoadState::Idle;
         self.table_state = TableState::default();
@@ -553,9 +602,13 @@ impl ContentPanel {
     }
 
     /// Get the current collection context (id, name) for CollectionQuestions view.
+    /// Extracts context from the ContentView variant.
     #[allow(dead_code)] // Designed for future features
-    pub fn get_collection_context(&self) -> Option<&(u32, String)> {
-        self.collection_context.as_ref()
+    pub fn get_collection_context(&self) -> Option<(u32, String)> {
+        match &self.view {
+            ContentView::CollectionQuestions { id, name } => Some((*id, name.clone())),
+            _ => None,
+        }
     }
 
     // === Database Drill-down View ===
@@ -575,7 +628,7 @@ impl ContentPanel {
 
     /// Get the currently selected schema name.
     pub fn get_selected_schema(&self) -> Option<String> {
-        if self.view != ContentView::DatabaseSchemas {
+        if !self.is_database_schemas_view() {
             return None;
         }
         if let LoadState::Loaded(schemas) = &self.schemas {
@@ -588,7 +641,7 @@ impl ContentPanel {
 
     /// Get the currently selected table info (table_id, table_name).
     pub fn get_selected_table_info(&self) -> Option<(u32, String)> {
-        if self.view != ContentView::SchemaTables {
+        if !self.is_schema_tables_view() {
             return None;
         }
         if let LoadState::Loaded(tables) = &self.tables {
@@ -602,17 +655,18 @@ impl ContentPanel {
     /// Enter database schemas view to show schemas in a specific database.
     /// Uses navigation stack for proper back navigation.
     pub fn enter_database_schemas(&mut self, database_id: u32, database_name: String) {
-        self.database_context = Some((database_id, database_name));
         // Reset schemas state for new load
         self.schemas = LoadState::Idle;
         self.schemas_table_state = TableState::default();
-        // Push current view (Databases) to stack before switching
-        self.push_view(ContentView::DatabaseSchemas);
+        // Push new view with embedded context
+        self.push_view(ContentView::DatabaseSchemas {
+            db_id: database_id,
+            db_name: database_name,
+        });
     }
 
     /// Exit database schemas view and return to previous view.
     pub fn exit_database_schemas(&mut self) {
-        self.database_context = None;
         self.schemas = LoadState::Idle;
         self.schemas_table_state = TableState::default();
         // Pop from navigation stack (defaults to Databases if stack is empty)
@@ -624,29 +678,30 @@ impl ContentPanel {
     /// Enter schema tables view to show tables in a specific schema.
     /// Uses navigation stack for proper back navigation.
     pub fn enter_schema_tables(&mut self, database_id: u32, schema_name: String) {
-        self.schema_context = Some((database_id, schema_name));
         // Reset tables state for new load
         self.tables = LoadState::Idle;
         self.tables_table_state = TableState::default();
-        // Push current view (DatabaseSchemas) to stack before switching
-        self.push_view(ContentView::SchemaTables);
+        // Push new view with embedded context
+        self.push_view(ContentView::SchemaTables {
+            db_id: database_id,
+            schema_name,
+        });
     }
 
     /// Exit schema tables view and return to previous view.
     pub fn exit_schema_tables(&mut self) {
-        self.schema_context = None;
         self.tables = LoadState::Idle;
         self.tables_table_state = TableState::default();
         // Pop from navigation stack (defaults to DatabaseSchemas if stack is empty)
         if self.pop_view().is_none() {
-            self.view = ContentView::DatabaseSchemas;
+            // Fallback without context - should rarely happen
+            self.view = ContentView::Databases;
         }
     }
 
     /// Enter table preview view to show sample data from a table.
     /// Uses navigation stack for proper back navigation.
     pub fn enter_table_preview(&mut self, database_id: u32, table_id: u32, table_name: String) {
-        self.table_context = Some((database_id, table_id, table_name));
         // Reset query result for new load
         self.query_result = None;
         self.sort_indices = None;
@@ -656,13 +711,16 @@ impl ContentPanel {
         self.scroll_x = 0;
         // Reset sort/filter state
         self.reset_sort_filter_state();
-        // Push current view (SchemaTables) to stack before switching
-        self.push_view(ContentView::TablePreview);
+        // Push new view with embedded context
+        self.push_view(ContentView::TablePreview {
+            db_id: database_id,
+            table_id,
+            table_name,
+        });
     }
 
     /// Exit table preview view and return to previous view.
     pub fn exit_table_preview(&mut self) {
-        self.table_context = None;
         self.query_result = None;
         self.sort_indices = None;
         self.filter_indices = None;
@@ -673,7 +731,8 @@ impl ContentPanel {
         self.reset_sort_filter_state();
         // Pop from navigation stack (defaults to SchemaTables if stack is empty)
         if self.pop_view().is_none() {
-            self.view = ContentView::SchemaTables;
+            // Fallback without context - should rarely happen
+            self.view = ContentView::Databases;
         }
     }
 
@@ -698,20 +757,74 @@ impl ContentPanel {
         }
     }
 
-    /// Get the current database context (id, name) for DatabaseSchemas view.
-    pub fn get_database_context(&self) -> Option<&(u32, String)> {
-        self.database_context.as_ref()
+    /// Get the current database context (db_id, db_name) for DatabaseSchemas view.
+    /// Extracts context from the ContentView variant.
+    pub fn get_database_context(&self) -> Option<(u32, String)> {
+        match &self.view {
+            ContentView::DatabaseSchemas { db_id, db_name } => Some((*db_id, db_name.clone())),
+            ContentView::SchemaTables { db_id, .. } => {
+                // Also available in SchemaTables since we're drilling down from DatabaseSchemas
+                // Need to look at navigation stack for the db_name
+                for view in self.navigation_stack.iter().rev() {
+                    if let ContentView::DatabaseSchemas { db_id: id, db_name } = view {
+                        if *id == *db_id {
+                            return Some((*id, db_name.clone()));
+                        }
+                    }
+                }
+                None
+            }
+            ContentView::TablePreview { db_id, .. } => {
+                // Look at navigation stack for database context
+                for view in self.navigation_stack.iter().rev() {
+                    if let ContentView::DatabaseSchemas { db_id: id, db_name } = view {
+                        if *id == *db_id {
+                            return Some((*id, db_name.clone()));
+                        }
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
     }
 
-    /// Get the current schema context (database_id, schema_name) for SchemaTables view.
-    pub fn get_schema_context(&self) -> Option<&(u32, String)> {
-        self.schema_context.as_ref()
+    /// Get the current schema context (db_id, schema_name) for SchemaTables view.
+    /// Extracts context from the ContentView variant.
+    pub fn get_schema_context(&self) -> Option<(u32, String)> {
+        match &self.view {
+            ContentView::SchemaTables { db_id, schema_name } => Some((*db_id, schema_name.clone())),
+            ContentView::TablePreview { db_id, .. } => {
+                // Look at navigation stack for schema context
+                for view in self.navigation_stack.iter().rev() {
+                    if let ContentView::SchemaTables {
+                        db_id: id,
+                        schema_name,
+                    } = view
+                    {
+                        if *id == *db_id {
+                            return Some((*id, schema_name.clone()));
+                        }
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
     }
 
-    /// Get the current table context (database_id, table_id, table_name) for TablePreview view.
+    /// Get the current table context (db_id, table_id, table_name) for TablePreview view.
+    /// Extracts context from the ContentView variant.
     #[allow(dead_code)] // Designed for future features
-    pub fn get_table_context(&self) -> Option<&(u32, u32, String)> {
-        self.table_context.as_ref()
+    pub fn get_table_context(&self) -> Option<(u32, u32, String)> {
+        match &self.view {
+            ContentView::TablePreview {
+                db_id,
+                table_id,
+                table_name,
+            } => Some((*db_id, *table_id, table_name.clone())),
+            _ => None,
+        }
     }
 
     // === Search functionality ===
@@ -781,7 +894,7 @@ impl ContentPanel {
     /// Returns (columns, values) tuple for the selected row.
     /// Respects sort order when sorting is active.
     pub fn get_selected_record(&self) -> Option<(Vec<String>, Vec<String>)> {
-        if self.view != ContentView::QueryResult && self.view != ContentView::TablePreview {
+        if !self.is_result_view() {
             return None;
         }
         if let Some(ref result) = self.query_result {
@@ -2404,12 +2517,11 @@ impl ContentPanel {
             Style::default().fg(Color::DarkGray)
         };
 
-        // Get collection name for title
-        let collection_name = self
-            .collection_context
-            .as_ref()
-            .map(|(_, name)| name.as_str())
-            .unwrap_or("Unknown");
+        // Get collection name from ContentView variant
+        let collection_name = match &self.view {
+            ContentView::CollectionQuestions { name, .. } => name.as_str(),
+            _ => "Unknown",
+        };
 
         match &self.questions {
             LoadState::Idle => {
@@ -2549,12 +2661,11 @@ impl ContentPanel {
             Style::default().fg(Color::DarkGray)
         };
 
-        // Get database name for title
-        let database_name = self
-            .database_context
-            .as_ref()
-            .map(|(_, name)| name.as_str())
-            .unwrap_or("Unknown");
+        // Get database name from ContentView variant
+        let database_name = match &self.view {
+            ContentView::DatabaseSchemas { db_name, .. } => db_name.as_str(),
+            _ => "Unknown",
+        };
 
         match &self.schemas {
             LoadState::Idle => {
@@ -2693,12 +2804,11 @@ impl ContentPanel {
             Style::default().fg(Color::DarkGray)
         };
 
-        // Get schema name for title
-        let schema_name = self
-            .schema_context
-            .as_ref()
-            .map(|(_, name)| name.as_str())
-            .unwrap_or("Unknown");
+        // Get schema name from ContentView variant
+        let schema_name = match &self.view {
+            ContentView::SchemaTables { schema_name, .. } => schema_name.as_str(),
+            _ => "Unknown",
+        };
 
         match &self.tables {
             LoadState::Idle => {
@@ -2842,12 +2952,11 @@ impl ContentPanel {
             Style::default().fg(Color::DarkGray)
         };
 
-        // Get table name for title
-        let table_name = self
-            .table_context
-            .as_ref()
-            .map(|(_, _, name)| name.as_str())
-            .unwrap_or("Unknown");
+        // Get table name from ContentView variant
+        let table_name = match &self.view {
+            ContentView::TablePreview { table_name, .. } => table_name.as_str(),
+            _ => "Unknown",
+        };
 
         match &self.query_result {
             None => {
@@ -3285,19 +3394,19 @@ impl Component for ContentPanel {
                 self.render_query_result(area, frame, focused);
                 return;
             }
-            ContentView::CollectionQuestions => {
+            ContentView::CollectionQuestions { .. } => {
                 self.render_collection_questions(area, frame, focused);
                 return;
             }
-            ContentView::DatabaseSchemas => {
+            ContentView::DatabaseSchemas { .. } => {
                 self.render_database_schemas(area, frame, focused);
                 return;
             }
-            ContentView::SchemaTables => {
+            ContentView::SchemaTables { .. } => {
                 self.render_schema_tables(area, frame, focused);
                 return;
             }
-            ContentView::TablePreview => {
+            ContentView::TablePreview { .. } => {
                 self.render_table_preview(area, frame, focused);
                 return;
             }
@@ -3391,7 +3500,7 @@ impl Component for ContentPanel {
                 }
                 _ => false,
             }
-        } else if self.view == ContentView::CollectionQuestions {
+        } else if self.is_collection_questions_view() {
             // CollectionQuestions view has same navigation as Questions
             // Enter/Esc handled by App
             match key.code {
@@ -3584,7 +3693,7 @@ impl Component for ContentPanel {
                     _ => false,
                 }
             }
-        } else if self.view == ContentView::DatabaseSchemas {
+        } else if self.is_database_schemas_view() {
             // DatabaseSchemas view has list navigation
             // Enter/Esc handled by App
             match key.code {
@@ -3606,7 +3715,7 @@ impl Component for ContentPanel {
                 }
                 _ => false,
             }
-        } else if self.view == ContentView::SchemaTables {
+        } else if self.is_schema_tables_view() {
             // SchemaTables view has list navigation
             // Enter/Esc handled by App
             match key.code {
@@ -3628,7 +3737,7 @@ impl Component for ContentPanel {
                 }
                 _ => false,
             }
-        } else if self.view == ContentView::TablePreview {
+        } else if self.is_table_preview_view() {
             // Filter modal takes priority when active
             if self.filter_mode_active {
                 match key.code {
@@ -3863,19 +3972,29 @@ mod tests {
 
         // Simulate: Databases → Schemas → Tables → Preview (4 levels)
         panel.set_view(ContentView::Databases);
-        panel.push_view(ContentView::DatabaseSchemas);
-        panel.push_view(ContentView::SchemaTables);
-        panel.push_view(ContentView::TablePreview);
+        panel.push_view(ContentView::DatabaseSchemas {
+            db_id: 1,
+            db_name: "TestDB".to_string(),
+        });
+        panel.push_view(ContentView::SchemaTables {
+            db_id: 1,
+            schema_name: "public".to_string(),
+        });
+        panel.push_view(ContentView::TablePreview {
+            db_id: 1,
+            table_id: 10,
+            table_name: "users".to_string(),
+        });
 
-        assert_eq!(panel.current_view(), ContentView::TablePreview);
+        assert!(panel.is_table_preview_view());
         assert_eq!(panel.navigation_depth(), 3);
 
         // Go back step by step
         panel.pop_view();
-        assert_eq!(panel.current_view(), ContentView::SchemaTables);
+        assert!(panel.is_schema_tables_view());
 
         panel.pop_view();
-        assert_eq!(panel.current_view(), ContentView::DatabaseSchemas);
+        assert!(panel.is_database_schemas_view());
 
         panel.pop_view();
         assert_eq!(panel.current_view(), ContentView::Databases);
@@ -4151,10 +4270,10 @@ mod tests {
 
         panel.enter_collection_questions(42, "Test Collection".to_string());
 
-        assert_eq!(panel.current_view(), ContentView::CollectionQuestions);
+        assert!(panel.is_collection_questions_view());
         assert_eq!(
             panel.get_collection_context(),
-            Some(&(42_u32, "Test Collection".to_string()))
+            Some((42_u32, "Test Collection".to_string()))
         );
     }
 
@@ -4179,10 +4298,10 @@ mod tests {
 
         // Enter database schemas
         panel.enter_database_schemas(1, "TestDB".to_string());
-        assert_eq!(panel.current_view(), ContentView::DatabaseSchemas);
+        assert!(panel.is_database_schemas_view());
         assert_eq!(
             panel.get_database_context(),
-            Some(&(1_u32, "TestDB".to_string()))
+            Some((1_u32, "TestDB".to_string()))
         );
 
         // Exit back to databases
@@ -4199,15 +4318,15 @@ mod tests {
 
         // Enter schema tables
         panel.enter_schema_tables(1, "public".to_string());
-        assert_eq!(panel.current_view(), ContentView::SchemaTables);
+        assert!(panel.is_schema_tables_view());
         assert_eq!(
             panel.get_schema_context(),
-            Some(&(1_u32, "public".to_string()))
+            Some((1_u32, "public".to_string()))
         );
 
         // Exit back to schemas
         panel.exit_schema_tables();
-        assert_eq!(panel.current_view(), ContentView::DatabaseSchemas);
+        assert!(panel.is_database_schemas_view());
         assert_eq!(panel.get_schema_context(), None);
     }
 
