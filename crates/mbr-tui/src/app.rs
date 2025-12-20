@@ -1081,7 +1081,7 @@ impl App {
 
         // Draw record detail overlay if visible
         if self.show_record_detail {
-            if let Some(ref detail) = self.record_detail {
+            if let Some(ref mut detail) = self.record_detail {
                 detail.render(frame, size);
             }
         }
