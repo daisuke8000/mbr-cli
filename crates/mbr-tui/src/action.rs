@@ -56,8 +56,8 @@ pub enum AppAction {
     /// Authentication validated successfully
     AuthValidated(CurrentUser),
 
-    /// Data loading failed with error message
-    LoadFailed(String),
+    /// Data loading failed with context and error message
+    LoadFailed(DataRequest, String),
 
     // === Query Execution (Phase 6) ===
     /// Execute a question query
