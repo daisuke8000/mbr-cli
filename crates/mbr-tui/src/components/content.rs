@@ -14,7 +14,9 @@ use ratatui::{
 use mbr_core::api::models::{CollectionItem, Database, Question, TableInfo};
 
 use super::state_renderer::{LoadStateConfig, render_non_loaded_state};
-use super::styles::{HIGHLIGHT_SYMBOL, border_style, header_style, row_highlight_style};
+use super::styles::{
+    HIGHLIGHT_SYMBOL, border_style, header_style, result_row_highlight_style, row_highlight_style,
+};
 use super::{Component, ScrollState};
 use crate::layout::questions_table::{COLLECTION_WIDTH, ID_WIDTH, NAME_MIN_WIDTH};
 use crate::service::LoadState;
@@ -2631,12 +2633,6 @@ impl ContentPanel {
     /// Render table preview view with query result table.
     /// Shows sample data from a table (reuses query result rendering).
     fn render_table_preview(&mut self, area: Rect, frame: &mut Frame, focused: bool) {
-        let border_style = if focused {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
-
         // Get table name from ContentView variant
         let table_name = match &self.view {
             ContentView::TablePreview { table_name, .. } => table_name.as_str(),
@@ -2656,7 +2652,7 @@ impl ContentPanel {
                     Block::default()
                         .title(format!(" {} - Preview ", table_name))
                         .borders(Borders::ALL)
-                        .border_style(border_style),
+                        .border_style(border_style(focused)),
                 );
                 frame.render_widget(paragraph, area);
             }
@@ -2685,7 +2681,7 @@ impl ContentPanel {
                         Block::default()
                             .title(format!(" {} - Preview (0 rows) ", table_name))
                             .borders(Borders::ALL)
-                            .border_style(border_style),
+                            .border_style(border_style(focused)),
                     );
                     frame.render_widget(paragraph, area);
                 } else {
@@ -2799,11 +2795,7 @@ impl ContentPanel {
                     let table = Table::new(rows, constraints)
                         .header(
                             Row::new(header_cells)
-                                .style(
-                                    Style::default()
-                                        .fg(Color::Yellow)
-                                        .add_modifier(Modifier::BOLD),
-                                )
+                                .style(header_style())
                                 .bottom_margin(1),
                         )
                         .block(
@@ -2813,15 +2805,10 @@ impl ContentPanel {
                                     table_name, page_indicator, col_indicator, sort_indicator
                                 ))
                                 .borders(Borders::ALL)
-                                .border_style(border_style),
+                                .border_style(border_style(focused)),
                         )
-                        .row_highlight_style(
-                            Style::default()
-                                .fg(Color::Black)
-                                .bg(Color::Green)
-                                .add_modifier(Modifier::BOLD),
-                        )
-                        .highlight_symbol("► ");
+                        .row_highlight_style(result_row_highlight_style())
+                        .highlight_symbol(HIGHLIGHT_SYMBOL);
 
                     frame.render_stateful_widget(table, area, &mut self.result_table_state);
 
@@ -2844,12 +2831,6 @@ impl ContentPanel {
 
     /// Render query result view with table.
     fn render_query_result(&mut self, area: Rect, frame: &mut Frame, focused: bool) {
-        let border_style = if focused {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
-
         match &self.query_result {
             None => {
                 let paragraph = Paragraph::new(vec![
@@ -2863,7 +2844,7 @@ impl ContentPanel {
                     Block::default()
                         .title(" Query Result ")
                         .borders(Borders::ALL)
-                        .border_style(border_style),
+                        .border_style(border_style(focused)),
                 );
                 frame.render_widget(paragraph, area);
             }
@@ -2892,7 +2873,7 @@ impl ContentPanel {
                         Block::default()
                             .title(format!(" Query Result: {} (0 rows) ", result.question_name))
                             .borders(Borders::ALL)
-                            .border_style(border_style),
+                            .border_style(border_style(focused)),
                     );
                     frame.render_widget(paragraph, area);
                 } else {
@@ -3012,11 +2993,7 @@ impl ContentPanel {
                     let table = Table::new(rows, constraints)
                         .header(
                             Row::new(header_cells)
-                                .style(
-                                    Style::default()
-                                        .fg(Color::Yellow)
-                                        .add_modifier(Modifier::BOLD),
-                                )
+                                .style(header_style())
                                 .bottom_margin(1),
                         )
                         .block(
@@ -3029,15 +3006,10 @@ impl ContentPanel {
                                     sort_indicator
                                 ))
                                 .borders(Borders::ALL)
-                                .border_style(border_style),
+                                .border_style(border_style(focused)),
                         )
-                        .row_highlight_style(
-                            Style::default()
-                                .fg(Color::Black)
-                                .bg(Color::Green)
-                                .add_modifier(Modifier::BOLD),
-                        )
-                        .highlight_symbol("► ");
+                        .row_highlight_style(result_row_highlight_style())
+                        .highlight_symbol(HIGHLIGHT_SYMBOL);
 
                     frame.render_stateful_widget(table, area, &mut self.result_table_state);
 

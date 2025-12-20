@@ -36,11 +36,20 @@ pub fn header_style() -> Style {
         .add_modifier(Modifier::BOLD)
 }
 
-/// Style for table row when selected/highlighted.
+/// Style for table row when selected/highlighted (cyan background).
 pub fn row_highlight_style() -> Style {
     Style::default()
         .fg(Color::Black)
         .bg(Color::Cyan)
+        .add_modifier(Modifier::BOLD)
+}
+
+/// Style for query result row when selected (green background).
+/// Used for data-focused views like QueryResult and TablePreview.
+pub fn result_row_highlight_style() -> Style {
+    Style::default()
+        .fg(Color::Black)
+        .bg(Color::Green)
         .add_modifier(Modifier::BOLD)
 }
 
