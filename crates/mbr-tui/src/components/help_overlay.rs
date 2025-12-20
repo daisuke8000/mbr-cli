@@ -35,8 +35,8 @@ impl HelpOverlay {
         ("p", "Previous page"),
         ("Home / g", "First page / First item"),
         ("End / G", "Last page / Last item"),
-        ("Enter", "Execute query"),
-        ("Esc", "Back to Questions list"),
+        ("Enter", "Execute query / Record detail"),
+        ("Esc", "Back to list / Close modal"),
     ];
 
     /// Render the help overlay centered on screen.

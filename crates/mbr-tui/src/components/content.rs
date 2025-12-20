@@ -158,6 +158,26 @@ impl ContentPanel {
         None
     }
 
+    /// Get the currently selected record in QueryResult view.
+    /// Returns (columns, values) tuple for the selected row.
+    pub fn get_selected_record(&self) -> Option<(Vec<String>, Vec<String>)> {
+        if self.view != ContentView::QueryResult {
+            return None;
+        }
+        if let Some(ref result) = self.query_result {
+            if let Some(selected) = self.result_table_state.selected() {
+                // Calculate actual row index considering pagination
+                let page_start = self.result_page * self.rows_per_page;
+                let actual_index = page_start + selected;
+
+                if actual_index < result.rows.len() {
+                    return Some((result.columns.clone(), result.rows[actual_index].clone()));
+                }
+            }
+        }
+        None
+    }
+
     /// Set query result data and switch to QueryResult view.
     pub fn set_query_result(&mut self, data: QueryResultData) {
         self.query_result = Some(data);
