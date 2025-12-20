@@ -52,11 +52,39 @@ pub struct Question {
     pub collection: Option<Collection>,
 }
 
+/// Minimal collection info (embedded in Question)
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct Collection {
     #[serde(deserialize_with = "deserialize_collection_id", default)]
     pub id: Option<u32>,
     pub name: String,
+}
+
+/// Full collection details from /api/collection
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct CollectionItem {
+    #[serde(deserialize_with = "deserialize_collection_id", default)]
+    pub id: Option<u32>,
+    pub name: String,
+    pub description: Option<String>,
+    pub location: Option<String>,
+    #[serde(default)]
+    pub personal_owner_id: Option<u32>,
+    #[serde(default)]
+    pub archived: bool,
+}
+
+/// Database info from /api/database
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct Database {
+    pub id: u32,
+    pub name: String,
+    pub engine: Option<String>,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub is_sample: bool,
+    #[serde(default)]
+    pub is_saved_questions: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

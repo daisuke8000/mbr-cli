@@ -232,6 +232,96 @@ impl MetabaseClient {
         }
     }
 
+    /// List all collections from Metabase
+    pub async fn list_collections(
+        &self,
+    ) -> Result<Vec<crate::api::models::CollectionItem>, AppError> {
+        let endpoint = "/api/collection";
+
+        let response = self
+            .build_request(Method::GET, endpoint)
+            .send()
+            .await
+            .map_err(|e| AppError::Api(convert_request_error(e, endpoint)))?;
+
+        let status = response.status();
+
+        if status.is_success() {
+            let collections: Vec<crate::api::models::CollectionItem> = response
+                .json()
+                .await
+                .map_err(|e| AppError::Api(convert_json_error(e, endpoint)))?;
+
+            // Filter out archived collections
+            let active_collections: Vec<_> =
+                collections.into_iter().filter(|c| !c.archived).collect();
+
+            Ok(active_collections)
+        } else if status == reqwest::StatusCode::UNAUTHORIZED {
+            Err(AppError::Api(ApiError::Unauthorized {
+                status: status.as_u16(),
+                endpoint: endpoint.to_string(),
+                server_message: "Authentication failed - check MBR_API_KEY".to_string(),
+            }))
+        } else {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+
+            Err(AppError::Api(ApiError::Http {
+                status: status.as_u16(),
+                endpoint: endpoint.to_string(),
+                message: error_text,
+            }))
+        }
+    }
+
+    /// List all databases from Metabase
+    pub async fn list_databases(&self) -> Result<Vec<crate::api::models::Database>, AppError> {
+        let endpoint = "/api/database";
+
+        let response = self
+            .build_request(Method::GET, endpoint)
+            .send()
+            .await
+            .map_err(|e| AppError::Api(convert_request_error(e, endpoint)))?;
+
+        let status = response.status();
+
+        if status.is_success() {
+            // Metabase returns { "data": [...] } for databases
+            #[derive(serde::Deserialize)]
+            struct DatabaseResponse {
+                data: Vec<crate::api::models::Database>,
+            }
+
+            let response_body: DatabaseResponse = response
+                .json()
+                .await
+                .map_err(|e| AppError::Api(convert_json_error(e, endpoint)))?;
+
+            Ok(response_body.data)
+        } else if status == reqwest::StatusCode::UNAUTHORIZED {
+            Err(AppError::Api(ApiError::Unauthorized {
+                status: status.as_u16(),
+                endpoint: endpoint.to_string(),
+                server_message: "Authentication failed - check MBR_API_KEY".to_string(),
+            }))
+        } else {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+
+            Err(AppError::Api(ApiError::Http {
+                status: status.as_u16(),
+                endpoint: endpoint.to_string(),
+                message: error_text,
+            }))
+        }
+    }
+
     pub async fn handle_response<T>(response: Response, endpoint: &str) -> Result<T, ApiError>
     where
         T: serde::de::DeserializeOwned,
