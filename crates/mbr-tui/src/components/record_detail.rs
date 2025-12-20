@@ -108,7 +108,8 @@ impl RecordDetailOverlay {
                 "(empty)".to_string()
             } else {
                 // Truncate long values for display
-                let max_val_width = popup_area.width.saturating_sub(max_col_width as u16 + 10) as usize;
+                let max_val_width =
+                    popup_area.width.saturating_sub(max_col_width as u16 + 10) as usize;
                 if val.width() > max_val_width {
                     Self::truncate_to_width(val, max_val_width)
                 } else {
@@ -139,7 +140,14 @@ impl RecordDetailOverlay {
             };
 
             lines.push(Line::from(vec![
-                Span::styled(prefix, if is_selected { Style::default().bg(Color::Cyan) } else { Style::default() }),
+                Span::styled(
+                    prefix,
+                    if is_selected {
+                        Style::default().bg(Color::Cyan)
+                    } else {
+                        Style::default()
+                    },
+                ),
                 Span::styled(padded_col, col_style),
                 Span::styled(" : ", separator_style),
                 Span::styled(val_display, val_style),
