@@ -109,7 +109,9 @@ impl MetabaseClient {
         Ok(questions)
     }
 
-    /// Search questions using /api/search endpoint
+    /// Search questions using /api/search endpoint.
+    /// Uses reqwest's .query() for proper URL encoding of search terms,
+    /// including multibyte characters (Japanese, etc.).
     async fn search_questions(
         &self,
         search_term: &str,
@@ -117,31 +119,17 @@ impl MetabaseClient {
     ) -> Result<Vec<crate::api::models::Question>, AppError> {
         use crate::api::models::{Collection, Question, SearchResponse};
 
-        // Simple URL encoding for search term (spaces to %20, etc.)
-        let encoded_term: String = search_term
-            .chars()
-            .map(|c| match c {
-                ' ' => "%20".to_string(),
-                '&' => "%26".to_string(),
-                '=' => "%3D".to_string(),
-                '?' => "%3F".to_string(),
-                '#' => "%23".to_string(),
-                '+' => "%2B".to_string(),
-                _ if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '~' => {
-                    c.to_string()
-                }
-                _ => format!("%{:02X}", c as u8),
-            })
-            .collect();
-        let endpoint = format!("/api/search?q={}&models=card", encoded_term);
+        let endpoint = "/api/search";
 
+        // Use reqwest's .query() for safe URL encoding (handles UTF-8 correctly)
         let response = self
-            .build_request(Method::GET, &endpoint)
+            .build_request(Method::GET, endpoint)
+            .query(&[("q", search_term), ("models", "card")])
             .send()
             .await
-            .map_err(|e| AppError::Api(convert_request_error(e, &endpoint)))?;
+            .map_err(|e| AppError::Api(convert_request_error(e, endpoint)))?;
 
-        let search_response: SearchResponse = Self::handle_response(response, &endpoint).await?;
+        let search_response: SearchResponse = Self::handle_response(response, endpoint).await?;
 
         // Convert SearchResultItem to Question
         let mut questions: Vec<Question> = search_response
