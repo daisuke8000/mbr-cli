@@ -14,6 +14,7 @@ use ratatui::{
 use mbr_core::api::models::{CollectionItem, Database, Question, TableInfo};
 
 use super::state_renderer::{LoadStateConfig, render_non_loaded_state};
+use super::styles::{HIGHLIGHT_SYMBOL, border_style, header_style, row_highlight_style};
 use super::{Component, ScrollState};
 use crate::layout::questions_table::{COLLECTION_WIDTH, ID_WIDTH, NAME_MIN_WIDTH};
 use crate::service::LoadState;
@@ -2256,8 +2257,6 @@ impl ContentPanel {
             _ => return,
         };
 
-        let border_style = config.border_style;
-
         if collections.is_empty() {
             super::state_renderer::render_empty(
                 frame,
@@ -2298,26 +2297,17 @@ impl ContentPanel {
         )
         .header(
             Row::new(vec!["ID", "Name", "Location", "Description"])
-                .style(
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                )
+                .style(header_style())
                 .bottom_margin(1),
         )
         .block(
             Block::default()
                 .title(format!(" Collections ({}) ", collections.len()))
                 .borders(Borders::ALL)
-                .border_style(border_style),
+                .border_style(border_style(focused)),
         )
-        .row_highlight_style(
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol("► ");
+        .row_highlight_style(row_highlight_style())
+        .highlight_symbol(HIGHLIGHT_SYMBOL);
 
         frame.render_stateful_widget(table, area, &mut self.collections_table_state);
     }
@@ -2338,8 +2328,6 @@ impl ContentPanel {
             LoadState::Loaded(d) => d,
             _ => return,
         };
-
-        let border_style = config.border_style;
 
         if databases.is_empty() {
             super::state_renderer::render_empty(
@@ -2379,26 +2367,17 @@ impl ContentPanel {
         )
         .header(
             Row::new(vec!["ID", "Name", "Engine", "Description"])
-                .style(
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                )
+                .style(header_style())
                 .bottom_margin(1),
         )
         .block(
             Block::default()
                 .title(format!(" Databases ({}) ", databases.len()))
                 .borders(Borders::ALL)
-                .border_style(border_style),
+                .border_style(border_style(focused)),
         )
-        .row_highlight_style(
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol("► ");
+        .row_highlight_style(row_highlight_style())
+        .highlight_symbol(HIGHLIGHT_SYMBOL);
 
         frame.render_stateful_widget(table, area, &mut self.databases_table_state);
     }
@@ -2406,11 +2385,7 @@ impl ContentPanel {
     /// Render collection questions view with table.
     /// Shows questions filtered by a specific collection.
     fn render_collection_questions(&mut self, area: Rect, frame: &mut Frame, focused: bool) {
-        let border_style = if focused {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
+        let border_style = border_style(focused);
 
         // Get collection name from ContentView variant
         let collection_name = match &self.view {
