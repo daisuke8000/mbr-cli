@@ -49,6 +49,13 @@ impl RecordDetailOverlay {
         }
     }
 
+    /// Get the currently selected field value.
+    ///
+    /// Returns the value at the current cursor position, or None if empty.
+    pub fn selected_value(&self) -> Option<&str> {
+        self.values.get(self.selected_index).map(|s| s.as_str())
+    }
+
     /// Render the record detail overlay centered on screen.
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         // Calculate centered popup area (70% width, 80% height)
@@ -190,6 +197,8 @@ impl RecordDetailOverlay {
             Span::styled("  [", Style::default().fg(Color::DarkGray)),
             Span::styled("↑↓/jk", Style::default().fg(Color::Yellow)),
             Span::styled(" Move] [", Style::default().fg(Color::DarkGray)),
+            Span::styled("c", Style::default().fg(Color::Yellow)),
+            Span::styled(" Copy] [", Style::default().fg(Color::DarkGray)),
             Span::styled("Esc/Enter", Style::default().fg(Color::Yellow)),
             Span::styled(" Close]", Style::default().fg(Color::DarkGray)),
         ]));

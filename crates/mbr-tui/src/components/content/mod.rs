@@ -27,6 +27,8 @@ mod sort;
 pub mod types;
 mod views;
 
+use std::collections::HashSet;
+
 use crossterm::event::KeyEvent;
 use ratatui::{Frame, layout::Rect, widgets::TableState};
 
@@ -114,6 +116,13 @@ pub struct ContentPanel {
     pub(super) result_search_text: String,
     /// Searched row indices (None = no search, Some = matched indices)
     pub(super) result_search_indices: Option<Vec<usize>>,
+    // === Multi-select state (for result views) ===
+    /// Selected row indices (original row indices, not display indices)
+    /// Uses row index as identifier since QueryResultData doesn't have row IDs
+    pub(super) selected_rows: HashSet<usize>,
+    /// Anchor position for range selection (Shift+Arrow)
+    /// Stores the starting row index when range selection begins
+    pub(super) selection_anchor: Option<usize>,
 }
 
 impl Default for ContentPanel {
@@ -161,6 +170,8 @@ impl ContentPanel {
             result_search_active: false,
             result_search_text: String::new(),
             result_search_indices: None,
+            selected_rows: HashSet::new(),
+            selection_anchor: None,
         }
     }
 
@@ -220,6 +231,166 @@ impl ContentPanel {
             self.view,
             ContentView::QueryResult | ContentView::TablePreview { .. }
         )
+    }
+
+    // === Multi-select methods ===
+
+    /// Toggle selection for a row (by original row index).
+    pub fn toggle_row_selection(&mut self, row_index: usize) {
+        if self.selected_rows.contains(&row_index) {
+            self.selected_rows.remove(&row_index);
+        } else {
+            self.selected_rows.insert(row_index);
+        }
+    }
+
+    /// Check if a row is selected.
+    pub fn is_row_selected(&self, row_index: usize) -> bool {
+        self.selected_rows.contains(&row_index)
+    }
+
+    /// Clear all selections.
+    pub fn clear_selection(&mut self) {
+        self.selected_rows.clear();
+        self.selection_anchor = None;
+    }
+
+    /// Get the number of selected rows.
+    pub fn selected_count(&self) -> usize {
+        self.selected_rows.len()
+    }
+
+    /// Check if any rows are selected.
+    pub fn has_selection(&self) -> bool {
+        !self.selected_rows.is_empty()
+    }
+
+    /// Get all selected row indices (sorted).
+    pub fn get_selected_indices(&self) -> Vec<usize> {
+        let mut indices: Vec<usize> = self.selected_rows.iter().copied().collect();
+        indices.sort_unstable();
+        indices
+    }
+
+    /// Select all visible rows in the current result.
+    /// Uses batch operations with reserve + extend for O(n) performance.
+    pub fn select_all_rows(&mut self) {
+        if self.query_result.is_none() {
+            return;
+        }
+
+        // Use existing index vectors directly instead of iterating one by one
+        // This avoids O(n) function calls and leverages batch HashSet insertion
+
+        // 1. Search results take priority
+        if let Some(ref search_indices) = self.result_search_indices {
+            self.selected_rows.reserve(search_indices.len());
+            self.selected_rows.extend(search_indices.iter().copied());
+            return;
+        }
+
+        // 2. Filter results
+        if let Some(ref filter_indices) = self.filter_indices {
+            self.selected_rows.reserve(filter_indices.len());
+            self.selected_rows.extend(filter_indices.iter().copied());
+            return;
+        }
+
+        // 3. Sort results (indices are still original row indices)
+        if let Some(ref sort_indices) = self.sort_indices {
+            self.selected_rows.reserve(sort_indices.len());
+            self.selected_rows.extend(sort_indices.iter().copied());
+            return;
+        }
+
+        // 4. No filters - select all original rows with simple range
+        if let Some(ref result) = self.query_result {
+            self.selected_rows.reserve(result.rows.len());
+            self.selected_rows.extend(0..result.rows.len());
+        }
+    }
+
+    /// Extend selection from anchor to current cursor position.
+    /// Used for Shift+Arrow range selection.
+    pub fn extend_selection_to(&mut self, target_display_idx: usize) {
+        // Set anchor if not already set
+        if self.selection_anchor.is_none() {
+            if let Some(current) = self.result_table_state.selected() {
+                self.selection_anchor = Some(current);
+            }
+        }
+
+        if let Some(anchor) = self.selection_anchor {
+            let (start, end) = if anchor <= target_display_idx {
+                (anchor, target_display_idx)
+            } else {
+                (target_display_idx, anchor)
+            };
+
+            // Select all rows in the range
+            for display_idx in start..=end {
+                if let Some(original_idx) = self.get_original_row_index(display_idx) {
+                    self.selected_rows.insert(original_idx);
+                }
+            }
+        }
+    }
+
+    /// Get the original row index from a display index.
+    /// Accounts for sort, filter, and search transformations.
+    fn get_original_row_index(&self, display_idx: usize) -> Option<usize> {
+        // Priority: result_search > filter > sort > original
+        if let Some(ref search_indices) = self.result_search_indices {
+            search_indices.get(display_idx).copied()
+        } else if let Some(ref filter_indices) = self.filter_indices {
+            filter_indices.get(display_idx).copied()
+        } else if let Some(ref sort_indices) = self.sort_indices {
+            sort_indices.get(display_idx).copied()
+        } else {
+            Some(display_idx)
+        }
+    }
+
+    /// Get the total number of visible rows (after filter/search).
+    fn get_visible_row_count(&self) -> usize {
+        if let Some(ref search_indices) = self.result_search_indices {
+            search_indices.len()
+        } else if let Some(ref filter_indices) = self.filter_indices {
+            filter_indices.len()
+        } else if let Some(ref sort_indices) = self.sort_indices {
+            sort_indices.len()
+        } else if let Some(ref result) = self.query_result {
+            result.rows.len()
+        } else {
+            0
+        }
+    }
+
+    /// Get the current cursor's original row index.
+    pub fn get_current_row_index(&self) -> Option<usize> {
+        let display_idx = self.result_table_state.selected()?;
+        // Convert page-local index to global display index
+        let global_display_idx = self.result_page * self.rows_per_page + display_idx;
+        self.get_original_row_index(global_display_idx)
+    }
+
+    /// Get selected records as (columns, values) pairs.
+    pub fn get_selected_records(&self) -> Vec<(Vec<String>, Vec<String>)> {
+        let result = match &self.query_result {
+            Some(r) => r,
+            None => return vec![],
+        };
+
+        let indices = self.get_selected_indices();
+        indices
+            .iter()
+            .filter_map(|&idx| {
+                result
+                    .rows
+                    .get(idx)
+                    .map(|row| (result.columns.clone(), row.clone()))
+            })
+            .collect()
     }
 }
 

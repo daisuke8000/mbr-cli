@@ -6,7 +6,11 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 
 use crate::action::{AppAction, DataRequest};
-use crate::components::{ContentView, InputMode, RecordDetailOverlay};
+use crate::components::clipboard::{
+    CopyFormat, copy_to_clipboard, format_record_csv, format_record_json, format_record_tsv,
+    format_records_csv, format_records_json, format_records_tsv,
+};
+use crate::components::{ContentView, CopyMenu, InputMode, RecordDetailOverlay};
 use crate::service::LoadState;
 
 use super::App;
@@ -39,9 +43,54 @@ impl App {
             .handle_key_event(crossterm::event::KeyEvent::new(code, modifiers));
     }
 
-    /// Handle keyboard input when overlay is active (RecordDetail, Help).
+    /// Handle keyboard input when overlay is active (CopyMenu, RecordDetail, Help).
     /// Returns true if the key was handled.
     pub(super) fn handle_overlay_keys(&mut self, code: KeyCode) -> bool {
+        // Copy menu takes highest priority when shown
+        if self.show_copy_menu {
+            match code {
+                KeyCode::Esc => {
+                    self.close_copy_menu();
+                }
+                // Arrow keys for navigation (j/k are used for format selection)
+                KeyCode::Up => {
+                    if let Some(ref mut menu) = self.copy_menu {
+                        menu.select_up();
+                    }
+                }
+                KeyCode::Down => {
+                    if let Some(ref mut menu) = self.copy_menu {
+                        menu.select_down();
+                    }
+                }
+                // Header toggle
+                KeyCode::Char('h') => {
+                    if let Some(ref mut menu) = self.copy_menu {
+                        menu.toggle_header();
+                    }
+                }
+                // Direct format selection → immediate copy
+                KeyCode::Char('j') => {
+                    self.execute_copy(CopyFormat::Json);
+                }
+                KeyCode::Char('c') => {
+                    self.execute_copy(CopyFormat::Csv);
+                }
+                KeyCode::Char('t') => {
+                    self.execute_copy(CopyFormat::Tsv);
+                }
+                // Enter copies with selected format
+                KeyCode::Enter => {
+                    if let Some(ref menu) = self.copy_menu {
+                        let format = menu.selected_format();
+                        self.execute_copy(format);
+                    }
+                }
+                _ => {}
+            }
+            return true;
+        }
+
         // Record detail overlay takes priority when shown
         if self.show_record_detail {
             match code {
@@ -57,6 +106,20 @@ impl App {
                 KeyCode::Down | KeyCode::Char('j') => {
                     if let Some(ref mut detail) = self.record_detail {
                         detail.scroll_down();
+                    }
+                }
+                KeyCode::Char('c') => {
+                    if let Some(ref detail) = self.record_detail {
+                        if let Some(value) = detail.selected_value() {
+                            match copy_to_clipboard(value) {
+                                Ok(()) => {
+                                    self.status_bar.set_message("Copied to clipboard");
+                                }
+                                Err(e) => {
+                                    self.status_bar.set_message(format!("Copy failed: {}", e));
+                                }
+                            }
+                        }
                     }
                 }
                 _ => {}
@@ -161,6 +224,22 @@ impl App {
                 self.handle_refresh();
                 true
             }
+            // Copy record(s) in result view with 'c'
+            KeyCode::Char('c') if self.content.is_result_view() && !self.is_modal_active() => {
+                // Check if multi-select is active
+                if self.content.has_selection() {
+                    let records = self.content.get_selected_records();
+                    if !records.is_empty() {
+                        self.copy_menu = Some(CopyMenu::new_multi(records));
+                        self.show_copy_menu = true;
+                    }
+                } else if let Some((columns, values)) = self.content.get_selected_record() {
+                    // Single record copy (cursor position)
+                    self.copy_menu = Some(CopyMenu::new(columns, values));
+                    self.show_copy_menu = true;
+                }
+                true
+            }
             _ => false,
         }
     }
@@ -171,6 +250,13 @@ impl App {
         // Skip if any modal is active (let ContentPanel handle Esc)
         if self.is_modal_active() {
             return false;
+        }
+
+        // Clear multi-select first if active in result views
+        if self.content.is_result_view() && self.content.has_selection() {
+            self.content.clear_selection();
+            self.status_bar.set_message("Selection cleared");
+            return true;
         }
 
         // Navigate back based on current view
@@ -281,5 +367,55 @@ impl App {
         }
 
         false
+    }
+
+    /// Execute copy with the specified format.
+    fn execute_copy(&mut self, format: CopyFormat) {
+        if let Some(ref menu) = self.copy_menu {
+            let include_header = menu.include_header();
+
+            // Use multi-record or single-record format functions
+            let text = if menu.is_multi() {
+                let records = menu.records_data();
+                match format {
+                    CopyFormat::Json => format_records_json(records),
+                    CopyFormat::Csv => format_records_csv(records, include_header),
+                    CopyFormat::Tsv => format_records_tsv(records, include_header),
+                }
+            } else {
+                let (columns, values) = menu.record_data();
+                match format {
+                    CopyFormat::Json => format_record_json(columns, values),
+                    CopyFormat::Csv => format_record_csv(columns, values, include_header),
+                    CopyFormat::Tsv => format_record_tsv(columns, values, include_header),
+                }
+            };
+
+            match copy_to_clipboard(&text) {
+                Ok(()) => {
+                    let count_msg = if menu.is_multi() {
+                        format!(
+                            "Copied {} records as {}",
+                            menu.record_count(),
+                            format.label()
+                        )
+                    } else {
+                        format!("Copied as {}", format.label())
+                    };
+                    self.status_bar.set_message(count_msg);
+                }
+                Err(e) => {
+                    self.status_bar.set_message(format!("Copy failed: {}", e));
+                }
+            }
+        }
+
+        self.close_copy_menu();
+    }
+
+    /// Close the copy menu.
+    fn close_copy_menu(&mut self) {
+        self.show_copy_menu = false;
+        self.copy_menu = None;
     }
 }

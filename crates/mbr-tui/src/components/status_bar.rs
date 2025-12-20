@@ -30,6 +30,8 @@ impl KeyBinding {
 pub struct StatusBar {
     message: String,
     bindings: Vec<KeyBinding>,
+    /// Number of selected rows (for multi-select display)
+    selection_count: usize,
 }
 
 impl Default for StatusBar {
@@ -52,12 +54,18 @@ impl StatusBar {
                 KeyBinding::new("?", "Help"),
                 KeyBinding::new("q", "Quit"),
             ],
+            selection_count: 0,
         }
     }
 
     /// Set a status message.
     pub fn set_message(&mut self, message: impl Into<String>) {
         self.message = message.into();
+    }
+
+    /// Update the selection count for multi-select display.
+    pub fn set_selection_count(&mut self, count: usize) {
+        self.selection_count = count;
     }
 }
 
@@ -75,6 +83,15 @@ impl Component for StatusBar {
                 Style::default().fg(Color::Yellow),
             ));
             spans.push(Span::raw(binding.action));
+        }
+
+        // Add selection count if any rows are selected
+        if self.selection_count > 0 {
+            spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(
+                format!(" {} selected ", self.selection_count),
+                Style::default().fg(Color::Yellow),
+            ));
         }
 
         // Add message if present
