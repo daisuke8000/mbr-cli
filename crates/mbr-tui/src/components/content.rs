@@ -3816,3 +3816,493 @@ impl Component for ContentPanel {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // === Navigation Stack Tests ===
+
+    #[test]
+    fn test_push_pop_view() {
+        let mut panel = ContentPanel::new();
+        assert_eq!(panel.current_view(), ContentView::Welcome);
+        assert_eq!(panel.navigation_depth(), 0);
+
+        // Push to Questions view
+        panel.push_view(ContentView::Questions);
+        assert_eq!(panel.current_view(), ContentView::Questions);
+        assert_eq!(panel.navigation_depth(), 1);
+
+        // Push to QueryResult view
+        panel.push_view(ContentView::QueryResult);
+        assert_eq!(panel.current_view(), ContentView::QueryResult);
+        assert_eq!(panel.navigation_depth(), 2);
+
+        // Pop back to Questions
+        let popped = panel.pop_view();
+        assert_eq!(popped, Some(ContentView::Questions));
+        assert_eq!(panel.current_view(), ContentView::Questions);
+        assert_eq!(panel.navigation_depth(), 1);
+
+        // Pop back to Welcome
+        let popped = panel.pop_view();
+        assert_eq!(popped, Some(ContentView::Welcome));
+        assert_eq!(panel.current_view(), ContentView::Welcome);
+        assert_eq!(panel.navigation_depth(), 0);
+
+        // Pop on empty stack returns None
+        let popped = panel.pop_view();
+        assert_eq!(popped, None);
+        assert_eq!(panel.current_view(), ContentView::Welcome);
+    }
+
+    #[test]
+    fn test_navigation_stack_four_level_drill_down() {
+        let mut panel = ContentPanel::new();
+
+        // Simulate: Databases → Schemas → Tables → Preview (4 levels)
+        panel.set_view(ContentView::Databases);
+        panel.push_view(ContentView::DatabaseSchemas);
+        panel.push_view(ContentView::SchemaTables);
+        panel.push_view(ContentView::TablePreview);
+
+        assert_eq!(panel.current_view(), ContentView::TablePreview);
+        assert_eq!(panel.navigation_depth(), 3);
+
+        // Go back step by step
+        panel.pop_view();
+        assert_eq!(panel.current_view(), ContentView::SchemaTables);
+
+        panel.pop_view();
+        assert_eq!(panel.current_view(), ContentView::DatabaseSchemas);
+
+        panel.pop_view();
+        assert_eq!(panel.current_view(), ContentView::Databases);
+    }
+
+    #[test]
+    fn test_clear_navigation_stack() {
+        let mut panel = ContentPanel::new();
+
+        // Build up a navigation stack
+        panel.push_view(ContentView::Questions);
+        panel.push_view(ContentView::QueryResult);
+        assert_eq!(panel.navigation_depth(), 2);
+
+        // Clear stack
+        panel.clear_navigation_stack();
+        assert_eq!(panel.navigation_depth(), 0);
+    }
+
+    #[test]
+    fn test_set_view_clears_navigation_stack() {
+        let mut panel = ContentPanel::new();
+
+        // Build up navigation
+        panel.push_view(ContentView::Questions);
+        panel.push_view(ContentView::QueryResult);
+        assert_eq!(panel.navigation_depth(), 2);
+
+        // Tab switch should clear stack
+        panel.set_view(ContentView::Collections);
+        assert_eq!(panel.current_view(), ContentView::Collections);
+        assert_eq!(panel.navigation_depth(), 0);
+    }
+
+    // === Search Mode Tests ===
+
+    #[test]
+    fn test_search_mode_toggle() {
+        let mut panel = ContentPanel::new();
+        assert_eq!(panel.input_mode(), InputMode::Normal);
+
+        // Enter search mode
+        panel.enter_search_mode();
+        assert_eq!(panel.input_mode(), InputMode::Search);
+
+        // Exit search mode
+        panel.exit_search_mode();
+        assert_eq!(panel.input_mode(), InputMode::Normal);
+    }
+
+    #[test]
+    fn test_search_query_input() {
+        let mut panel = ContentPanel::new();
+        panel.enter_search_mode();
+
+        // Type characters
+        panel.handle_search_input('h');
+        panel.handle_search_input('e');
+        panel.handle_search_input('l');
+        panel.handle_search_input('l');
+        panel.handle_search_input('o');
+
+        assert_eq!(panel.get_search_query(), "hello");
+
+        // Backspace
+        panel.handle_search_backspace();
+        assert_eq!(panel.get_search_query(), "hell");
+    }
+
+    #[test]
+    fn test_execute_search() {
+        let mut panel = ContentPanel::new();
+        panel.enter_search_mode();
+
+        panel.handle_search_input('t');
+        panel.handle_search_input('e');
+        panel.handle_search_input('s');
+        panel.handle_search_input('t');
+
+        // Execute search
+        let result = panel.execute_search();
+        assert_eq!(result, Some("test".to_string()));
+        assert_eq!(panel.input_mode(), InputMode::Normal);
+        assert_eq!(panel.get_active_search(), Some("test"));
+    }
+
+    #[test]
+    fn test_execute_empty_search_returns_none() {
+        let mut panel = ContentPanel::new();
+        panel.enter_search_mode();
+
+        // Execute without typing anything
+        let result = panel.execute_search();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_clear_search() {
+        let mut panel = ContentPanel::new();
+        panel.enter_search_mode();
+        panel.handle_search_input('t');
+        panel.handle_search_input('e');
+        panel.handle_search_input('s');
+        panel.handle_search_input('t');
+        panel.execute_search();
+
+        assert_eq!(panel.get_active_search(), Some("test"));
+
+        panel.clear_search();
+        assert_eq!(panel.get_active_search(), None);
+        assert_eq!(panel.get_search_query(), "");
+    }
+
+    // === Modal State Tests ===
+
+    #[test]
+    fn test_sort_mode_toggle() {
+        let mut panel = ContentPanel::new();
+        assert!(!panel.is_sort_mode_active());
+
+        // Sort modal requires query_result with columns
+        let data = QueryResultData {
+            question_id: 1,
+            question_name: "Test".to_string(),
+            columns: vec!["Col1".to_string(), "Col2".to_string()],
+            rows: vec![vec!["a".to_string(), "b".to_string()]],
+        };
+        panel.set_query_result(data);
+
+        panel.open_sort_modal();
+        assert!(panel.is_sort_mode_active());
+
+        panel.close_sort_modal();
+        assert!(!panel.is_sort_mode_active());
+    }
+
+    #[test]
+    fn test_filter_mode_toggle() {
+        let mut panel = ContentPanel::new();
+        assert!(!panel.is_filter_mode_active());
+
+        // Filter modal requires query_result with columns
+        let data = QueryResultData {
+            question_id: 1,
+            question_name: "Test".to_string(),
+            columns: vec!["Col1".to_string(), "Col2".to_string()],
+            rows: vec![vec!["a".to_string(), "b".to_string()]],
+        };
+        panel.set_query_result(data);
+
+        panel.open_filter_modal();
+        assert!(panel.is_filter_mode_active());
+
+        panel.close_filter_modal();
+        assert!(!panel.is_filter_mode_active());
+    }
+
+    #[test]
+    fn test_result_search_toggle() {
+        let mut panel = ContentPanel::new();
+        assert!(!panel.is_result_search_active());
+
+        panel.open_result_search();
+        assert!(panel.is_result_search_active());
+
+        panel.close_result_search();
+        assert!(!panel.is_result_search_active());
+    }
+
+    // === View Transition Tests ===
+
+    #[test]
+    fn test_content_view_default() {
+        let panel = ContentPanel::new();
+        assert_eq!(panel.current_view(), ContentView::Welcome);
+    }
+
+    #[test]
+    fn test_set_view_changes_current_view() {
+        let mut panel = ContentPanel::new();
+
+        panel.set_view(ContentView::Questions);
+        assert_eq!(panel.current_view(), ContentView::Questions);
+
+        panel.set_view(ContentView::Collections);
+        assert_eq!(panel.current_view(), ContentView::Collections);
+
+        panel.set_view(ContentView::Databases);
+        assert_eq!(panel.current_view(), ContentView::Databases);
+    }
+
+    // === Selection Navigation Tests ===
+
+    #[test]
+    fn test_select_navigation_with_loaded_questions() {
+        let mut panel = ContentPanel::new();
+        panel.set_view(ContentView::Questions);
+
+        // Load some questions
+        let questions = vec![
+            Question {
+                id: 1,
+                name: "Q1".to_string(),
+                description: None,
+                collection_id: None,
+                collection: None,
+            },
+            Question {
+                id: 2,
+                name: "Q2".to_string(),
+                description: None,
+                collection_id: None,
+                collection: None,
+            },
+            Question {
+                id: 3,
+                name: "Q3".to_string(),
+                description: None,
+                collection_id: None,
+                collection: None,
+            },
+        ];
+        panel.update_questions(&LoadState::Loaded(questions));
+
+        // First item should be auto-selected
+        assert_eq!(panel.table_state.selected(), Some(0));
+
+        // Navigate down
+        panel.select_next();
+        assert_eq!(panel.table_state.selected(), Some(1));
+
+        panel.select_next();
+        assert_eq!(panel.table_state.selected(), Some(2));
+
+        // Should not go beyond last item
+        panel.select_next();
+        assert_eq!(panel.table_state.selected(), Some(2));
+
+        // Navigate up
+        panel.select_previous();
+        assert_eq!(panel.table_state.selected(), Some(1));
+
+        // Jump to first
+        panel.select_first();
+        assert_eq!(panel.table_state.selected(), Some(0));
+
+        // Jump to last
+        panel.select_last();
+        assert_eq!(panel.table_state.selected(), Some(2));
+    }
+
+    #[test]
+    fn test_select_navigation_with_empty_list() {
+        let mut panel = ContentPanel::new();
+        panel.set_view(ContentView::Questions);
+
+        // Load empty list
+        panel.update_questions(&LoadState::Loaded(vec![]));
+
+        // Navigation should not panic
+        panel.select_next();
+        panel.select_previous();
+        panel.select_first();
+        panel.select_last();
+    }
+
+    // === Collection Questions Context Tests ===
+
+    #[test]
+    fn test_enter_collection_questions_sets_context() {
+        let mut panel = ContentPanel::new();
+        panel.set_view(ContentView::Collections);
+
+        panel.enter_collection_questions(42, "Test Collection".to_string());
+
+        assert_eq!(panel.current_view(), ContentView::CollectionQuestions);
+        assert_eq!(
+            panel.get_collection_context(),
+            Some(&(42_u32, "Test Collection".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_exit_collection_questions_clears_context() {
+        let mut panel = ContentPanel::new();
+        panel.set_view(ContentView::Collections);
+        panel.enter_collection_questions(42, "Test Collection".to_string());
+
+        panel.exit_collection_questions();
+
+        assert_eq!(panel.current_view(), ContentView::Collections);
+        assert_eq!(panel.get_collection_context(), None);
+    }
+
+    // === Database Drill-down Context Tests ===
+
+    #[test]
+    fn test_database_schema_drill_down() {
+        let mut panel = ContentPanel::new();
+        panel.set_view(ContentView::Databases);
+
+        // Enter database schemas
+        panel.enter_database_schemas(1, "TestDB".to_string());
+        assert_eq!(panel.current_view(), ContentView::DatabaseSchemas);
+        assert_eq!(
+            panel.get_database_context(),
+            Some(&(1_u32, "TestDB".to_string()))
+        );
+
+        // Exit back to databases
+        panel.exit_database_schemas();
+        assert_eq!(panel.current_view(), ContentView::Databases);
+        assert_eq!(panel.get_database_context(), None);
+    }
+
+    #[test]
+    fn test_schema_tables_drill_down() {
+        let mut panel = ContentPanel::new();
+        panel.set_view(ContentView::Databases);
+        panel.enter_database_schemas(1, "TestDB".to_string());
+
+        // Enter schema tables
+        panel.enter_schema_tables(1, "public".to_string());
+        assert_eq!(panel.current_view(), ContentView::SchemaTables);
+        assert_eq!(
+            panel.get_schema_context(),
+            Some(&(1_u32, "public".to_string()))
+        );
+
+        // Exit back to schemas
+        panel.exit_schema_tables();
+        assert_eq!(panel.current_view(), ContentView::DatabaseSchemas);
+        assert_eq!(panel.get_schema_context(), None);
+    }
+
+    // === Query Result Tests ===
+
+    #[test]
+    fn test_set_query_result() {
+        let mut panel = ContentPanel::new();
+        panel.set_view(ContentView::Questions);
+
+        let result_data = QueryResultData {
+            question_id: 1,
+            question_name: "Test Query".to_string(),
+            columns: vec!["ID".to_string(), "Name".to_string()],
+            rows: vec![
+                vec!["1".to_string(), "Alice".to_string()],
+                vec!["2".to_string(), "Bob".to_string()],
+            ],
+        };
+
+        panel.set_query_result(result_data.clone());
+
+        assert_eq!(panel.current_view(), ContentView::QueryResult);
+        assert!(panel.query_result.is_some());
+    }
+
+    #[test]
+    fn test_back_to_questions_clears_result() {
+        let mut panel = ContentPanel::new();
+        panel.set_view(ContentView::Questions);
+
+        let result_data = QueryResultData {
+            question_id: 1,
+            question_name: "Test Query".to_string(),
+            columns: vec!["ID".to_string()],
+            rows: vec![vec!["1".to_string()]],
+        };
+
+        panel.set_query_result(result_data);
+        assert!(panel.query_result.is_some());
+
+        panel.back_to_questions();
+        assert!(panel.query_result.is_none());
+        assert_eq!(panel.current_view(), ContentView::Questions);
+    }
+
+    // === Load State Tests ===
+
+    #[test]
+    fn test_update_questions_auto_selects_first() {
+        let mut panel = ContentPanel::new();
+
+        let questions = vec![Question {
+            id: 1,
+            name: "Q1".to_string(),
+            description: None,
+            collection_id: None,
+            collection: None,
+        }];
+
+        panel.update_questions(&LoadState::Loaded(questions));
+        assert_eq!(panel.table_state.selected(), Some(0));
+    }
+
+    #[test]
+    fn test_update_collections_auto_selects_first() {
+        let mut panel = ContentPanel::new();
+
+        let collections = vec![CollectionItem {
+            id: Some(1),
+            name: "C1".to_string(),
+            description: None,
+            location: None,
+            personal_owner_id: None,
+            archived: false,
+        }];
+
+        panel.update_collections(&LoadState::Loaded(collections));
+        assert_eq!(panel.collections_table_state.selected(), Some(0));
+    }
+
+    #[test]
+    fn test_update_databases_auto_selects_first() {
+        let mut panel = ContentPanel::new();
+
+        let databases = vec![Database {
+            id: 1,
+            name: "DB1".to_string(),
+            engine: Some("postgres".to_string()),
+            description: None,
+            is_sample: false,
+            is_saved_questions: false,
+        }];
+
+        panel.update_databases(&LoadState::Loaded(databases));
+        assert_eq!(panel.databases_table_state.selected(), Some(0));
+    }
+}
