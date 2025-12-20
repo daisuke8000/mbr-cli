@@ -57,11 +57,11 @@ pub enum AppAction {
     /// Execute a question query
     ExecuteQuestion(u32),
 
-    /// Query execution completed successfully
-    QueryResultLoaded(QueryResultData),
+    /// Query execution completed successfully (request_id, data)
+    QueryResultLoaded(u64, QueryResultData),
 
-    /// Query execution failed
-    QueryFailed(String),
+    /// Query execution failed (request_id, error)
+    QueryFailed(u64, String),
 
     /// Return to Questions list from query result view
     BackToQuestions,

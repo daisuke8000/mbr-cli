@@ -11,6 +11,8 @@ use mbr_core::core::services::types::ListParams;
 use mbr_core::storage::config::Config;
 use mbr_core::storage::credentials::get_api_key;
 
+use crate::components::QueryResultData;
+
 /// Generic loading state for async data.
 ///
 /// This enum enforces proper handling of all loading states at compile time,
@@ -70,6 +72,8 @@ pub struct AppData {
     pub questions: LoadState<Vec<Question>>,
     /// Current user information (if authenticated)
     pub current_user: Option<CurrentUser>,
+    /// Query result data (centralized storage)
+    pub query_result: Option<QueryResultData>,
 }
 
 /// Service client wrapper for async operations.
