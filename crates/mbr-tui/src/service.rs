@@ -5,7 +5,9 @@
 use std::sync::Arc;
 
 use mbr_core::api::client::MetabaseClient;
-use mbr_core::api::models::{CollectionItem, CurrentUser, Database, QueryResult, Question};
+use mbr_core::api::models::{
+    CollectionItem, CurrentUser, Database, QueryResult, Question, TableInfo,
+};
 use mbr_core::core::services::question_service::QuestionService;
 use mbr_core::core::services::types::ListParams;
 use mbr_core::storage::config::Config;
@@ -74,6 +76,10 @@ pub struct AppData {
     pub collections: LoadState<Vec<CollectionItem>>,
     /// Databases list with loading state
     pub databases: LoadState<Vec<Database>>,
+    /// Schemas list with loading state (for database drill-down)
+    pub schemas: LoadState<Vec<String>>,
+    /// Tables list with loading state (for schema drill-down)
+    pub tables: LoadState<Vec<TableInfo>>,
     /// Current user information (if authenticated)
     pub current_user: Option<CurrentUser>,
     /// Query result data (centralized storage)
@@ -185,6 +191,39 @@ impl ServiceClient {
             .list_databases()
             .await
             .map_err(|e| format!("Failed to fetch databases: {}", e))
+    }
+
+    /// Fetch schemas for a specific database
+    pub async fn fetch_schemas(&self, database_id: u32) -> Result<Vec<String>, String> {
+        self.client
+            .list_schemas(database_id)
+            .await
+            .map_err(|e| format!("Failed to fetch schemas: {}", e))
+    }
+
+    /// Fetch tables for a specific schema in a database
+    pub async fn fetch_tables(
+        &self,
+        database_id: u32,
+        schema: &str,
+    ) -> Result<Vec<TableInfo>, String> {
+        self.client
+            .list_tables(database_id, schema)
+            .await
+            .map_err(|e| format!("Failed to fetch tables: {}", e))
+    }
+
+    /// Preview table data (fetch sample rows)
+    pub async fn preview_table(
+        &self,
+        database_id: u32,
+        table_id: u32,
+        limit: u32,
+    ) -> Result<QueryResult, String> {
+        self.client
+            .preview_table(database_id, table_id, limit)
+            .await
+            .map_err(|e| format!("Failed to preview table: {}", e))
     }
 }
 

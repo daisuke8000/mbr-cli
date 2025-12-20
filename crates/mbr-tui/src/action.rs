@@ -6,7 +6,7 @@
 // Allow unused variants as they are designed for Phase 4+ implementation
 #![allow(dead_code)]
 
-use mbr_core::api::models::{CollectionItem, CurrentUser, Database, Question};
+use mbr_core::api::models::{CollectionItem, CurrentUser, Database, Question, TableInfo};
 
 use crate::components::QueryResultData;
 
@@ -78,6 +78,34 @@ pub enum AppAction {
 
     /// Return to Collections list from collection questions view
     BackToCollections,
+
+    // === Database Drill-down (Phase 3) ===
+    /// Drill down into a database to view its schemas
+    DrillDownDatabase(u32, String), // (database_id, database_name)
+
+    /// Drill down into a schema to view its tables
+    DrillDownSchema(String), // schema_name (database_id from context)
+
+    /// Drill down into a table to preview its data
+    DrillDownTable(u32, String), // (table_id, table_name)
+
+    /// Return to Databases list from schemas view
+    BackToDatabases,
+
+    /// Return to schemas list from tables view
+    BackToSchemas,
+
+    /// Return to tables list from table preview view
+    BackToTables,
+
+    /// Schemas loaded successfully from API
+    SchemasLoaded(Vec<String>),
+
+    /// Tables loaded successfully from API
+    TablesLoaded(Vec<TableInfo>),
+
+    /// Table preview data loaded successfully
+    TablePreviewLoaded(QueryResultData),
 }
 
 /// Target content views for navigation
@@ -112,6 +140,12 @@ pub enum DataRequest {
     Execute(u32),
     /// Refresh current data
     Refresh,
+    /// Load schemas for a database
+    Schemas(u32), // database_id
+    /// Load tables for a schema
+    Tables(u32, String), // (database_id, schema_name)
+    /// Preview table data
+    TablePreview(u32, u32), // (database_id, table_id)
 }
 
 impl From<usize> for ContentTarget {

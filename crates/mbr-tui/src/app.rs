@@ -292,6 +292,93 @@ impl App {
                 self.content.exit_collection_questions();
                 self.status_bar.set_message("Returned to Collections list");
             }
+
+            // === Database Drill-down ===
+            AppAction::DrillDownDatabase(database_id, database_name) => {
+                // Enter database schemas view
+                self.content
+                    .enter_database_schemas(database_id, database_name.clone());
+                self.status_bar
+                    .set_message(format!("Viewing schemas in '{}'", database_name));
+                // Trigger data load
+                let _ = self
+                    .action_tx
+                    .send(AppAction::LoadData(DataRequest::Schemas(database_id)));
+            }
+            AppAction::BackToDatabases => {
+                // Exit database schemas view
+                self.content.exit_database_schemas();
+                self.status_bar.set_message("Returned to Databases list");
+            }
+            AppAction::DrillDownSchema(schema_name) => {
+                // Get database_id from context (clone to avoid borrow conflicts)
+                if let Some(database_id) = self.content.get_database_context().map(|(id, _)| *id) {
+                    // Enter schema tables view
+                    self.content
+                        .enter_schema_tables(database_id, schema_name.clone());
+                    self.status_bar
+                        .set_message(format!("Viewing tables in '{}'", schema_name));
+                    // Trigger data load
+                    let _ = self.action_tx.send(AppAction::LoadData(DataRequest::Tables(
+                        database_id,
+                        schema_name,
+                    )));
+                }
+            }
+            AppAction::BackToSchemas => {
+                // Exit schema tables view
+                self.content.exit_schema_tables();
+                self.status_bar.set_message("Returned to Schemas list");
+            }
+            AppAction::DrillDownTable(table_id, table_name) => {
+                // Get database_id from context (clone to avoid borrow conflicts)
+                if let Some(database_id) = self.content.get_schema_context().map(|(id, _)| *id) {
+                    // Enter table preview view
+                    self.content
+                        .enter_table_preview(database_id, table_id, table_name.clone());
+                    self.status_bar
+                        .set_message(format!("Loading preview for '{}'...", table_name));
+                    // Trigger data load
+                    let _ = self
+                        .action_tx
+                        .send(AppAction::LoadData(DataRequest::TablePreview(
+                            database_id,
+                            table_id,
+                        )));
+                }
+            }
+            AppAction::BackToTables => {
+                // Exit table preview view
+                self.content.exit_table_preview();
+                self.status_bar.set_message("Returned to Tables list");
+            }
+            AppAction::SchemasLoaded(schemas) => {
+                // Store schemas in data
+                self.data.schemas = LoadState::Loaded(schemas.clone());
+                // Sync to content panel
+                self.content.update_schemas(&self.data.schemas);
+                // Update status
+                self.status_bar
+                    .set_message(format!("Loaded {} schemas", schemas.len()));
+            }
+            AppAction::TablesLoaded(tables) => {
+                // Store tables in data
+                self.data.tables = LoadState::Loaded(tables.clone());
+                // Sync to content panel
+                self.content.update_tables(&self.data.tables);
+                // Update status
+                self.status_bar
+                    .set_message(format!("Loaded {} tables", tables.len()));
+            }
+            AppAction::TablePreviewLoaded(data) => {
+                // Store query result for table preview
+                self.data.query_result = Some(data.clone());
+                // Set the query result in content panel (uses shared rendering)
+                self.content.set_table_preview_data(data.clone());
+                // Update status
+                self.status_bar
+                    .set_message(format!("Preview: {} rows loaded", data.rows.len()));
+            }
         }
     }
 
@@ -448,6 +535,112 @@ impl App {
                 self.status_bar
                     .set_message(format!("Executing query #{}...", id));
                 // Actual execution is handled through ExecuteQuestion action
+            }
+            DataRequest::Schemas(database_id) => {
+                // Guard: prevent duplicate requests while loading
+                if matches!(self.data.schemas, LoadState::Loading) {
+                    return;
+                }
+
+                // Set loading state
+                self.data.schemas = LoadState::Loading;
+                // Sync to content panel for display
+                self.content.update_schemas(&self.data.schemas);
+                self.status_bar.set_message("Loading schemas...");
+
+                // Spawn background task
+                tokio::spawn(async move {
+                    match service.fetch_schemas(database_id).await {
+                        Ok(schemas) => {
+                            let _ = tx.send(AppAction::SchemasLoaded(schemas));
+                        }
+                        Err(e) => {
+                            let _ = tx
+                                .send(AppAction::LoadFailed(DataRequest::Schemas(database_id), e));
+                        }
+                    }
+                });
+            }
+            DataRequest::Tables(database_id, ref schema_name) => {
+                // Guard: prevent duplicate requests while loading
+                if matches!(self.data.tables, LoadState::Loading) {
+                    return;
+                }
+
+                // Set loading state
+                self.data.tables = LoadState::Loading;
+                // Sync to content panel for display
+                self.content.update_tables(&self.data.tables);
+                self.status_bar
+                    .set_message(format!("Loading tables in '{}'...", schema_name));
+
+                let schema = schema_name.clone();
+
+                // Spawn background task
+                tokio::spawn(async move {
+                    match service.fetch_tables(database_id, &schema).await {
+                        Ok(tables) => {
+                            let _ = tx.send(AppAction::TablesLoaded(tables));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppAction::LoadFailed(
+                                DataRequest::Tables(database_id, schema),
+                                e,
+                            ));
+                        }
+                    }
+                });
+            }
+            DataRequest::TablePreview(database_id, table_id) => {
+                // Set status message
+                self.status_bar.set_message("Loading table preview...");
+
+                // Spawn background task
+                tokio::spawn(async move {
+                    match service.preview_table(database_id, table_id, 100).await {
+                        Ok(result) => {
+                            // Convert QueryResult to QueryResultData
+                            let columns: Vec<String> = result
+                                .data
+                                .cols
+                                .iter()
+                                .map(|c| c.display_name.clone())
+                                .collect();
+
+                            let rows: Vec<Vec<String>> = result
+                                .data
+                                .rows
+                                .iter()
+                                .map(|row| {
+                                    row.iter()
+                                        .map(|v| match v {
+                                            serde_json::Value::Null => "—".to_string(),
+                                            serde_json::Value::Bool(b) => b.to_string(),
+                                            serde_json::Value::Number(n) => n.to_string(),
+                                            serde_json::Value::String(s) => s.clone(),
+                                            _ => v.to_string(),
+                                        })
+                                        .collect()
+                                })
+                                .collect();
+
+                            let result_data = QueryResultData {
+                                question_id: table_id,
+                                question_name: format!("Table #{}", table_id),
+                                columns,
+                                rows,
+                            };
+
+                            let _ = tx.send(AppAction::TablePreviewLoaded(result_data));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppAction::LoadFailed(
+                                DataRequest::TablePreview(database_id, table_id),
+                                e,
+                            ));
+                        }
+                    }
+                });
             }
         }
     }
@@ -632,6 +825,15 @@ impl App {
                 } else if self.content.current_view() == ContentView::CollectionQuestions {
                     // Return to Collections list from collection questions view
                     let _ = self.action_tx.send(AppAction::BackToCollections);
+                } else if self.content.current_view() == ContentView::DatabaseSchemas {
+                    // Return to Databases list from schemas view
+                    let _ = self.action_tx.send(AppAction::BackToDatabases);
+                } else if self.content.current_view() == ContentView::SchemaTables {
+                    // Return to Schemas list from tables view
+                    let _ = self.action_tx.send(AppAction::BackToSchemas);
+                } else if self.content.current_view() == ContentView::TablePreview {
+                    // Return to Tables list from preview view
+                    let _ = self.action_tx.send(AppAction::BackToTables);
                 } else if self.content.get_active_search().is_some() {
                     // Clear active search and reload all questions
                     self.content.clear_search();
@@ -731,6 +933,43 @@ impl App {
             if let Some((columns, values)) = self.content.get_selected_record() {
                 self.record_detail = Some(RecordDetailOverlay::new(columns, values));
                 self.show_record_detail = true;
+                return;
+            }
+        }
+
+        // Handle Enter in TablePreview view to show record detail
+        if code == KeyCode::Enter && self.content.current_view() == ContentView::TablePreview {
+            if let Some((columns, values)) = self.content.get_selected_record() {
+                self.record_detail = Some(RecordDetailOverlay::new(columns, values));
+                self.show_record_detail = true;
+                return;
+            }
+        }
+
+        // Handle Enter in Databases view to drill down into database schemas
+        if code == KeyCode::Enter && self.content.current_view() == ContentView::Databases {
+            if let Some((database_id, database_name)) = self.content.get_selected_database_info() {
+                let _ = self
+                    .action_tx
+                    .send(AppAction::DrillDownDatabase(database_id, database_name));
+                return;
+            }
+        }
+
+        // Handle Enter in DatabaseSchemas view to drill down into schema tables
+        if code == KeyCode::Enter && self.content.current_view() == ContentView::DatabaseSchemas {
+            if let Some(schema_name) = self.content.get_selected_schema() {
+                let _ = self.action_tx.send(AppAction::DrillDownSchema(schema_name));
+                return;
+            }
+        }
+
+        // Handle Enter in SchemaTables view to preview table data
+        if code == KeyCode::Enter && self.content.current_view() == ContentView::SchemaTables {
+            if let Some((table_id, table_name)) = self.content.get_selected_table_info() {
+                let _ = self
+                    .action_tx
+                    .send(AppAction::DrillDownTable(table_id, table_name));
                 return;
             }
         }

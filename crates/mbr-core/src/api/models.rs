@@ -87,6 +87,18 @@ pub struct Database {
     pub is_saved_questions: bool,
 }
 
+/// Table/Field info from /api/database/:id/schema/:schema
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct TableInfo {
+    pub id: u32,
+    pub name: String,
+    pub schema: Option<String>,
+    pub display_name: Option<String>,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub entity_type: Option<String>,
+}
+
 /// Search API response wrapper from /api/search
 #[derive(Debug, Deserialize, Clone)]
 pub struct SearchResponse {
