@@ -63,11 +63,13 @@ impl Default for App {
 impl App {
     /// Check if any modal is active that should block global navigation.
     ///
-    /// When a modal (sort, filter, or future search) is active, global shortcuts
+    /// When a modal (sort, filter, or search) is active, global shortcuts
     /// like tab switching (1/2/3), help (?), and Tab should be blocked to prevent
     /// accidental navigation while the user is focused on the modal.
     fn is_modal_active(&self) -> bool {
-        self.content.is_sort_mode_active() || self.content.is_filter_mode_active()
+        self.content.is_sort_mode_active()
+            || self.content.is_filter_mode_active()
+            || self.content.is_result_search_active()
     }
 
     /// Create a new application instance.
@@ -898,7 +900,7 @@ impl App {
                 return;
             }
             // Refresh data with 'r' - reloads current view's data
-            KeyCode::Char('r') => {
+            KeyCode::Char('r') if !self.is_modal_active() => {
                 let request = match self.content.current_view() {
                     ContentView::Questions => DataRequest::Questions,
                     ContentView::Collections => DataRequest::Collections,
@@ -1079,7 +1081,7 @@ impl App {
 
         // Draw record detail overlay if visible
         if self.show_record_detail {
-            if let Some(ref detail) = self.record_detail {
+            if let Some(ref mut detail) = self.record_detail {
                 detail.render(frame, size);
             }
         }

@@ -7,7 +7,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Flex, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Paragraph},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -17,7 +17,9 @@ pub struct RecordDetailOverlay {
     columns: Vec<String>,
     /// Row values
     values: Vec<String>,
-    /// Current scroll offset
+    /// Currently selected field index (cursor position)
+    selected_index: usize,
+    /// Scroll offset for viewport management
     scroll_offset: usize,
 }
 
@@ -27,30 +29,45 @@ impl RecordDetailOverlay {
         Self {
             columns,
             values,
+            selected_index: 0,
             scroll_offset: 0,
         }
     }
 
-    /// Scroll up by one line.
+    /// Move cursor up by one line.
     pub fn scroll_up(&mut self) {
-        self.scroll_offset = self.scroll_offset.saturating_sub(1);
+        if self.selected_index > 0 {
+            self.selected_index -= 1;
+        }
     }
 
-    /// Scroll down by one line.
+    /// Move cursor down by one line.
     pub fn scroll_down(&mut self) {
-        let max_scroll = self.columns.len().saturating_sub(1);
-        if self.scroll_offset < max_scroll {
-            self.scroll_offset += 1;
+        let max_index = self.columns.len().saturating_sub(1);
+        if self.selected_index < max_index {
+            self.selected_index += 1;
         }
     }
 
     /// Render the record detail overlay centered on screen.
-    pub fn render(&self, frame: &mut Frame, area: Rect) {
+    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         // Calculate centered popup area (70% width, 80% height)
         let popup_area = Self::centered_rect(70, 80, area);
 
         // Clear the background
         frame.render_widget(Clear, popup_area);
+
+        // Calculate visible area height (subtract borders, title, footer, help)
+        // Border top (1) + empty line (1) + fields + empty line (1) + info (1) + empty line (1) + help (1) + border bottom (1)
+        let content_height = popup_area.height.saturating_sub(8) as usize;
+        let visible_fields = content_height.max(1);
+
+        // Adjust scroll offset to keep selected item visible
+        if self.selected_index < self.scroll_offset {
+            self.scroll_offset = self.selected_index;
+        } else if self.selected_index >= self.scroll_offset + visible_fields {
+            self.scroll_offset = self.selected_index.saturating_sub(visible_fields - 1);
+        }
 
         // Build content lines
         let mut lines: Vec<Line> = Vec::new();
@@ -66,12 +83,12 @@ impl RecordDetailOverlay {
             .unwrap_or(0)
             .min(24); // Cap at 24 display width
 
-        // Add each field as a line
-        for (i, (col, val)) in self.columns.iter().zip(self.values.iter()).enumerate() {
-            // Skip if before scroll offset
-            if i < self.scroll_offset {
-                continue;
-            }
+        // Add each field as a line (only visible range)
+        let end_index = (self.scroll_offset + visible_fields).min(self.columns.len());
+        for i in self.scroll_offset..end_index {
+            let col = &self.columns[i];
+            let val = &self.values[i];
+            let is_selected = i == self.selected_index;
 
             // Truncate column name if too long (use display width for Unicode)
             let col_width = col.width();
@@ -86,35 +103,77 @@ impl RecordDetailOverlay {
             let padding = max_col_width.saturating_sub(display_width);
             let padded_col = format!("{}{}", " ".repeat(padding), col_display);
 
-            // Format value - show full content (Wrap handles line breaks)
+            // Format value - show full content
             let val_display = if val.is_empty() {
                 "(empty)".to_string()
             } else {
-                val.clone()
+                // Truncate long values for display
+                let max_val_width =
+                    popup_area.width.saturating_sub(max_col_width as u16 + 10) as usize;
+                if val.width() > max_val_width {
+                    Self::truncate_to_width(val, max_val_width)
+                } else {
+                    val.clone()
+                }
             };
 
-            lines.push(Line::from(vec![
-                Span::raw("  "),
-                Span::styled(
-                    padded_col,
+            // Apply styles based on selection
+            let (prefix, col_style, separator_style, val_style) = if is_selected {
+                (
+                    "► ",
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(Color::Black).bg(Color::Cyan),
+                    Style::default().fg(Color::Black).bg(Color::Cyan),
+                )
+            } else {
+                (
+                    "  ",
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
+                    Style::default().fg(Color::DarkGray),
+                    Style::default(),
+                )
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(
+                    prefix,
+                    if is_selected {
+                        Style::default().bg(Color::Cyan)
+                    } else {
+                        Style::default()
+                    },
                 ),
-                Span::styled(" : ", Style::default().fg(Color::DarkGray)),
-                Span::raw(val_display),
+                Span::styled(padded_col, col_style),
+                Span::styled(" : ", separator_style),
+                Span::styled(val_display, val_style),
             ]));
         }
 
         lines.push(Line::from(""));
 
-        // Scroll indicator
+        // Scroll/position indicator
         let total_fields = self.columns.len();
         let scroll_info = if total_fields > 0 {
+            let scroll_indicator = if total_fields > visible_fields {
+                format!(
+                    " (scroll {}-{}/{})",
+                    self.scroll_offset + 1,
+                    end_index,
+                    total_fields
+                )
+            } else {
+                String::new()
+            };
             format!(
-                "  Field {}/{} ",
-                (self.scroll_offset + 1).min(total_fields),
-                total_fields
+                "  Field {}/{}{}",
+                self.selected_index + 1,
+                total_fields,
+                scroll_indicator
             )
         } else {
             "  No fields".to_string()
@@ -129,8 +188,8 @@ impl RecordDetailOverlay {
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::styled("  [", Style::default().fg(Color::DarkGray)),
-            Span::styled("↑↓", Style::default().fg(Color::Yellow)),
-            Span::styled(" Scroll] [", Style::default().fg(Color::DarkGray)),
+            Span::styled("↑↓/jk", Style::default().fg(Color::Yellow)),
+            Span::styled(" Move] [", Style::default().fg(Color::DarkGray)),
             Span::styled("Esc/Enter", Style::default().fg(Color::Yellow)),
             Span::styled(" Close]", Style::default().fg(Color::DarkGray)),
         ]));
@@ -144,8 +203,7 @@ impl RecordDetailOverlay {
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan)),
             )
-            .alignment(Alignment::Left)
-            .wrap(Wrap { trim: false });
+            .alignment(Alignment::Left);
 
         frame.render_widget(detail_text, popup_area);
     }
