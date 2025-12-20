@@ -13,6 +13,7 @@ use ratatui::{
 
 use mbr_core::api::models::{CollectionItem, Database, Question, TableInfo};
 
+use super::state_renderer::{LoadStateConfig, render_non_loaded_state};
 use super::{Component, ScrollState};
 use crate::layout::questions_table::{COLLECTION_WIDTH, ID_WIDTH, NAME_MIN_WIDTH};
 use crate::service::LoadState;
@@ -2240,272 +2241,166 @@ impl ContentPanel {
 
     /// Render collections view with table.
     fn render_collections(&mut self, area: Rect, frame: &mut Frame, focused: bool) {
-        let border_style = if focused {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default().fg(Color::DarkGray)
+        let config = LoadStateConfig::new(" Collections ", focused)
+            .with_idle_message("Press 'r' to load collections")
+            .with_loading_message("Loading collections...");
+
+        // Handle non-loaded states with helper
+        if render_non_loaded_state(frame, area, &self.collections, &config) {
+            return;
+        }
+
+        // Handle Loaded state
+        let collections = match &self.collections {
+            LoadState::Loaded(c) => c,
+            _ => return,
         };
 
-        match &self.collections {
-            LoadState::Idle => {
-                let paragraph = Paragraph::new(vec![
-                    Line::from(""),
-                    Line::from(Span::styled(
-                        "  Press 'r' to load collections",
-                        Style::default().fg(Color::DarkGray),
-                    )),
-                ])
-                .block(
-                    Block::default()
-                        .title(" Collections ")
-                        .borders(Borders::ALL)
-                        .border_style(border_style),
-                );
-                frame.render_widget(paragraph, area);
-            }
-            LoadState::Loading => {
-                let paragraph = Paragraph::new(vec![
-                    Line::from(""),
-                    Line::from(Span::styled(
-                        "  ⏳ Loading collections...",
-                        Style::default().fg(Color::Yellow),
-                    )),
-                ])
-                .block(
-                    Block::default()
-                        .title(" Collections ")
-                        .borders(Borders::ALL)
-                        .border_style(border_style),
-                );
-                frame.render_widget(paragraph, area);
-            }
-            LoadState::Error(msg) => {
-                let paragraph = Paragraph::new(vec![
-                    Line::from(""),
-                    Line::from(Span::styled(
-                        format!("  ❌ Error: {}", msg),
-                        Style::default().fg(Color::Red),
-                    )),
-                    Line::from(""),
-                    Line::from(Span::styled(
-                        "  Press 'r' to retry",
-                        Style::default().fg(Color::DarkGray),
-                    )),
-                ])
-                .block(
-                    Block::default()
-                        .title(" Collections ")
-                        .borders(Borders::ALL)
-                        .border_style(border_style),
-                );
-                frame.render_widget(paragraph, area);
-            }
-            LoadState::Loaded(collections) => {
-                if collections.is_empty() {
-                    let paragraph = Paragraph::new(vec![
-                        Line::from(""),
-                        Line::from(Span::styled(
-                            "  No collections found",
-                            Style::default().fg(Color::DarkGray),
-                        )),
-                    ])
-                    .block(
-                        Block::default()
-                            .title(" Collections (0) ")
-                            .borders(Borders::ALL)
-                            .border_style(border_style),
-                    );
-                    frame.render_widget(paragraph, area);
-                } else {
-                    // Create table rows
-                    let rows: Vec<Row> = collections
-                        .iter()
-                        .map(|c| {
-                            let id_str =
-                                c.id.map(|id| id.to_string())
-                                    .unwrap_or_else(|| "—".to_string());
-                            let desc = c.description.as_deref().unwrap_or("—");
-                            let location = c.location.as_deref().unwrap_or("/");
+        let border_style = config.border_style;
 
-                            Row::new(vec![
-                                Cell::from(id_str),
-                                Cell::from(c.name.clone()),
-                                Cell::from(location.to_string()),
-                                Cell::from(desc.to_string()),
-                            ])
-                        })
-                        .collect();
-
-                    let table = Table::new(
-                        rows,
-                        [
-                            Constraint::Length(ID_WIDTH),
-                            Constraint::Min(NAME_MIN_WIDTH),
-                            Constraint::Length(15), // Location
-                            Constraint::Min(20),    // Description
-                        ],
-                    )
-                    .header(
-                        Row::new(vec!["ID", "Name", "Location", "Description"])
-                            .style(
-                                Style::default()
-                                    .fg(Color::Yellow)
-                                    .add_modifier(Modifier::BOLD),
-                            )
-                            .bottom_margin(1),
-                    )
-                    .block(
-                        Block::default()
-                            .title(format!(" Collections ({}) ", collections.len()))
-                            .borders(Borders::ALL)
-                            .border_style(border_style),
-                    )
-                    .row_highlight_style(
-                        Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                    .highlight_symbol("► ");
-
-                    frame.render_stateful_widget(table, area, &mut self.collections_table_state);
-                }
-            }
+        if collections.is_empty() {
+            super::state_renderer::render_empty(
+                frame,
+                area,
+                &LoadStateConfig::new(" Collections (0) ", focused),
+                "No collections found",
+            );
+            return;
         }
+
+        // Create table rows
+        let rows: Vec<Row> = collections
+            .iter()
+            .map(|c| {
+                let id_str =
+                    c.id.map(|id| id.to_string())
+                        .unwrap_or_else(|| "—".to_string());
+                let desc = c.description.as_deref().unwrap_or("—");
+                let location = c.location.as_deref().unwrap_or("/");
+
+                Row::new(vec![
+                    Cell::from(id_str),
+                    Cell::from(c.name.clone()),
+                    Cell::from(location.to_string()),
+                    Cell::from(desc.to_string()),
+                ])
+            })
+            .collect();
+
+        let table = Table::new(
+            rows,
+            [
+                Constraint::Length(ID_WIDTH),
+                Constraint::Min(NAME_MIN_WIDTH),
+                Constraint::Length(15), // Location
+                Constraint::Min(20),    // Description
+            ],
+        )
+        .header(
+            Row::new(vec!["ID", "Name", "Location", "Description"])
+                .style(
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .bottom_margin(1),
+        )
+        .block(
+            Block::default()
+                .title(format!(" Collections ({}) ", collections.len()))
+                .borders(Borders::ALL)
+                .border_style(border_style),
+        )
+        .row_highlight_style(
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("► ");
+
+        frame.render_stateful_widget(table, area, &mut self.collections_table_state);
     }
 
     /// Render databases view with table.
     fn render_databases(&mut self, area: Rect, frame: &mut Frame, focused: bool) {
-        let border_style = if focused {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default().fg(Color::DarkGray)
+        let config = LoadStateConfig::new(" Databases ", focused)
+            .with_idle_message("Press 'r' to load databases")
+            .with_loading_message("Loading databases...");
+
+        // Handle non-loaded states with helper
+        if render_non_loaded_state(frame, area, &self.databases, &config) {
+            return;
+        }
+
+        // Handle Loaded state
+        let databases = match &self.databases {
+            LoadState::Loaded(d) => d,
+            _ => return,
         };
 
-        match &self.databases {
-            LoadState::Idle => {
-                let paragraph = Paragraph::new(vec![
-                    Line::from(""),
-                    Line::from(Span::styled(
-                        "  Press 'r' to load databases",
-                        Style::default().fg(Color::DarkGray),
-                    )),
-                ])
-                .block(
-                    Block::default()
-                        .title(" Databases ")
-                        .borders(Borders::ALL)
-                        .border_style(border_style),
-                );
-                frame.render_widget(paragraph, area);
-            }
-            LoadState::Loading => {
-                let paragraph = Paragraph::new(vec![
-                    Line::from(""),
-                    Line::from(Span::styled(
-                        "  ⏳ Loading databases...",
-                        Style::default().fg(Color::Yellow),
-                    )),
-                ])
-                .block(
-                    Block::default()
-                        .title(" Databases ")
-                        .borders(Borders::ALL)
-                        .border_style(border_style),
-                );
-                frame.render_widget(paragraph, area);
-            }
-            LoadState::Error(msg) => {
-                let paragraph = Paragraph::new(vec![
-                    Line::from(""),
-                    Line::from(Span::styled(
-                        format!("  ❌ Error: {}", msg),
-                        Style::default().fg(Color::Red),
-                    )),
-                    Line::from(""),
-                    Line::from(Span::styled(
-                        "  Press 'r' to retry",
-                        Style::default().fg(Color::DarkGray),
-                    )),
-                ])
-                .block(
-                    Block::default()
-                        .title(" Databases ")
-                        .borders(Borders::ALL)
-                        .border_style(border_style),
-                );
-                frame.render_widget(paragraph, area);
-            }
-            LoadState::Loaded(databases) => {
-                if databases.is_empty() {
-                    let paragraph = Paragraph::new(vec![
-                        Line::from(""),
-                        Line::from(Span::styled(
-                            "  No databases found",
-                            Style::default().fg(Color::DarkGray),
-                        )),
-                    ])
-                    .block(
-                        Block::default()
-                            .title(" Databases (0) ")
-                            .borders(Borders::ALL)
-                            .border_style(border_style),
-                    );
-                    frame.render_widget(paragraph, area);
-                } else {
-                    // Create table rows
-                    let rows: Vec<Row> = databases
-                        .iter()
-                        .map(|db| {
-                            let engine = db.engine.as_deref().unwrap_or("—");
-                            let desc = db.description.as_deref().unwrap_or("—");
-                            let sample_marker = if db.is_sample { " (sample)" } else { "" };
+        let border_style = config.border_style;
 
-                            Row::new(vec![
-                                Cell::from(format!("{}", db.id)),
-                                Cell::from(format!("{}{}", db.name, sample_marker)),
-                                Cell::from(engine.to_string()),
-                                Cell::from(desc.to_string()),
-                            ])
-                        })
-                        .collect();
-
-                    let table = Table::new(
-                        rows,
-                        [
-                            Constraint::Length(ID_WIDTH),
-                            Constraint::Min(NAME_MIN_WIDTH),
-                            Constraint::Length(15), // Engine
-                            Constraint::Min(20),    // Description
-                        ],
-                    )
-                    .header(
-                        Row::new(vec!["ID", "Name", "Engine", "Description"])
-                            .style(
-                                Style::default()
-                                    .fg(Color::Yellow)
-                                    .add_modifier(Modifier::BOLD),
-                            )
-                            .bottom_margin(1),
-                    )
-                    .block(
-                        Block::default()
-                            .title(format!(" Databases ({}) ", databases.len()))
-                            .borders(Borders::ALL)
-                            .border_style(border_style),
-                    )
-                    .row_highlight_style(
-                        Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                    .highlight_symbol("► ");
-
-                    frame.render_stateful_widget(table, area, &mut self.databases_table_state);
-                }
-            }
+        if databases.is_empty() {
+            super::state_renderer::render_empty(
+                frame,
+                area,
+                &LoadStateConfig::new(" Databases (0) ", focused),
+                "No databases found",
+            );
+            return;
         }
+
+        // Create table rows
+        let rows: Vec<Row> = databases
+            .iter()
+            .map(|db| {
+                let engine = db.engine.as_deref().unwrap_or("—");
+                let desc = db.description.as_deref().unwrap_or("—");
+                let sample_marker = if db.is_sample { " (sample)" } else { "" };
+
+                Row::new(vec![
+                    Cell::from(format!("{}", db.id)),
+                    Cell::from(format!("{}{}", db.name, sample_marker)),
+                    Cell::from(engine.to_string()),
+                    Cell::from(desc.to_string()),
+                ])
+            })
+            .collect();
+
+        let table = Table::new(
+            rows,
+            [
+                Constraint::Length(ID_WIDTH),
+                Constraint::Min(NAME_MIN_WIDTH),
+                Constraint::Length(15), // Engine
+                Constraint::Min(20),    // Description
+            ],
+        )
+        .header(
+            Row::new(vec!["ID", "Name", "Engine", "Description"])
+                .style(
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .bottom_margin(1),
+        )
+        .block(
+            Block::default()
+                .title(format!(" Databases ({}) ", databases.len()))
+                .borders(Borders::ALL)
+                .border_style(border_style),
+        )
+        .row_highlight_style(
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("► ");
+
+        frame.render_stateful_widget(table, area, &mut self.databases_table_state);
     }
 
     /// Render collection questions view with table.
