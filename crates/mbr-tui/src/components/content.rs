@@ -8,7 +8,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Wrap},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap},
 };
 
 use mbr_core::api::models::{CollectionItem, Database, Question, TableInfo};
@@ -1464,6 +1464,9 @@ impl ContentPanel {
         let bar_y = area.y + area.height.saturating_sub(bar_height);
         let bar_area = Rect::new(area.x, bar_y, area.width, bar_height);
 
+        // Clear background for better visibility
+        frame.render_widget(Clear, bar_area);
+
         // Build search display
         let total = self
             .query_result
@@ -1551,9 +1554,8 @@ impl ContentPanel {
             modal_height,
         );
 
-        // Create background overlay
-        let overlay = Block::default().style(Style::default().bg(Color::Black));
-        frame.render_widget(overlay, modal_area);
+        // Clear background for better visibility
+        frame.render_widget(Clear, modal_area);
 
         // Build column list items
         let items: Vec<Line> = result
@@ -1635,9 +1637,8 @@ impl ContentPanel {
             modal_height,
         );
 
-        // Create background overlay
-        let overlay = Block::default().style(Style::default().bg(Color::Black));
-        frame.render_widget(overlay, modal_area);
+        // Clear background for better visibility
+        frame.render_widget(Clear, modal_area);
 
         // Get column name for title
         let col_name = result
@@ -1725,9 +1726,8 @@ impl ContentPanel {
             modal_height,
         );
 
-        // Create background overlay (semi-transparent effect via clearing)
-        let overlay = Block::default().style(Style::default().bg(Color::Black));
-        frame.render_widget(overlay, modal_area);
+        // Clear background for better visibility
+        frame.render_widget(Clear, modal_area);
 
         // Build column list items
         let items: Vec<Line> = result
