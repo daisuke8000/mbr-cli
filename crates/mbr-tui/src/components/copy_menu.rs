@@ -18,24 +18,40 @@ pub struct CopyMenu {
     selected: usize,
     /// Whether to include header row (for CSV/TSV)
     include_header: bool,
-    /// Record column names
-    columns: Vec<String>,
-    /// Record values
-    values: Vec<String>,
+    /// Multiple records for multi-select copy
+    records: Vec<(Vec<String>, Vec<String>)>,
 }
 
 /// Available format options
 const FORMATS: [CopyFormat; 3] = [CopyFormat::Json, CopyFormat::Csv, CopyFormat::Tsv];
 
 impl CopyMenu {
-    /// Create a new copy menu with record data.
+    /// Create a new copy menu with single record data.
     pub fn new(columns: Vec<String>, values: Vec<String>) -> Self {
         Self {
             selected: 0,
             include_header: true,
-            columns,
-            values,
+            records: vec![(columns, values)],
         }
+    }
+
+    /// Create a new copy menu with multiple records.
+    pub fn new_multi(records: Vec<(Vec<String>, Vec<String>)>) -> Self {
+        Self {
+            selected: 0,
+            include_header: true,
+            records,
+        }
+    }
+
+    /// Get the number of records.
+    pub fn record_count(&self) -> usize {
+        self.records.len()
+    }
+
+    /// Check if this is a multi-record copy.
+    pub fn is_multi(&self) -> bool {
+        self.records.len() > 1
     }
 
     /// Move selection up.
@@ -67,9 +83,18 @@ impl CopyMenu {
         self.include_header
     }
 
-    /// Get record data (columns and values).
+    /// Get single record data (columns and values).
+    /// For multi-record, returns the first record.
     pub fn record_data(&self) -> (&[String], &[String]) {
-        (&self.columns, &self.values)
+        self.records
+            .first()
+            .map(|(cols, vals)| (cols.as_slice(), vals.as_slice()))
+            .unwrap_or((&[], &[]))
+    }
+
+    /// Get all records data (for multi-record copy).
+    pub fn records_data(&self) -> &[(Vec<String>, Vec<String>)] {
+        &self.records
     }
 
     /// Render the copy menu as a centered overlay.
@@ -140,10 +165,17 @@ impl CopyMenu {
             Span::styled(" Cancel]", Style::default().fg(Color::DarkGray)),
         ]));
 
+        // Dynamic title based on record count
+        let title = if self.is_multi() {
+            format!(" Copy {} Records ", self.record_count())
+        } else {
+            " Copy Record ".to_string()
+        };
+
         let paragraph = Paragraph::new(lines)
             .block(
                 Block::default()
-                    .title(" Copy Record ")
+                    .title(title)
                     .title_alignment(Alignment::Center)
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan)),

@@ -3,7 +3,7 @@
 //! Implements the Component trait's handle_key method with view-specific
 //! key bindings for navigation, search, sort, filter, and modal interactions.
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::ContentPanel;
 use super::types::{ContentView, InputMode};
@@ -347,12 +347,115 @@ impl ContentPanel {
 
     /// Handle result table navigation keys.
     fn handle_result_navigation_key(&mut self, key: KeyEvent) -> bool {
+        // Check for modifier keys first
+        let has_shift = key.modifiers.contains(KeyModifiers::SHIFT);
+        let has_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+
+        // Multi-select: Ctrl+A for select all
+        if has_ctrl && key.code == KeyCode::Char('a') {
+            self.select_all_rows();
+            return true;
+        }
+
+        // Range selection: Shift+Arrow/Home/End/PageUp/PageDown
+        if has_shift {
+            match key.code {
+                KeyCode::Up => {
+                    // Move cursor up and extend selection
+                    if let Some(current) = self.result_table_state.selected() {
+                        let new_pos = current.saturating_sub(1);
+                        let global_idx = self.result_page * self.rows_per_page + new_pos;
+                        self.extend_selection_to(global_idx);
+                        self.result_table_state.select(Some(new_pos));
+                    }
+                    return true;
+                }
+                KeyCode::Down => {
+                    // Move cursor down and extend selection
+                    if let Some(current) = self.result_table_state.selected() {
+                        let visible = self.get_visible_row_count();
+                        let page_size = self
+                            .rows_per_page
+                            .min(visible.saturating_sub(self.result_page * self.rows_per_page));
+                        let new_pos = (current + 1).min(page_size.saturating_sub(1));
+                        let global_idx = self.result_page * self.rows_per_page + new_pos;
+                        self.extend_selection_to(global_idx);
+                        self.result_table_state.select(Some(new_pos));
+                    }
+                    return true;
+                }
+                KeyCode::Home => {
+                    // Extend selection to first row
+                    self.extend_selection_to(0);
+                    self.result_page = 0;
+                    self.result_table_state.select(Some(0));
+                    return true;
+                }
+                KeyCode::End => {
+                    // Extend selection to last row
+                    let visible = self.get_visible_row_count();
+                    if visible > 0 {
+                        self.extend_selection_to(visible - 1);
+                        // Navigate to last page
+                        let total_pages = self.total_pages();
+                        self.result_page = total_pages.saturating_sub(1);
+                        let page_start = self.result_page * self.rows_per_page;
+                        let last_pos = (visible - 1).saturating_sub(page_start);
+                        self.result_table_state.select(Some(last_pos));
+                    }
+                    return true;
+                }
+                KeyCode::PageUp => {
+                    // Extend selection one page up
+                    if let Some(current) = self.result_table_state.selected() {
+                        let global_idx = self.result_page * self.rows_per_page + current;
+                        let target = global_idx.saturating_sub(self.rows_per_page);
+                        self.extend_selection_to(target);
+                        // Navigate to the target
+                        self.result_page = target / self.rows_per_page;
+                        self.result_table_state
+                            .select(Some(target % self.rows_per_page));
+                    }
+                    return true;
+                }
+                KeyCode::PageDown => {
+                    // Extend selection one page down
+                    if let Some(current) = self.result_table_state.selected() {
+                        let global_idx = self.result_page * self.rows_per_page + current;
+                        let visible = self.get_visible_row_count();
+                        let target =
+                            (global_idx + self.rows_per_page).min(visible.saturating_sub(1));
+                        self.extend_selection_to(target);
+                        // Navigate to the target
+                        self.result_page = target / self.rows_per_page;
+                        self.result_table_state
+                            .select(Some(target % self.rows_per_page));
+                    }
+                    return true;
+                }
+                _ => {}
+            }
+        }
+
         match key.code {
+            // Multi-select: Space to toggle selection
+            KeyCode::Char(' ') => {
+                if let Some(row_idx) = self.get_current_row_index() {
+                    self.toggle_row_selection(row_idx);
+                    // Clear anchor when using space toggle
+                    self.selection_anchor = None;
+                }
+                true
+            }
             KeyCode::Up | KeyCode::Char('k') => {
+                // Clear anchor on normal navigation
+                self.selection_anchor = None;
                 self.select_result_previous();
                 true
             }
             KeyCode::Down | KeyCode::Char('j') => {
+                // Clear anchor on normal navigation
+                self.selection_anchor = None;
                 self.select_result_next();
                 true
             }

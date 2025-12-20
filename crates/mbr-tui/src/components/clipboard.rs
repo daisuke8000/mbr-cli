@@ -140,6 +140,83 @@ pub fn format_record_tsv(columns: &[String], values: &[String], include_header: 
     result
 }
 
+// === Multi-Record Format Functions ===
+
+/// Format multiple records as JSON array.
+///
+/// Outputs an array of objects: [{"col1": "val1", ...}, {"col1": "val2", ...}]
+/// Each record uses snake_case keys and preserves column order.
+pub fn format_records_json(records: &[(Vec<String>, Vec<String>)]) -> String {
+    let array: Vec<IndexMap<String, serde_json::Value>> = records
+        .iter()
+        .map(|(columns, values)| {
+            let mut obj: IndexMap<String, serde_json::Value> = IndexMap::new();
+            for (col, val) in columns.iter().zip(values.iter()) {
+                let key = to_snake_case(col);
+                obj.insert(key, serde_json::Value::String(val.clone()));
+            }
+            obj
+        })
+        .collect();
+    serde_json::to_string_pretty(&array).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Format multiple records as CSV.
+///
+/// When `include_header` is true, outputs header row followed by data rows.
+/// Uses column names from the first record.
+pub fn format_records_csv(records: &[(Vec<String>, Vec<String>)], include_header: bool) -> String {
+    if records.is_empty() {
+        return String::new();
+    }
+
+    let mut result = String::new();
+
+    // Add header from first record's columns
+    if include_header {
+        result.push_str(&escape_csv_row(&records[0].0));
+        result.push('\n');
+    }
+
+    // Add data rows
+    for (_, values) in records {
+        result.push_str(&escape_csv_row(values));
+        result.push('\n');
+    }
+
+    // Remove trailing newline
+    result.pop();
+    result
+}
+
+/// Format multiple records as TSV.
+///
+/// When `include_header` is true, outputs header row followed by data rows.
+/// Uses column names from the first record.
+pub fn format_records_tsv(records: &[(Vec<String>, Vec<String>)], include_header: bool) -> String {
+    if records.is_empty() {
+        return String::new();
+    }
+
+    let mut result = String::new();
+
+    // Add header from first record's columns
+    if include_header {
+        result.push_str(&escape_tsv_row(&records[0].0));
+        result.push('\n');
+    }
+
+    // Add data rows
+    for (_, values) in records {
+        result.push_str(&escape_tsv_row(values));
+        result.push('\n');
+    }
+
+    // Remove trailing newline
+    result.pop();
+    result
+}
+
 /// Escape and join values as CSV row.
 ///
 /// Handles values containing commas, quotes, or newlines.

@@ -36,8 +36,13 @@ impl HelpOverlay {
         ("Home / g", "First page / First item"),
         ("End / G", "Last page / Last item"),
         ("Enter", "Execute query / Record detail"),
-        ("c", "Copy record (result view)"),
-        ("Esc", "Back to list / Close modal"),
+        ("c", "Copy record(s) (result view)"),
+        ("Space", "Toggle row selection"),
+        ("Shift+↑/↓", "Range selection"),
+        ("Shift+Home/End", "Range select to first/last"),
+        ("Shift+PgUp/PgDn", "Range select by page"),
+        ("Ctrl+A", "Select all rows"),
+        ("Esc", "Clear selection / Back / Close"),
     ];
 
     /// Render the help overlay centered on screen.

@@ -56,6 +56,23 @@ pub fn result_row_highlight_style() -> Style {
 /// Default highlight symbol for table selection.
 pub const HIGHLIGHT_SYMBOL: &str = "► ";
 
+// === Multi-Select Styles ===
+
+/// Style for multi-selected rows (not cursor, but selected).
+/// Uses yellow background to distinguish from cursor highlight.
+pub fn multi_selected_style() -> Style {
+    Style::default().fg(Color::Black).bg(Color::Yellow)
+}
+
+/// Style for cursor position that is also selected.
+/// Combines cursor highlight with selection indicator.
+pub fn cursor_and_selected_style() -> Style {
+    Style::default()
+        .fg(Color::Black)
+        .bg(Color::LightYellow)
+        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+}
+
 // === Text Styles ===
 
 /// Style for dimmed/hint text.

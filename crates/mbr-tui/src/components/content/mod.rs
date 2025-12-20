@@ -273,14 +273,40 @@ impl ContentPanel {
     }
 
     /// Select all visible rows in the current result.
+    /// Uses batch operations with reserve + extend for O(n) performance.
     pub fn select_all_rows(&mut self) {
+        if self.query_result.is_none() {
+            return;
+        }
+
+        // Use existing index vectors directly instead of iterating one by one
+        // This avoids O(n) function calls and leverages batch HashSet insertion
+
+        // 1. Search results take priority
+        if let Some(ref search_indices) = self.result_search_indices {
+            self.selected_rows.reserve(search_indices.len());
+            self.selected_rows.extend(search_indices.iter().copied());
+            return;
+        }
+
+        // 2. Filter results
+        if let Some(ref filter_indices) = self.filter_indices {
+            self.selected_rows.reserve(filter_indices.len());
+            self.selected_rows.extend(filter_indices.iter().copied());
+            return;
+        }
+
+        // 3. Sort results (indices are still original row indices)
+        if let Some(ref sort_indices) = self.sort_indices {
+            self.selected_rows.reserve(sort_indices.len());
+            self.selected_rows.extend(sort_indices.iter().copied());
+            return;
+        }
+
+        // 4. No filters - select all original rows with simple range
         if let Some(ref result) = self.query_result {
-            let total = self.get_visible_row_count();
-            for display_idx in 0..total {
-                if let Some(original_idx) = self.get_original_row_index(display_idx) {
-                    self.selected_rows.insert(original_idx);
-                }
-            }
+            self.selected_rows.reserve(result.rows.len());
+            self.selected_rows.extend(0..result.rows.len());
         }
     }
 
@@ -359,9 +385,10 @@ impl ContentPanel {
         indices
             .iter()
             .filter_map(|&idx| {
-                result.rows.get(idx).map(|row| {
-                    (result.columns.clone(), row.clone())
-                })
+                result
+                    .rows
+                    .get(idx)
+                    .map(|row| (result.columns.clone(), row.clone()))
             })
             .collect()
     }

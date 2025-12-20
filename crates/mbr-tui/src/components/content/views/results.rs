@@ -10,7 +10,7 @@ use ratatui::{
 
 use crate::components::content::{ContentPanel, ContentView, SortOrder};
 use crate::components::styles::{
-    HIGHLIGHT_SYMBOL, border_style, header_style, result_row_highlight_style,
+    HIGHLIGHT_SYMBOL, border_style, header_style, multi_selected_style, result_row_highlight_style,
 };
 
 impl ContentPanel {
@@ -182,53 +182,86 @@ impl ContentPanel {
         let visible_columns: Vec<String> = result.columns[scroll_x..end_col].to_vec();
         let visible_col_count = visible_columns.len();
 
-        // Create dynamic column widths
-        let constraints: Vec<Constraint> = if visible_col_count <= 3 {
-            visible_columns
-                .iter()
-                .map(|_| Constraint::Ratio(1, visible_col_count as u32))
-                .collect()
+        // Always include selection gutter column to prevent layout shift
+        // The gutter is always present but only shows ✓ for selected rows
+        let mut constraints: Vec<Constraint> = Vec::new();
+        constraints.push(Constraint::Length(2)); // Selection indicator column (always present)
+        if visible_col_count <= 3 {
+            constraints.extend(
+                visible_columns
+                    .iter()
+                    .map(|_| Constraint::Ratio(1, visible_col_count as u32)),
+            );
         } else {
-            visible_columns
-                .iter()
-                .map(|_| Constraint::Min(15))
-                .collect()
+            constraints.extend(visible_columns.iter().map(|_| Constraint::Min(15)));
         };
 
         // Create table rows with sliced cells (only current page)
+        // Apply selection style to selected rows
         let rows: Vec<Row> = (page_start..page_end)
-            .filter_map(|logical_idx| self.get_visible_row(logical_idx))
-            .map(|row| {
-                let cells: Vec<Cell> = row[scroll_x..end_col.min(row.len())]
-                    .iter()
-                    .map(|cell| Cell::from(cell.clone()))
-                    .collect();
-                Row::new(cells)
+            .filter_map(|logical_idx| {
+                let row_data = self.get_visible_row(logical_idx)?;
+                let original_idx = self.get_original_row_index(logical_idx);
+                Some((original_idx, row_data))
+            })
+            .map(|(original_idx, row)| {
+                let mut cells: Vec<Cell> = Vec::new();
+
+                // Always add selection indicator column (gutter)
+                let is_selected = original_idx
+                    .map(|idx| self.is_row_selected(idx))
+                    .unwrap_or(false);
+
+                // Use 2-char width: "✓ " for selected, "  " for unselected
+                let indicator = if is_selected { "✓ " } else { "  " };
+                cells.push(Cell::from(indicator));
+
+                // Add data cells
+                cells.extend(
+                    row[scroll_x..end_col.min(row.len())]
+                        .iter()
+                        .map(|cell| Cell::from(cell.clone())),
+                );
+
+                let mut row_widget = Row::new(cells);
+
+                // Apply selection style if this row is selected
+                if is_selected {
+                    row_widget = row_widget.style(multi_selected_style());
+                }
+                row_widget
             })
             .collect();
 
         // Create header row with sort indicators
-        let header_cells: Vec<Cell> = visible_columns
-            .iter()
-            .enumerate()
-            .map(|(visible_idx, col)| {
-                let actual_col_idx = scroll_x + visible_idx;
-                let is_sorted = self.sort_column_index == Some(actual_col_idx);
+        let mut header_cells: Vec<Cell> = Vec::new();
 
-                let header_text = if is_sorted {
-                    let indicator = match self.sort_order {
-                        SortOrder::Ascending => " ↑",
-                        SortOrder::Descending => " ↓",
-                        SortOrder::None => "",
+        // Always add empty gutter column header (matches data rows)
+        header_cells.push(Cell::from("  "));
+
+        // Add data column headers
+        header_cells.extend(
+            visible_columns
+                .iter()
+                .enumerate()
+                .map(|(visible_idx, col)| {
+                    let actual_col_idx = scroll_x + visible_idx;
+                    let is_sorted = self.sort_column_index == Some(actual_col_idx);
+
+                    let header_text = if is_sorted {
+                        let indicator = match self.sort_order {
+                            SortOrder::Ascending => " ↑",
+                            SortOrder::Descending => " ↓",
+                            SortOrder::None => "",
+                        };
+                        format!("{}{}", col, indicator)
+                    } else {
+                        col.clone()
                     };
-                    format!("{}{}", col, indicator)
-                } else {
-                    col.clone()
-                };
 
-                Cell::from(header_text)
-            })
-            .collect();
+                    Cell::from(header_text)
+                }),
+        );
 
         // Build column indicator
         let col_indicator = if total_cols > visible_cols {

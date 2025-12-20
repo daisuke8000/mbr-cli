@@ -260,6 +260,10 @@ impl App {
         // Draw content panel (full width, always focused)
         self.content.draw(frame, main_chunks[1], true);
 
+        // Update selection count in status bar (for result views)
+        self.status_bar
+            .set_selection_count(self.content.selected_count());
+
         // Draw status bar
         self.status_bar.draw(frame, main_chunks[2], false);
 
