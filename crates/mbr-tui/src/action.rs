@@ -6,7 +6,7 @@
 // Allow unused variants as they are designed for Phase 4+ implementation
 #![allow(dead_code)]
 
-use mbr_core::api::models::{CurrentUser, Question};
+use mbr_core::api::models::{CollectionItem, CurrentUser, Database, Question};
 
 use crate::components::QueryResultData;
 
@@ -47,6 +47,12 @@ pub enum AppAction {
     /// Questions loaded successfully from API
     QuestionsLoaded(Vec<Question>),
 
+    /// Collections loaded successfully from API
+    CollectionsLoaded(Vec<CollectionItem>),
+
+    /// Databases loaded successfully from API
+    DatabasesLoaded(Vec<Database>),
+
     /// Authentication validated successfully
     AuthValidated(CurrentUser),
 
@@ -85,6 +91,10 @@ pub enum ContentTarget {
 pub enum DataRequest {
     /// Load questions list
     Questions,
+    /// Load collections list
+    Collections,
+    /// Load databases list
+    Databases,
     /// Load a specific question's details
     QuestionDetails(u32),
     /// Execute a specific question's query

@@ -196,6 +196,22 @@ impl App {
                 self.status_bar
                     .set_message(format!("Loaded {} questions", count));
             }
+            AppAction::CollectionsLoaded(collections) => {
+                let count = collections.len();
+                self.data.collections = LoadState::Loaded(collections);
+                // Sync to content panel for display
+                self.content.update_collections(&self.data.collections);
+                self.status_bar
+                    .set_message(format!("Loaded {} collections", count));
+            }
+            AppAction::DatabasesLoaded(databases) => {
+                let count = databases.len();
+                self.data.databases = LoadState::Loaded(databases);
+                // Sync to content panel for display
+                self.content.update_databases(&self.data.databases);
+                self.status_bar
+                    .set_message(format!("Loaded {} databases", count));
+            }
             AppAction::AuthValidated(user) => {
                 let display_name = user
                     .common_name
@@ -278,6 +294,54 @@ impl App {
                     match service.fetch_questions(None, Some(50)).await {
                         Ok(questions) => {
                             let _ = tx.send(AppAction::QuestionsLoaded(questions));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppAction::LoadFailed(e));
+                        }
+                    }
+                });
+            }
+            DataRequest::Collections => {
+                // Guard: prevent duplicate requests while loading
+                if matches!(self.data.collections, LoadState::Loading) {
+                    return;
+                }
+
+                // Set loading state
+                self.data.collections = LoadState::Loading;
+                // Sync to content panel for display
+                self.content.update_collections(&self.data.collections);
+                self.status_bar.set_message("Loading collections...");
+
+                // Spawn background task
+                tokio::spawn(async move {
+                    match service.fetch_collections().await {
+                        Ok(collections) => {
+                            let _ = tx.send(AppAction::CollectionsLoaded(collections));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppAction::LoadFailed(e));
+                        }
+                    }
+                });
+            }
+            DataRequest::Databases => {
+                // Guard: prevent duplicate requests while loading
+                if matches!(self.data.databases, LoadState::Loading) {
+                    return;
+                }
+
+                // Set loading state
+                self.data.databases = LoadState::Loading;
+                // Sync to content panel for display
+                self.content.update_databases(&self.data.databases);
+                self.status_bar.set_message("Loading databases...");
+
+                // Spawn background task
+                tokio::spawn(async move {
+                    match service.fetch_databases().await {
+                        Ok(databases) => {
+                            let _ = tx.send(AppAction::DatabasesLoaded(databases));
                         }
                         Err(e) => {
                             let _ = tx.send(AppAction::LoadFailed(e));
@@ -481,11 +545,22 @@ impl App {
                 self.switch_to_tab(self.active_tab.previous());
                 return;
             }
-            // Refresh data with 'r'
+            // Refresh data with 'r' - reloads current view's data
             KeyCode::Char('r') => {
-                let _ = self
-                    .action_tx
-                    .send(AppAction::LoadData(DataRequest::Refresh));
+                let request = match self.content.current_view() {
+                    ContentView::Questions => DataRequest::Questions,
+                    ContentView::Collections => DataRequest::Collections,
+                    ContentView::Databases => DataRequest::Databases,
+                    _ => DataRequest::Refresh,
+                };
+                // Force reload by resetting state to Idle first
+                match self.content.current_view() {
+                    ContentView::Questions => self.data.questions = LoadState::Idle,
+                    ContentView::Collections => self.data.collections = LoadState::Idle,
+                    ContentView::Databases => self.data.databases = LoadState::Idle,
+                    _ => {}
+                }
+                let _ = self.action_tx.send(AppAction::LoadData(request));
                 return;
             }
             _ => {}
@@ -523,11 +598,30 @@ impl App {
         };
         self.content.set_view(view);
 
-        // Auto-load data when switching to Questions view
-        if view == ContentView::Questions && matches!(self.data.questions, LoadState::Idle) {
-            let _ = self
-                .action_tx
-                .send(AppAction::LoadData(DataRequest::Questions));
+        // Auto-load data when switching to a view with Idle state
+        match view {
+            ContentView::Questions => {
+                if matches!(self.data.questions, LoadState::Idle) {
+                    let _ = self
+                        .action_tx
+                        .send(AppAction::LoadData(DataRequest::Questions));
+                }
+            }
+            ContentView::Collections => {
+                if matches!(self.data.collections, LoadState::Idle) {
+                    let _ = self
+                        .action_tx
+                        .send(AppAction::LoadData(DataRequest::Collections));
+                }
+            }
+            ContentView::Databases => {
+                if matches!(self.data.databases, LoadState::Idle) {
+                    let _ = self
+                        .action_tx
+                        .send(AppAction::LoadData(DataRequest::Databases));
+                }
+            }
+            _ => {}
         }
 
         self.status_bar
