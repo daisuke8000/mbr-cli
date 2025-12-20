@@ -150,6 +150,13 @@ pub struct ContentPanel {
     filter_modal_step: usize,
     /// Selected column index in filter modal
     filter_modal_selection: usize,
+    // === Result Search state (all-column search) ===
+    /// Whether result search mode is active
+    result_search_active: bool,
+    /// Search text for result search (all-column, case-insensitive)
+    result_search_text: String,
+    /// Searched row indices (None = no search, Some = matched indices)
+    result_search_indices: Option<Vec<usize>>,
 }
 
 impl Default for ContentPanel {
@@ -198,6 +205,9 @@ impl ContentPanel {
             filter_mode_active: false,
             filter_modal_step: 0,
             filter_modal_selection: 0,
+            result_search_active: false,
+            result_search_text: String::new(),
+            result_search_indices: None,
         }
     }
 
@@ -830,7 +840,7 @@ impl ContentPanel {
         }
     }
 
-    /// Reset sort and filter state (helper for view transitions).
+    /// Reset sort, filter, and search state (helper for view transitions).
     fn reset_sort_filter_state(&mut self) {
         // Sort state
         self.sort_order = SortOrder::None;
@@ -841,17 +851,29 @@ impl ContentPanel {
         self.filter_text.clear();
         self.filter_mode_active = false;
         self.filter_modal_step = 0;
+        // Result search state
+        self.result_search_active = false;
+        self.result_search_text.clear();
+        self.result_search_indices = None;
     }
 
-    /// Get the number of visible rows (after filter is applied).
+    /// Get the number of visible rows (after search and filter are applied).
+    ///
+    /// Priority: Search first, then Filter. Both are applied if both active.
     fn visible_row_count(&self) -> usize {
-        if let Some(ref indices) = self.filter_indices {
-            indices.len()
-        } else {
-            self.query_result
+        match (&self.result_search_indices, &self.filter_indices) {
+            // Both search and filter: use filter (which operates on search results)
+            (Some(_), Some(filter)) => filter.len(),
+            // Only filter: use filter indices
+            (None, Some(filter)) => filter.len(),
+            // Only search: use search indices
+            (Some(search), None) => search.len(),
+            // Neither: use all rows
+            (None, None) => self
+                .query_result
                 .as_ref()
                 .map(|r| r.rows.len())
-                .unwrap_or(0)
+                .unwrap_or(0),
         }
     }
 
@@ -1104,8 +1126,8 @@ impl ContentPanel {
         }
     }
 
-    /// Get row at logical index (respects both filter and sort).
-    /// Returns the actual row from query_result based on filter and sort indices.
+    /// Get row at logical index (respects search, filter, and sort).
+    /// Returns the actual row from query_result based on search, filter, and sort indices.
     fn get_visible_row(&self, logical_index: usize) -> Option<&Vec<String>> {
         self.query_result.as_ref().and_then(|result| {
             // Step 1: Apply sort (if active), get index into visible rows
@@ -1115,11 +1137,15 @@ impl ContentPanel {
                 logical_index
             };
 
-            // Step 2: Apply filter (if active), get actual row index
-            let actual_index = if let Some(ref filter_idx) = self.filter_indices {
-                *filter_idx.get(sorted_index)?
-            } else {
-                sorted_index
+            // Step 2: Get actual row index from filter or search indices
+            // Priority: Filter (which may operate on search results) > Search > None
+            let actual_index = match (&self.filter_indices, &self.result_search_indices) {
+                // Filter is active (may be filtering search results)
+                (Some(filter), _) => *filter.get(sorted_index)?,
+                // Only search active
+                (None, Some(search)) => *search.get(sorted_index)?,
+                // Neither: direct index
+                (None, None) => sorted_index,
             };
 
             result.rows.get(actual_index)
@@ -1250,6 +1276,7 @@ impl ContentPanel {
     }
 
     /// Update filter indices based on current filter column and text.
+    /// If search is active, filters within search results.
     fn update_filter_indices(&mut self) {
         let col_idx = match self.filter_column_index {
             Some(idx) => idx,
@@ -1272,16 +1299,26 @@ impl ContentPanel {
 
             // Case-insensitive contains match
             let filter_lower = self.filter_text.to_lowercase();
-            let indices: Vec<usize> = result
-                .rows
-                .iter()
-                .enumerate()
-                .filter(|(_, row)| {
-                    row.get(col_idx)
+
+            // Determine the base set of indices to filter from
+            let base_indices: Box<dyn Iterator<Item = usize>> =
+                if let Some(ref search_indices) = self.result_search_indices {
+                    // Filter within search results
+                    Box::new(search_indices.iter().copied())
+                } else {
+                    // Filter all rows
+                    Box::new(0..result.rows.len())
+                };
+
+            let indices: Vec<usize> = base_indices
+                .filter(|&i| {
+                    result
+                        .rows
+                        .get(i)
+                        .and_then(|row| row.get(col_idx))
                         .map(|cell| cell.to_lowercase().contains(&filter_lower))
                         .unwrap_or(false)
                 })
-                .map(|(i, _)| i)
                 .collect();
 
             self.filter_indices = Some(indices);
@@ -1303,6 +1340,177 @@ impl ContentPanel {
             }
         }
         None
+    }
+
+    // === Result Search Methods (all-column search) ===
+
+    /// Check if result search mode is active.
+    pub fn is_result_search_active(&self) -> bool {
+        self.result_search_active
+    }
+
+    /// Open result search input.
+    pub fn open_result_search(&mut self) {
+        self.result_search_active = true;
+        // Don't clear previous search text, allow editing
+    }
+
+    /// Close result search input without applying.
+    pub fn close_result_search(&mut self) {
+        self.result_search_active = false;
+    }
+
+    /// Add a character to result search text (real-time search).
+    pub fn result_search_input_char(&mut self, c: char) {
+        self.result_search_text.push(c);
+        self.update_result_search_indices();
+        // If filter is active, re-apply filter on new search results
+        if self.filter_column_index.is_some() && !self.filter_text.is_empty() {
+            self.update_filter_indices();
+        }
+        // Re-apply sort on new filtered/searched data
+        if self.sort_order != SortOrder::None {
+            self.update_sort_indices();
+        }
+    }
+
+    /// Delete the last character from result search text.
+    pub fn result_search_delete_char(&mut self) {
+        self.result_search_text.pop();
+        self.update_result_search_indices();
+        // If filter is active, re-apply filter on new search results
+        if self.filter_column_index.is_some() && !self.filter_text.is_empty() {
+            self.update_filter_indices();
+        }
+        // Re-apply sort on new filtered/searched data
+        if self.sort_order != SortOrder::None {
+            self.update_sort_indices();
+        }
+    }
+
+    /// Apply result search and close input.
+    pub fn apply_result_search(&mut self) {
+        self.result_search_active = false;
+        // Reset to first page
+        self.result_page = 0;
+        self.result_table_state.select(Some(0));
+    }
+
+    /// Clear result search and restore all rows.
+    pub fn clear_result_search(&mut self) {
+        self.result_search_text.clear();
+        self.result_search_indices = None;
+        self.result_search_active = false;
+        // If filter is active, re-apply filter on full data
+        if self.filter_column_index.is_some() && !self.filter_text.is_empty() {
+            self.update_filter_indices();
+        }
+        // Re-apply sort
+        if self.sort_order != SortOrder::None {
+            self.update_sort_indices();
+        }
+    }
+
+    /// Update result search indices based on current search text.
+    /// Searches all columns with case-insensitive contains match.
+    fn update_result_search_indices(&mut self) {
+        if self.result_search_text.is_empty() {
+            self.result_search_indices = None;
+            return;
+        }
+
+        if let Some(ref result) = self.query_result {
+            let search_lower = self.result_search_text.to_lowercase();
+            let indices: Vec<usize> = result
+                .rows
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| {
+                    // Match if any column contains the search text
+                    row.iter()
+                        .any(|cell| cell.to_lowercase().contains(&search_lower))
+                })
+                .map(|(i, _)| i)
+                .collect();
+
+            self.result_search_indices = Some(indices);
+        }
+    }
+
+    /// Get current result search info for display.
+    /// Returns (search_text, matched_count, total_count) if search is active.
+    #[allow(dead_code)] // Designed for status bar display
+    pub fn get_result_search_info(&self) -> Option<(String, usize, usize)> {
+        if !self.result_search_text.is_empty() {
+            let total = self
+                .query_result
+                .as_ref()
+                .map(|r| r.rows.len())
+                .unwrap_or(0);
+            let matched = self.visible_row_count();
+            return Some((self.result_search_text.clone(), matched, total));
+        }
+        None
+    }
+
+    /// Render result search bar as an overlay at the bottom.
+    fn render_result_search_bar(&self, frame: &mut Frame, area: Rect) {
+        if !self.result_search_active && self.result_search_text.is_empty() {
+            return;
+        }
+
+        // Search bar at bottom of content area
+        let bar_height = 3u16;
+        let bar_y = area.y + area.height.saturating_sub(bar_height);
+        let bar_area = Rect::new(area.x, bar_y, area.width, bar_height);
+
+        // Build search display
+        let total = self
+            .query_result
+            .as_ref()
+            .map(|r| r.rows.len())
+            .unwrap_or(0);
+        let matched = self.visible_row_count();
+
+        let (input_display, title_suffix) = if self.result_search_active {
+            (format!("{}_", self.result_search_text), " (editing)")
+        } else {
+            (self.result_search_text.clone(), "")
+        };
+
+        let title = format!(" Search Results{} ", title_suffix);
+
+        let lines = vec![
+            Line::from(vec![
+                Span::styled(" > ", Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    input_display,
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(Span::styled(
+                format!(" Found: {} / {} rows", matched, total),
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        let paragraph = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(title)
+                    .title_style(
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Green)),
+            )
+            .style(Style::default().bg(Color::Black));
+
+        frame.render_widget(paragraph, bar_area);
     }
 
     /// Render filter column/text input modal as an overlay.
@@ -2831,6 +3039,10 @@ impl ContentPanel {
                     if self.filter_mode_active {
                         self.render_filter_modal(frame, area);
                     }
+                    // Render result search bar overlay if active
+                    if self.result_search_active {
+                        self.render_result_search_bar(frame, area);
+                    }
                 }
             }
         }
@@ -3042,6 +3254,10 @@ impl ContentPanel {
                     // Render filter modal overlay if active
                     if self.filter_mode_active {
                         self.render_filter_modal(frame, area);
+                    }
+                    // Render result search bar overlay if active
+                    if self.result_search_active {
+                        self.render_result_search_bar(frame, area);
                     }
                 }
             }
@@ -3265,6 +3481,27 @@ impl Component for ContentPanel {
                     }
                     _ => false,
                 }
+            } else if self.result_search_active {
+                // Result search mode takes priority
+                match key.code {
+                    KeyCode::Char(c) => {
+                        self.result_search_input_char(c);
+                        true
+                    }
+                    KeyCode::Backspace => {
+                        self.result_search_delete_char();
+                        true
+                    }
+                    KeyCode::Enter => {
+                        self.apply_result_search();
+                        true
+                    }
+                    KeyCode::Esc => {
+                        self.close_result_search();
+                        true
+                    }
+                    _ => false,
+                }
             } else {
                 // QueryResult view has result table navigation + horizontal scroll + pagination
                 match key.code {
@@ -3326,6 +3563,19 @@ impl Component for ContentPanel {
                     KeyCode::Char('F') => {
                         self.clear_filter();
                         // Reset to first page after clearing filter
+                        self.result_page = 0;
+                        self.result_table_state.select(Some(0));
+                        true
+                    }
+                    // Search: / to open search input
+                    KeyCode::Char('/') => {
+                        self.open_result_search();
+                        true
+                    }
+                    // Clear search: Shift+S to clear search
+                    KeyCode::Char('S') => {
+                        self.clear_result_search();
+                        // Reset to first page after clearing search
                         self.result_page = 0;
                         self.result_table_state.select(Some(0));
                         true
@@ -3441,6 +3691,27 @@ impl Component for ContentPanel {
                     }
                     _ => false,
                 }
+            } else if self.result_search_active {
+                // Result search mode takes priority
+                match key.code {
+                    KeyCode::Char(c) => {
+                        self.result_search_input_char(c);
+                        true
+                    }
+                    KeyCode::Backspace => {
+                        self.result_search_delete_char();
+                        true
+                    }
+                    KeyCode::Enter => {
+                        self.apply_result_search();
+                        true
+                    }
+                    KeyCode::Esc => {
+                        self.close_result_search();
+                        true
+                    }
+                    _ => false,
+                }
             } else {
                 // TablePreview view has result table navigation (same as QueryResult)
                 match key.code {
@@ -3497,6 +3768,18 @@ impl Component for ContentPanel {
                     // Clear filter: F (shift+f) to clear filter
                     KeyCode::Char('F') => {
                         self.clear_filter();
+                        self.result_page = 0;
+                        self.result_table_state.select(Some(0));
+                        true
+                    }
+                    // Search: / to open search input
+                    KeyCode::Char('/') => {
+                        self.open_result_search();
+                        true
+                    }
+                    // Clear search: Shift+S to clear search
+                    KeyCode::Char('S') => {
+                        self.clear_result_search();
                         self.result_page = 0;
                         self.result_table_state.select(Some(0));
                         true

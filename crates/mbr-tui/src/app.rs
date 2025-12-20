@@ -63,11 +63,13 @@ impl Default for App {
 impl App {
     /// Check if any modal is active that should block global navigation.
     ///
-    /// When a modal (sort, filter, or future search) is active, global shortcuts
+    /// When a modal (sort, filter, or search) is active, global shortcuts
     /// like tab switching (1/2/3), help (?), and Tab should be blocked to prevent
     /// accidental navigation while the user is focused on the modal.
     fn is_modal_active(&self) -> bool {
-        self.content.is_sort_mode_active() || self.content.is_filter_mode_active()
+        self.content.is_sort_mode_active()
+            || self.content.is_filter_mode_active()
+            || self.content.is_result_search_active()
     }
 
     /// Create a new application instance.
