@@ -90,6 +90,8 @@ pub struct ContentPanel {
     active_search: Option<String>,
     /// Current collection context for CollectionQuestions view (id, name)
     collection_context: Option<(u32, String)>,
+    /// Previous view before entering QueryResult (for proper back navigation)
+    previous_view: Option<ContentView>,
 }
 
 impl Default for ContentPanel {
@@ -119,6 +121,7 @@ impl ContentPanel {
             search_query: String::new(),
             active_search: None,
             collection_context: None,
+            previous_view: None,
         }
     }
 
@@ -418,6 +421,8 @@ impl ContentPanel {
 
     /// Set query result data and switch to QueryResult view.
     pub fn set_query_result(&mut self, data: QueryResultData) {
+        // Save current view for back navigation
+        self.previous_view = Some(self.view);
         self.query_result = Some(data);
         self.result_table_state = TableState::default();
         self.result_page = 0; // Reset to first page
@@ -433,13 +438,14 @@ impl ContentPanel {
         self.view = ContentView::QueryResult;
     }
 
-    /// Clear query result and return to Questions view.
+    /// Clear query result and return to previous view.
     pub fn back_to_questions(&mut self) {
         self.query_result = None;
         self.result_table_state = TableState::default();
         self.result_page = 0;
         self.scroll_x = 0;
-        self.view = ContentView::Questions;
+        // Return to previous view (default to Questions if none)
+        self.view = self.previous_view.take().unwrap_or(ContentView::Questions);
     }
 
     /// Get total number of pages for query result.
@@ -1231,14 +1237,7 @@ impl ContentPanel {
                             Row::new(vec![
                                 Cell::from(format!("{}", q.id)),
                                 Cell::from(q.name.clone()),
-                                Cell::from(
-                                    q.description
-                                        .as_deref()
-                                        .unwrap_or("—")
-                                        .chars()
-                                        .take(50)
-                                        .collect::<String>(),
-                                ),
+                                Cell::from(q.description.as_deref().unwrap_or("—").to_string()),
                             ])
                         })
                         .collect();
@@ -1247,8 +1246,8 @@ impl ContentPanel {
                         rows,
                         [
                             Constraint::Length(ID_WIDTH),
-                            Constraint::Min(NAME_MIN_WIDTH),
-                            Constraint::Min(30), // Description
+                            Constraint::Percentage(35), // Name
+                            Constraint::Percentage(55), // Description (more space)
                         ],
                     )
                     .header(
