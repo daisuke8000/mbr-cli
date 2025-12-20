@@ -1,4 +1,6 @@
-use crate::cli::command_handlers::{ConfigHandler, QueryHandler};
+use crate::cli::command_handlers::{
+    CollectionHandler, ConfigHandler, DatabaseHandler, QueryHandler,
+};
 use crate::cli::main_types::Commands;
 use mbr_core::api::client::MetabaseClient;
 use mbr_core::core::services::config_service::ConfigService;
@@ -111,6 +113,18 @@ impl Dispatcher {
                 let profile = self.get_current_profile()?;
                 let client = self.create_client(profile)?;
                 handler.handle(args, client, self.verbose).await
+            }
+            Commands::Collection { command } => {
+                let handler = CollectionHandler::new();
+                let profile = self.get_current_profile()?;
+                let client = self.create_client(profile)?;
+                handler.handle(command, client, self.verbose).await
+            }
+            Commands::Database { command } => {
+                let handler = DatabaseHandler::new();
+                let profile = self.get_current_profile()?;
+                let client = self.create_client(profile)?;
+                handler.handle(command, client, self.verbose).await
             }
         }
     }
