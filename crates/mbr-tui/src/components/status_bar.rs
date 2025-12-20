@@ -47,6 +47,7 @@ impl StatusBar {
                 KeyBinding::new("1/2/3", "Tab"),
                 KeyBinding::new("↑↓", "Nav"),
                 KeyBinding::new("←→", "Scroll"),
+                KeyBinding::new("n/p", "Page"),
                 KeyBinding::new("Enter", "Run"),
                 KeyBinding::new("?", "Help"),
                 KeyBinding::new("q", "Quit"),
@@ -97,9 +98,5 @@ impl Component for StatusBar {
     fn handle_key(&mut self, _key: KeyEvent) -> bool {
         // Status bar doesn't handle keys
         false
-    }
-
-    fn title(&self) -> &str {
-        ""
     }
 }

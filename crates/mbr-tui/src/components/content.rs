@@ -41,6 +41,9 @@ pub struct QueryResultData {
     pub rows: Vec<Vec<String>>,
 }
 
+/// Default rows per page for query result pagination.
+const DEFAULT_ROWS_PER_PAGE: usize = 100;
+
 /// Content panel showing main content.
 pub struct ContentPanel {
     view: ContentView,
@@ -55,6 +58,10 @@ pub struct ContentPanel {
     query_result: Option<QueryResultData>,
     /// Table state for query result table
     result_table_state: TableState,
+    /// Current page for query result pagination (0-indexed)
+    result_page: usize,
+    /// Rows per page for query result pagination
+    rows_per_page: usize,
 }
 
 impl Default for ContentPanel {
@@ -74,6 +81,8 @@ impl ContentPanel {
             table_state: TableState::default(),
             query_result: None,
             result_table_state: TableState::default(),
+            result_page: 0,
+            rows_per_page: DEFAULT_ROWS_PER_PAGE,
         }
     }
 
@@ -153,6 +162,8 @@ impl ContentPanel {
     pub fn set_query_result(&mut self, data: QueryResultData) {
         self.query_result = Some(data);
         self.result_table_state = TableState::default();
+        self.result_page = 0; // Reset to first page
+        self.scroll_x = 0;
         // Auto-select first row if available
         if self
             .query_result
@@ -168,8 +179,49 @@ impl ContentPanel {
     pub fn back_to_questions(&mut self) {
         self.query_result = None;
         self.result_table_state = TableState::default();
+        self.result_page = 0;
         self.scroll_x = 0;
         self.view = ContentView::Questions;
+    }
+
+    /// Get total number of pages for query result.
+    fn total_pages(&self) -> usize {
+        self.query_result
+            .as_ref()
+            .map(|r| r.rows.len().div_ceil(self.rows_per_page))
+            .unwrap_or(0)
+    }
+
+    /// Go to next page in query result.
+    fn next_page(&mut self) {
+        let total = self.total_pages();
+        if total > 0 && self.result_page < total - 1 {
+            self.result_page += 1;
+            self.result_table_state.select(Some(0)); // Reset selection to first row of new page
+        }
+    }
+
+    /// Go to previous page in query result.
+    fn prev_page(&mut self) {
+        if self.result_page > 0 {
+            self.result_page -= 1;
+            self.result_table_state.select(Some(0)); // Reset selection to first row of new page
+        }
+    }
+
+    /// Go to first page in query result.
+    fn first_page(&mut self) {
+        self.result_page = 0;
+        self.result_table_state.select(Some(0));
+    }
+
+    /// Go to last page in query result.
+    fn last_page(&mut self) {
+        let total = self.total_pages();
+        if total > 0 {
+            self.result_page = total - 1;
+            self.result_table_state.select(Some(0));
+        }
     }
 
     /// Scroll left (show previous columns).
@@ -214,6 +266,36 @@ impl ContentPanel {
         let current = self.result_table_state.selected().unwrap_or(0);
         let prev = current.saturating_sub(1);
         self.result_table_state.select(Some(prev));
+    }
+
+    /// Get the number of rows in the current page.
+    fn current_page_row_count(&self) -> usize {
+        self.query_result
+            .as_ref()
+            .map(|r| {
+                let total_rows = r.rows.len();
+                let page_start = self.result_page * self.rows_per_page;
+                let page_end = (page_start + self.rows_per_page).min(total_rows);
+                page_end - page_start
+            })
+            .unwrap_or(0)
+    }
+
+    /// Scroll result table up by multiple rows (PageUp).
+    fn scroll_result_page_up(&mut self) {
+        const SCROLL_AMOUNT: usize = 10;
+        let current = self.result_table_state.selected().unwrap_or(0);
+        let new = current.saturating_sub(SCROLL_AMOUNT);
+        self.result_table_state.select(Some(new));
+    }
+
+    /// Scroll result table down by multiple rows (PageDown).
+    fn scroll_result_page_down(&mut self) {
+        const SCROLL_AMOUNT: usize = 10;
+        let current = self.result_table_state.selected().unwrap_or(0);
+        let page_row_count = self.current_page_row_count();
+        let new = (current + SCROLL_AMOUNT).min(page_row_count.saturating_sub(1));
+        self.result_table_state.select(Some(new));
     }
 
     /// Render welcome view content.
@@ -510,6 +592,13 @@ impl ContentPanel {
                     );
                     frame.render_widget(paragraph, area);
                 } else {
+                    // Pagination: calculate row range for current page
+                    let total_rows = result.rows.len();
+                    let total_pages = self.total_pages();
+                    let page_start = self.result_page * self.rows_per_page;
+                    let page_end = (page_start + self.rows_per_page).min(total_rows);
+                    let page_rows = &result.rows[page_start..page_end];
+
                     // Calculate visible columns based on scroll_x
                     let total_cols = result.columns.len();
                     let scroll_x = self.scroll_x.min(total_cols.saturating_sub(1));
@@ -520,7 +609,7 @@ impl ContentPanel {
                     let visible_cols = (available_width / min_col_width).max(1).min(total_cols);
                     let end_col = (scroll_x + visible_cols).min(total_cols);
 
-                    // Slice columns and rows based on scroll position
+                    // Slice columns based on scroll position
                     let visible_columns: Vec<String> = result.columns[scroll_x..end_col].to_vec();
                     let visible_col_count = visible_columns.len();
 
@@ -537,9 +626,8 @@ impl ContentPanel {
                             .collect()
                     };
 
-                    // Create table rows with sliced cells
-                    let rows: Vec<Row> = result
-                        .rows
+                    // Create table rows with sliced cells (only current page)
+                    let rows: Vec<Row> = page_rows
                         .iter()
                         .map(|row| {
                             let cells: Vec<Cell> = row[scroll_x..end_col.min(row.len())]
@@ -561,7 +649,7 @@ impl ContentPanel {
                         let left_arrow = if scroll_x > 0 { "← " } else { "  " };
                         let right_arrow = if end_col < total_cols { " →" } else { "  " };
                         format!(
-                            " {}Col {}-{} of {}{}",
+                            " {}Col {}-{}/{}{}",
                             left_arrow,
                             scroll_x + 1,
                             end_col,
@@ -569,7 +657,21 @@ impl ContentPanel {
                             right_arrow
                         )
                     } else {
-                        format!(" {} cols", total_cols)
+                        String::new()
+                    };
+
+                    // Build page indicator
+                    let page_indicator = if total_pages > 1 {
+                        format!(
+                            " Page {}/{} (rows {}-{} of {})",
+                            self.result_page + 1,
+                            total_pages,
+                            page_start + 1,
+                            page_end,
+                            total_rows
+                        )
+                    } else {
+                        format!(" {} rows", total_rows)
                     };
 
                     let table = Table::new(rows, constraints)
@@ -585,10 +687,8 @@ impl ContentPanel {
                         .block(
                             Block::default()
                                 .title(format!(
-                                    " {} ({} rows){} [h/l: scroll, Esc: back] ",
-                                    result.question_name,
-                                    result.rows.len(),
-                                    col_indicator
+                                    " {}{}{}",
+                                    result.question_name, page_indicator, col_indicator
                                 ))
                                 .borders(Borders::ALL)
                                 .border_style(border_style),
@@ -657,7 +757,7 @@ impl Component for ContentPanel {
                 _ => false,
             }
         } else if self.view == ContentView::QueryResult {
-            // QueryResult view has result table navigation + horizontal scroll
+            // QueryResult view has result table navigation + horizontal scroll + pagination
             match key.code {
                 KeyCode::Up | KeyCode::Char('k') => {
                     self.select_result_previous();
@@ -674,6 +774,33 @@ impl Component for ContentPanel {
                 }
                 KeyCode::Right | KeyCode::Char('l') => {
                     self.scroll_right();
+                    true
+                }
+                // Pagination: n for next page, p for previous page (matches CLI)
+                KeyCode::Char('n') => {
+                    self.next_page();
+                    true
+                }
+                KeyCode::Char('p') => {
+                    self.prev_page();
+                    true
+                }
+                // PageUp/PageDown for scrolling within page (matches CLI)
+                KeyCode::PageUp => {
+                    self.scroll_result_page_up();
+                    true
+                }
+                KeyCode::PageDown => {
+                    self.scroll_result_page_down();
+                    true
+                }
+                // First/Last page with g/G
+                KeyCode::Home | KeyCode::Char('g') => {
+                    self.first_page();
+                    true
+                }
+                KeyCode::End | KeyCode::Char('G') => {
+                    self.last_page();
                     true
                 }
                 // Note: Esc is handled in App for returning to Questions
@@ -704,16 +831,6 @@ impl Component for ContentPanel {
                 }
                 _ => false,
             }
-        }
-    }
-
-    fn title(&self) -> &str {
-        match self.view {
-            ContentView::Welcome => "Welcome",
-            ContentView::Questions => "Questions",
-            ContentView::Collections => "Collections",
-            ContentView::Databases => "Databases",
-            ContentView::QueryResult => "Query Result",
         }
     }
 }
