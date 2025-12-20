@@ -11,6 +11,7 @@ mod help_overlay;
 mod record_detail;
 pub mod state_renderer;
 mod status_bar;
+pub mod styles;
 
 pub use content::{ContentPanel, ContentView, InputMode, QueryResultData};
 pub use help_overlay::HelpOverlay;
