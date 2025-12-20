@@ -322,8 +322,8 @@ impl App {
                 self.status_bar.set_message("Returned to Databases list");
             }
             AppAction::DrillDownSchema(schema_name) => {
-                // Get database_id from context (clone to avoid borrow conflicts)
-                if let Some(database_id) = self.content.get_database_context().map(|(id, _)| *id) {
+                // Get database_id from context
+                if let Some(database_id) = self.content.get_database_context().map(|(id, _)| id) {
                     // Enter schema tables view
                     self.content
                         .enter_schema_tables(database_id, schema_name.clone());
@@ -342,8 +342,8 @@ impl App {
                 self.status_bar.set_message("Returned to Schemas list");
             }
             AppAction::DrillDownTable(table_id, table_name) => {
-                // Get database_id from context (clone to avoid borrow conflicts)
-                if let Some(database_id) = self.content.get_schema_context().map(|(id, _)| *id) {
+                // Get database_id from context
+                if let Some(database_id) = self.content.get_schema_context().map(|(id, _)| id) {
                     // Enter table preview view
                     self.content
                         .enter_table_preview(database_id, table_id, table_name.clone());
@@ -838,19 +838,19 @@ impl App {
                     // If viewing query result, go back to Questions instead of quitting
                     let _ = self.action_tx.send(AppAction::BackToQuestions);
                     return;
-                } else if self.content.current_view() == ContentView::CollectionQuestions {
+                } else if self.content.is_collection_questions_view() {
                     // Return to Collections list from collection questions view
                     let _ = self.action_tx.send(AppAction::BackToCollections);
                     return;
-                } else if self.content.current_view() == ContentView::DatabaseSchemas {
+                } else if self.content.is_database_schemas_view() {
                     // Return to Databases list from schemas view
                     let _ = self.action_tx.send(AppAction::BackToDatabases);
                     return;
-                } else if self.content.current_view() == ContentView::SchemaTables {
+                } else if self.content.is_schema_tables_view() {
                     // Return to Schemas list from tables view
                     let _ = self.action_tx.send(AppAction::BackToSchemas);
                     return;
-                } else if self.content.current_view() == ContentView::TablePreview {
+                } else if self.content.is_table_preview_view() {
                     // Return to Tables list from preview view
                     let _ = self.action_tx.send(AppAction::BackToTables);
                     return;
@@ -930,8 +930,7 @@ impl App {
         }
 
         // Handle Enter in CollectionQuestions view to execute query
-        if code == KeyCode::Enter && self.content.current_view() == ContentView::CollectionQuestions
-        {
+        if code == KeyCode::Enter && self.content.is_collection_questions_view() {
             if let Some(question_id) = self.content.get_selected_question_id() {
                 let _ = self.action_tx.send(AppAction::ExecuteQuestion(question_id));
                 return;
@@ -968,7 +967,7 @@ impl App {
         // Handle Enter in TablePreview view to show record detail
         // Skip if sort/filter modal is active (Enter applies in modal)
         if code == KeyCode::Enter
-            && self.content.current_view() == ContentView::TablePreview
+            && self.content.is_table_preview_view()
             && !self.content.is_sort_mode_active()
             && !self.content.is_filter_mode_active()
         {
@@ -990,7 +989,7 @@ impl App {
         }
 
         // Handle Enter in DatabaseSchemas view to drill down into schema tables
-        if code == KeyCode::Enter && self.content.current_view() == ContentView::DatabaseSchemas {
+        if code == KeyCode::Enter && self.content.is_database_schemas_view() {
             if let Some(schema_name) = self.content.get_selected_schema() {
                 let _ = self.action_tx.send(AppAction::DrillDownSchema(schema_name));
                 return;
@@ -998,7 +997,7 @@ impl App {
         }
 
         // Handle Enter in SchemaTables view to preview table data
-        if code == KeyCode::Enter && self.content.current_view() == ContentView::SchemaTables {
+        if code == KeyCode::Enter && self.content.is_schema_tables_view() {
             if let Some((table_id, table_name)) = self.content.get_selected_table_info() {
                 let _ = self
                     .action_tx
@@ -1022,29 +1021,28 @@ impl App {
         self.content.set_view(view);
 
         // Auto-load data when switching to a view with Idle state
-        match view {
-            ContentView::Questions => {
+        match tab {
+            ActiveTab::Questions => {
                 if matches!(self.data.questions, LoadState::Idle) {
                     let _ = self
                         .action_tx
                         .send(AppAction::LoadData(DataRequest::Questions));
                 }
             }
-            ContentView::Collections => {
+            ActiveTab::Collections => {
                 if matches!(self.data.collections, LoadState::Idle) {
                     let _ = self
                         .action_tx
                         .send(AppAction::LoadData(DataRequest::Collections));
                 }
             }
-            ContentView::Databases => {
+            ActiveTab::Databases => {
                 if matches!(self.data.databases, LoadState::Idle) {
                     let _ = self
                         .action_tx
                         .send(AppAction::LoadData(DataRequest::Databases));
                 }
             }
-            _ => {}
         }
 
         self.status_bar
