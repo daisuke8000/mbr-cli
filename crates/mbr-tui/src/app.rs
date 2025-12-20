@@ -753,8 +753,13 @@ impl App {
         });
     }
 
-    /// Handle keyboard input.
-    fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+    // =========================================================================
+    // Input Handling Helpers
+    // =========================================================================
+
+    /// Handle keyboard input when overlay is active (RecordDetail, Help).
+    /// Returns true if the key was handled.
+    fn handle_overlay_keys(&mut self, code: KeyCode) -> bool {
         // Record detail overlay takes priority when shown
         if self.show_record_detail {
             match code {
@@ -774,7 +779,7 @@ impl App {
                 }
                 _ => {} // Ignore other keys when detail is shown
             }
-            return;
+            return true;
         }
 
         // Help overlay takes priority when shown
@@ -785,107 +790,77 @@ impl App {
                 }
                 _ => {} // Ignore other keys when help is shown
             }
-            return;
+            return true;
         }
 
-        // Search mode handling (takes priority over global keys in Questions view)
-        if self.content.input_mode() == InputMode::Search {
-            match code {
-                KeyCode::Enter => {
-                    // Execute search
-                    if let Some(query) = self.content.execute_search() {
-                        let _ = self
-                            .action_tx
-                            .send(AppAction::LoadData(DataRequest::SearchQuestions(query)));
-                    } else {
-                        // Empty query: reload all questions
-                        let _ = self
-                            .action_tx
-                            .send(AppAction::LoadData(DataRequest::Questions));
-                    }
-                    return;
-                }
-                KeyCode::Esc => {
-                    // Cancel search mode
-                    self.content.exit_search_mode();
-                    return;
-                }
-                _ => {
-                    // Delegate to content panel for character input
-                    self.content
-                        .handle_key(crossterm::event::KeyEvent::new(code, modifiers));
-                    return;
-                }
-            }
+        false
+    }
+
+    /// Handle keyboard input in search mode.
+    /// Returns true if the key was handled.
+    fn handle_search_mode_keys(&mut self, code: KeyCode, modifiers: KeyModifiers) -> bool {
+        if self.content.input_mode() != InputMode::Search {
+            return false;
         }
 
-        // Global keybindings (always active when not in search mode)
         match code {
-            KeyCode::Char('q') | KeyCode::Char('Q') => {
-                self.should_quit = true;
-                return;
-            }
-            KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
-                self.should_quit = true;
-                return;
-            }
-            KeyCode::Esc => {
-                // Skip if any modal is active (Esc handled by modal)
-                if self.is_modal_active() {
-                    // Let ContentPanel handle Esc for modals
-                    // Fall through to content.handle_key() below
-                } else if self.content.current_view() == ContentView::QueryResult {
-                    // If viewing query result, go back to Questions instead of quitting
-                    let _ = self.action_tx.send(AppAction::BackToQuestions);
-                    return;
-                } else if self.content.is_collection_questions_view() {
-                    // Return to Collections list from collection questions view
-                    let _ = self.action_tx.send(AppAction::BackToCollections);
-                    return;
-                } else if self.content.is_database_schemas_view() {
-                    // Return to Databases list from schemas view
-                    let _ = self.action_tx.send(AppAction::BackToDatabases);
-                    return;
-                } else if self.content.is_schema_tables_view() {
-                    // Return to Schemas list from tables view
-                    let _ = self.action_tx.send(AppAction::BackToSchemas);
-                    return;
-                } else if self.content.is_table_preview_view() {
-                    // Return to Tables list from preview view
-                    let _ = self.action_tx.send(AppAction::BackToTables);
-                    return;
-                } else if self.content.get_active_search().is_some() {
-                    // Clear active search and reload all questions
-                    self.content.clear_search();
+            KeyCode::Enter => {
+                // Execute search
+                if let Some(query) = self.content.execute_search() {
+                    let _ = self
+                        .action_tx
+                        .send(AppAction::LoadData(DataRequest::SearchQuestions(query)));
+                } else {
+                    // Empty query: reload all questions
                     let _ = self
                         .action_tx
                         .send(AppAction::LoadData(DataRequest::Questions));
-                    return;
-                } else {
-                    self.should_quit = true;
-                    return;
                 }
             }
+            KeyCode::Esc => {
+                // Cancel search mode
+                self.content.exit_search_mode();
+            }
+            _ => {
+                // Delegate to content panel for character input
+                self.content
+                    .handle_key(crossterm::event::KeyEvent::new(code, modifiers));
+            }
+        }
+        true
+    }
+
+    /// Handle global keybindings (quit, help, tab switch, refresh).
+    /// Returns true if the key was handled.
+    fn handle_global_keys(&mut self, code: KeyCode, modifiers: KeyModifiers) -> bool {
+        match code {
+            KeyCode::Char('q') | KeyCode::Char('Q') => {
+                self.should_quit = true;
+                true
+            }
+            KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                self.should_quit = true;
+                true
+            }
+            KeyCode::Esc => self.handle_escape_key(),
             KeyCode::Char('?') if !self.is_modal_active() => {
                 self.show_help = true;
-                return;
+                true
             }
             // Tab switching with number keys 1/2/3
-            // Skip when any modal is active (sort/filter) to prevent accidental navigation
             KeyCode::Char('1') if !self.is_modal_active() => {
                 self.switch_to_tab(ActiveTab::Questions);
-                return;
+                true
             }
             KeyCode::Char('2') if !self.is_modal_active() => {
                 self.switch_to_tab(ActiveTab::Collections);
-                return;
+                true
             }
             KeyCode::Char('3') if !self.is_modal_active() => {
                 self.switch_to_tab(ActiveTab::Databases);
-                return;
+                true
             }
             // Tab cycling with Tab/Shift+Tab
-            // Skip when any modal is active to prevent accidental tab switch
             KeyCode::Tab if !self.is_modal_active() => {
                 let new_tab = if modifiers.contains(KeyModifiers::SHIFT) {
                     self.active_tab.previous()
@@ -893,119 +868,167 @@ impl App {
                     self.active_tab.next()
                 };
                 self.switch_to_tab(new_tab);
-                return;
+                true
             }
             KeyCode::BackTab if !self.is_modal_active() => {
                 self.switch_to_tab(self.active_tab.previous());
-                return;
+                true
             }
-            // Refresh data with 'r' - reloads current view's data
+            // Refresh data with 'r'
             KeyCode::Char('r') if !self.is_modal_active() => {
-                let request = match self.content.current_view() {
-                    ContentView::Questions => DataRequest::Questions,
-                    ContentView::Collections => DataRequest::Collections,
-                    ContentView::Databases => DataRequest::Databases,
-                    _ => DataRequest::Refresh,
-                };
-                // Force reload by resetting state to Idle first
-                match self.content.current_view() {
-                    ContentView::Questions => self.data.questions = LoadState::Idle,
-                    ContentView::Collections => self.data.collections = LoadState::Idle,
-                    ContentView::Databases => self.data.databases = LoadState::Idle,
-                    _ => {}
+                self.handle_refresh();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Handle Escape key for navigation back or quit.
+    /// Returns true if handled.
+    fn handle_escape_key(&mut self) -> bool {
+        // Skip if any modal is active (let ContentPanel handle Esc)
+        if self.is_modal_active() {
+            return false;
+        }
+
+        // Navigate back based on current view
+        if self.content.current_view() == ContentView::QueryResult {
+            let _ = self.action_tx.send(AppAction::BackToQuestions);
+        } else if self.content.is_collection_questions_view() {
+            let _ = self.action_tx.send(AppAction::BackToCollections);
+        } else if self.content.is_database_schemas_view() {
+            let _ = self.action_tx.send(AppAction::BackToDatabases);
+        } else if self.content.is_schema_tables_view() {
+            let _ = self.action_tx.send(AppAction::BackToSchemas);
+        } else if self.content.is_table_preview_view() {
+            let _ = self.action_tx.send(AppAction::BackToTables);
+        } else if self.content.get_active_search().is_some() {
+            // Clear active search and reload all questions
+            self.content.clear_search();
+            let _ = self
+                .action_tx
+                .send(AppAction::LoadData(DataRequest::Questions));
+        } else {
+            self.should_quit = true;
+        }
+        true
+    }
+
+    /// Handle refresh action for current view.
+    fn handle_refresh(&mut self) {
+        let request = match self.content.current_view() {
+            ContentView::Questions => DataRequest::Questions,
+            ContentView::Collections => DataRequest::Collections,
+            ContentView::Databases => DataRequest::Databases,
+            _ => DataRequest::Refresh,
+        };
+        // Force reload by resetting state to Idle first
+        match self.content.current_view() {
+            ContentView::Questions => self.data.questions = LoadState::Idle,
+            ContentView::Collections => self.data.collections = LoadState::Idle,
+            ContentView::Databases => self.data.databases = LoadState::Idle,
+            _ => {}
+        }
+        let _ = self.action_tx.send(AppAction::LoadData(request));
+    }
+
+    /// Handle Enter key for content-specific actions (execute, drill-down, detail).
+    /// Returns true if the key was handled.
+    fn handle_enter_key(&mut self) -> bool {
+        let view = self.content.current_view();
+        let modal_active =
+            self.content.is_sort_mode_active() || self.content.is_filter_mode_active();
+
+        match view {
+            ContentView::Questions => {
+                if let Some(question_id) = self.content.get_selected_question_id() {
+                    let _ = self.action_tx.send(AppAction::ExecuteQuestion(question_id));
+                    return true;
                 }
-                let _ = self.action_tx.send(AppAction::LoadData(request));
-                return;
+            }
+            ContentView::Collections => {
+                if let Some((id, name)) = self.content.get_selected_collection_info() {
+                    let _ = self
+                        .action_tx
+                        .send(AppAction::DrillDownCollection(id, name));
+                    return true;
+                }
+            }
+            ContentView::Databases => {
+                if let Some((id, name)) = self.content.get_selected_database_info() {
+                    let _ = self.action_tx.send(AppAction::DrillDownDatabase(id, name));
+                    return true;
+                }
+            }
+            ContentView::QueryResult if !modal_active => {
+                if let Some((columns, values)) = self.content.get_selected_record() {
+                    self.record_detail = Some(RecordDetailOverlay::new(columns, values));
+                    self.show_record_detail = true;
+                    return true;
+                }
             }
             _ => {}
         }
 
-        // Content panel keybindings
-        // Handle Enter in Questions view to execute query
-        if code == KeyCode::Enter && self.content.current_view() == ContentView::Questions {
+        // Handle drill-down views
+        if self.content.is_collection_questions_view() {
             if let Some(question_id) = self.content.get_selected_question_id() {
                 let _ = self.action_tx.send(AppAction::ExecuteQuestion(question_id));
-                return;
+                return true;
             }
         }
-
-        // Handle Enter in CollectionQuestions view to execute query
-        if code == KeyCode::Enter && self.content.is_collection_questions_view() {
-            if let Some(question_id) = self.content.get_selected_question_id() {
-                let _ = self.action_tx.send(AppAction::ExecuteQuestion(question_id));
-                return;
-            }
-        }
-
-        // Handle Enter in Collections view to drill down into collection
-        if code == KeyCode::Enter && self.content.current_view() == ContentView::Collections {
-            if let Some((collection_id, collection_name)) =
-                self.content.get_selected_collection_info()
-            {
-                let _ = self.action_tx.send(AppAction::DrillDownCollection(
-                    collection_id,
-                    collection_name,
-                ));
-                return;
-            }
-        }
-
-        // Handle Enter in QueryResult view to show record detail
-        // Skip if sort/filter modal is active (Enter applies in modal)
-        if code == KeyCode::Enter
-            && self.content.current_view() == ContentView::QueryResult
-            && !self.content.is_sort_mode_active()
-            && !self.content.is_filter_mode_active()
-        {
-            if let Some((columns, values)) = self.content.get_selected_record() {
-                self.record_detail = Some(RecordDetailOverlay::new(columns, values));
-                self.show_record_detail = true;
-                return;
-            }
-        }
-
-        // Handle Enter in TablePreview view to show record detail
-        // Skip if sort/filter modal is active (Enter applies in modal)
-        if code == KeyCode::Enter
-            && self.content.is_table_preview_view()
-            && !self.content.is_sort_mode_active()
-            && !self.content.is_filter_mode_active()
-        {
-            if let Some((columns, values)) = self.content.get_selected_record() {
-                self.record_detail = Some(RecordDetailOverlay::new(columns, values));
-                self.show_record_detail = true;
-                return;
-            }
-        }
-
-        // Handle Enter in Databases view to drill down into database schemas
-        if code == KeyCode::Enter && self.content.current_view() == ContentView::Databases {
-            if let Some((database_id, database_name)) = self.content.get_selected_database_info() {
-                let _ = self
-                    .action_tx
-                    .send(AppAction::DrillDownDatabase(database_id, database_name));
-                return;
-            }
-        }
-
-        // Handle Enter in DatabaseSchemas view to drill down into schema tables
-        if code == KeyCode::Enter && self.content.is_database_schemas_view() {
+        if self.content.is_database_schemas_view() {
             if let Some(schema_name) = self.content.get_selected_schema() {
                 let _ = self.action_tx.send(AppAction::DrillDownSchema(schema_name));
-                return;
+                return true;
             }
         }
-
-        // Handle Enter in SchemaTables view to preview table data
-        if code == KeyCode::Enter && self.content.is_schema_tables_view() {
+        if self.content.is_schema_tables_view() {
             if let Some((table_id, table_name)) = self.content.get_selected_table_info() {
                 let _ = self
                     .action_tx
                     .send(AppAction::DrillDownTable(table_id, table_name));
-                return;
+                return true;
+            }
+        }
+        if self.content.is_table_preview_view() && !modal_active {
+            if let Some((columns, values)) = self.content.get_selected_record() {
+                self.record_detail = Some(RecordDetailOverlay::new(columns, values));
+                self.show_record_detail = true;
+                return true;
             }
         }
 
+        false
+    }
+
+    // =========================================================================
+    // Main Input Handler
+    // =========================================================================
+
+    /// Handle keyboard input with delegated responsibility.
+    fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        // 1. Overlay handling (highest priority)
+        if self.handle_overlay_keys(code) {
+            return;
+        }
+
+        // 2. Search mode handling
+        if self.handle_search_mode_keys(code, modifiers) {
+            return;
+        }
+
+        // 3. Global keybindings
+        if self.handle_global_keys(code, modifiers) {
+            return;
+        }
+
+        // 4. Enter key for content actions
+        if code == KeyCode::Enter && self.handle_enter_key() {
+            return;
+        }
+
+        // 5. Delegate remaining keys to content panel
         self.content
             .handle_key(crossterm::event::KeyEvent::new(code, modifiers));
     }
