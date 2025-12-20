@@ -188,7 +188,7 @@ impl ContentPanel {
     fn total_pages(&self) -> usize {
         self.query_result
             .as_ref()
-            .map(|r| (r.rows.len() + self.rows_per_page - 1) / self.rows_per_page)
+            .map(|r| r.rows.len().div_ceil(self.rows_per_page))
             .unwrap_or(0)
     }
 
@@ -688,9 +688,7 @@ impl ContentPanel {
                             Block::default()
                                 .title(format!(
                                     " {}{}{}",
-                                    result.question_name,
-                                    page_indicator,
-                                    col_indicator
+                                    result.question_name, page_indicator, col_indicator
                                 ))
                                 .borders(Borders::ALL)
                                 .border_style(border_style),
@@ -833,16 +831,6 @@ impl Component for ContentPanel {
                 }
                 _ => false,
             }
-        }
-    }
-
-    fn title(&self) -> &str {
-        match self.view {
-            ContentView::Welcome => "Welcome",
-            ContentView::Questions => "Questions",
-            ContentView::Collections => "Collections",
-            ContentView::Databases => "Databases",
-            ContentView::QueryResult => "Query Result",
         }
     }
 }

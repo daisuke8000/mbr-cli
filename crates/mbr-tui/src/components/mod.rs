@@ -71,9 +71,6 @@ pub trait Component {
 
     /// Handle keyboard input. Returns true if the event was consumed.
     fn handle_key(&mut self, key: KeyEvent) -> bool;
-
-    /// Get the component's title for the border.
-    fn title(&self) -> &str;
 }
 
 /// Scroll state for components with scrollable content.
@@ -88,15 +85,6 @@ pub struct ScrollState {
 }
 
 impl ScrollState {
-    /// Create a new scroll state.
-    pub fn new(total: usize, visible: usize) -> Self {
-        Self {
-            offset: 0,
-            total,
-            visible,
-        }
-    }
-
     /// Scroll up by one item.
     pub fn scroll_up(&mut self) {
         self.offset = self.offset.saturating_sub(1);
@@ -106,18 +94,6 @@ impl ScrollState {
     pub fn scroll_down(&mut self) {
         if self.offset + self.visible < self.total {
             self.offset += 1;
-        }
-    }
-
-    /// Scroll to a specific item index.
-    pub fn scroll_to(&mut self, index: usize) {
-        if index < self.total {
-            // Ensure the item is visible
-            if index < self.offset {
-                self.offset = index;
-            } else if index >= self.offset + self.visible {
-                self.offset = index.saturating_sub(self.visible.saturating_sub(1));
-            }
         }
     }
 }

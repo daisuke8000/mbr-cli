@@ -99,8 +99,4 @@ impl Component for StatusBar {
         // Status bar doesn't handle keys
         false
     }
-
-    fn title(&self) -> &str {
-        ""
-    }
 }
