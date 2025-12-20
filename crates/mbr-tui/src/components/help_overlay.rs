@@ -36,6 +36,7 @@ impl HelpOverlay {
         ("Home / g", "First page / First item"),
         ("End / G", "Last page / Last item"),
         ("Enter", "Execute query / Record detail"),
+        ("c", "Copy record (result view)"),
         ("Esc", "Back to list / Close modal"),
     ];
 

@@ -20,3 +20,5 @@ tokio.workspace = true
 thiserror.workspace = true
 serde_json.workspace = true
 unicode-width.workspace = true
+arboard = "3.4"
+indexmap = { version = "2.12.1", features = ["serde"] }

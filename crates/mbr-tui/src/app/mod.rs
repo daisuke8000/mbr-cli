@@ -26,7 +26,8 @@ use tokio::sync::mpsc;
 
 use crate::action::{AppAction, DataRequest};
 use crate::components::{
-    ActiveTab, Component, ContentPanel, ContentView, HelpOverlay, RecordDetailOverlay, StatusBar,
+    ActiveTab, Component, ContentPanel, ContentView, CopyMenu, HelpOverlay, RecordDetailOverlay,
+    StatusBar,
 };
 use crate::event::{Event, EventHandler};
 use crate::layout::main::{HEADER_HEIGHT, STATUS_BAR_HEIGHT};
@@ -60,6 +61,10 @@ pub struct App {
     pub(crate) show_record_detail: bool,
     /// Record detail overlay state
     pub(crate) record_detail: Option<RecordDetailOverlay>,
+    /// Whether to show copy menu overlay
+    pub(crate) show_copy_menu: bool,
+    /// Copy menu state
+    pub(crate) copy_menu: Option<CopyMenu>,
 }
 
 impl Default for App {
@@ -78,6 +83,7 @@ impl App {
         self.content.is_sort_mode_active()
             || self.content.is_filter_mode_active()
             || self.content.is_result_search_active()
+            || self.show_copy_menu
     }
 
     /// Create a new application instance.
@@ -115,6 +121,8 @@ impl App {
             current_request_id: 0,
             show_record_detail: false,
             record_detail: None,
+            show_copy_menu: false,
+            copy_menu: None,
         }
     }
 
@@ -264,6 +272,13 @@ impl App {
         if self.show_record_detail {
             if let Some(ref mut detail) = self.record_detail {
                 detail.render(frame, size);
+            }
+        }
+
+        // Draw copy menu overlay if visible
+        if self.show_copy_menu {
+            if let Some(ref menu) = self.copy_menu {
+                menu.render(frame, size);
             }
         }
     }

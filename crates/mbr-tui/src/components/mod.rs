@@ -6,7 +6,9 @@ use crossterm::event::KeyEvent;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 
+pub mod clipboard;
 mod content;
+mod copy_menu;
 mod help_overlay;
 mod record_detail;
 pub mod state_renderer;
@@ -14,6 +16,7 @@ mod status_bar;
 pub mod styles;
 
 pub use content::{ContentPanel, ContentView, InputMode, QueryResultData};
+pub use copy_menu::CopyMenu;
 pub use help_overlay::HelpOverlay;
 pub use record_detail::RecordDetailOverlay;
 pub use status_bar::StatusBar;
@@ -74,6 +77,7 @@ pub trait Component {
     fn draw(&mut self, frame: &mut Frame, area: Rect, focused: bool);
 
     /// Handle keyboard input. Returns true if the event was consumed.
+    #[allow(dead_code)]
     fn handle_key(&mut self, key: KeyEvent) -> bool;
 }
 
