@@ -900,7 +900,7 @@ impl App {
                 return;
             }
             // Refresh data with 'r' - reloads current view's data
-            KeyCode::Char('r') => {
+            KeyCode::Char('r') if !self.is_modal_active() => {
                 let request = match self.content.current_view() {
                     ContentView::Questions => DataRequest::Questions,
                     ContentView::Collections => DataRequest::Collections,
