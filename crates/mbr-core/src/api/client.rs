@@ -1,6 +1,7 @@
 use crate::error::{ApiError, AppError};
 use crate::utils::error_helpers::*;
 use reqwest::{Client, Method, RequestBuilder, Response};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -40,12 +41,51 @@ impl MetabaseClient {
         Ok(client)
     }
 
+    /// Build a request with the given HTTP method and path.
+    ///
+    /// Automatically adds API key authentication header if configured.
+    /// For query parameters, either:
+    /// - Chain `.query()` on the returned `RequestBuilder`
+    /// - Use `build_request_with_query()` for typed parameters
     pub fn build_request(&self, method: Method, path: &str) -> RequestBuilder {
         let url = format!("{}{}", self.base_url, path);
         let mut request = self.client.request(method, url);
 
         if let Some(api_key) = &self.api_key {
             request = request.header("x-api-key", api_key);
+        }
+
+        request
+    }
+
+    /// Build a request with typed query parameters.
+    ///
+    /// Provides type-safe query parameter handling with automatic URL encoding.
+    /// Use this when query parameters are known at compile time.
+    ///
+    /// # Example
+    /// ```ignore
+    /// #[derive(Serialize)]
+    /// struct SearchParams {
+    ///     q: String,
+    ///     models: String,
+    /// }
+    ///
+    /// let params = SearchParams { q: "term".into(), models: "card".into() };
+    /// client.build_request_with_query(Method::GET, "/api/search", Some(&params))
+    ///     .send()
+    ///     .await?;
+    /// ```
+    pub fn build_request_with_query<T: Serialize>(
+        &self,
+        method: Method,
+        path: &str,
+        query: Option<&T>,
+    ) -> RequestBuilder {
+        let mut request = self.build_request(method, path);
+
+        if let Some(q) = query {
+            request = request.query(q);
         }
 
         request
@@ -119,12 +159,22 @@ impl MetabaseClient {
     ) -> Result<Vec<crate::api::models::Question>, AppError> {
         use crate::api::models::{Collection, Question, SearchResponse};
 
-        let endpoint = "/api/search";
+        /// Query parameters for Metabase search API
+        #[derive(Serialize)]
+        struct SearchQuery<'a> {
+            q: &'a str,
+            models: &'static str,
+        }
 
-        // Use reqwest's .query() for safe URL encoding (handles UTF-8 correctly)
+        let endpoint = "/api/search";
+        let query = SearchQuery {
+            q: search_term,
+            models: "card",
+        };
+
+        // Use build_request_with_query for type-safe URL encoding
         let response = self
-            .build_request(Method::GET, endpoint)
-            .query(&[("q", search_term), ("models", "card")])
+            .build_request_with_query(Method::GET, endpoint, Some(&query))
             .send()
             .await
             .map_err(|e| AppError::Api(convert_request_error(e, endpoint)))?;
@@ -430,5 +480,71 @@ mod tests {
         let client = MetabaseClient::new("http://example.test/".to_string())
             .expect("client creation failed");
         assert_eq!(client.base_url, "http://example.test");
+    }
+
+    #[test]
+    fn test_build_request_with_query_params() {
+        #[derive(Serialize)]
+        struct TestQuery {
+            q: String,
+            limit: u32,
+        }
+
+        let client =
+            MetabaseClient::new("http://example.test".to_string()).expect("client creation failed");
+
+        let query = TestQuery {
+            q: "search term".to_string(),
+            limit: 10,
+        };
+
+        let request = client.build_request_with_query(Method::GET, "/api/search", Some(&query));
+        let built_request = request.build().expect("Failed to build request");
+
+        // URL should contain query parameters (URL-encoded)
+        let url = built_request.url().as_str();
+        assert!(url.starts_with("http://example.test/api/search?"));
+        assert!(url.contains("q=search"));
+        assert!(url.contains("limit=10"));
+    }
+
+    #[test]
+    fn test_build_request_with_query_none() {
+        let client =
+            MetabaseClient::new("http://example.test".to_string()).expect("client creation failed");
+
+        let request = client.build_request_with_query::<()>(Method::GET, "/api/search", None);
+        let built_request = request.build().expect("Failed to build request");
+
+        // URL should not contain query string when None is passed
+        assert_eq!(
+            built_request.url().as_str(),
+            "http://example.test/api/search"
+        );
+    }
+
+    #[test]
+    fn test_build_request_with_query_unicode() {
+        #[derive(Serialize)]
+        struct SearchQuery<'a> {
+            q: &'a str,
+        }
+
+        let client =
+            MetabaseClient::new("http://example.test".to_string()).expect("client creation failed");
+
+        // Test with Japanese characters (multibyte)
+        let query = SearchQuery {
+            q: "売上データ"
+        };
+
+        let request = client.build_request_with_query(Method::GET, "/api/search", Some(&query));
+        let built_request = request.build().expect("Failed to build request");
+
+        // URL should be properly URL-encoded
+        let url = built_request.url().as_str();
+        assert!(url.starts_with("http://example.test/api/search?q="));
+        // URL-encoded Japanese characters
+        assert!(url.contains("%"));
     }
 }
