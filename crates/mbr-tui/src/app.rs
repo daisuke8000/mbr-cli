@@ -61,6 +61,15 @@ impl Default for App {
 }
 
 impl App {
+    /// Check if any modal is active that should block global navigation.
+    ///
+    /// When a modal (sort, filter, or future search) is active, global shortcuts
+    /// like tab switching (1/2/3), help (?), and Tab should be blocked to prevent
+    /// accidental navigation while the user is focused on the modal.
+    fn is_modal_active(&self) -> bool {
+        self.content.is_sort_mode_active() || self.content.is_filter_mode_active()
+    }
+
     /// Create a new application instance.
     pub fn new() -> Self {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
@@ -819,8 +828,8 @@ impl App {
                 return;
             }
             KeyCode::Esc => {
-                // Skip if sort/filter modal is active (Esc handled by modal)
-                if self.content.is_sort_mode_active() || self.content.is_filter_mode_active() {
+                // Skip if any modal is active (Esc handled by modal)
+                if self.is_modal_active() {
                     // Let ContentPanel handle Esc for modals
                     // Fall through to content.handle_key() below
                 } else if self.content.current_view() == ContentView::QueryResult {
@@ -855,27 +864,27 @@ impl App {
                     return;
                 }
             }
-            KeyCode::Char('?') if !self.content.is_filter_mode_active() => {
+            KeyCode::Char('?') if !self.is_modal_active() => {
                 self.show_help = true;
                 return;
             }
             // Tab switching with number keys 1/2/3
-            // Skip when filter modal is active (allows number input in filter text)
-            KeyCode::Char('1') if !self.content.is_filter_mode_active() => {
+            // Skip when any modal is active (sort/filter) to prevent accidental navigation
+            KeyCode::Char('1') if !self.is_modal_active() => {
                 self.switch_to_tab(ActiveTab::Questions);
                 return;
             }
-            KeyCode::Char('2') if !self.content.is_filter_mode_active() => {
+            KeyCode::Char('2') if !self.is_modal_active() => {
                 self.switch_to_tab(ActiveTab::Collections);
                 return;
             }
-            KeyCode::Char('3') if !self.content.is_filter_mode_active() => {
+            KeyCode::Char('3') if !self.is_modal_active() => {
                 self.switch_to_tab(ActiveTab::Databases);
                 return;
             }
             // Tab cycling with Tab/Shift+Tab
-            // Skip when filter modal is active (prevents accidental tab switch)
-            KeyCode::Tab if !self.content.is_filter_mode_active() => {
+            // Skip when any modal is active to prevent accidental tab switch
+            KeyCode::Tab if !self.is_modal_active() => {
                 let new_tab = if modifiers.contains(KeyModifiers::SHIFT) {
                     self.active_tab.previous()
                 } else {
@@ -884,7 +893,7 @@ impl App {
                 self.switch_to_tab(new_tab);
                 return;
             }
-            KeyCode::BackTab if !self.content.is_filter_mode_active() => {
+            KeyCode::BackTab if !self.is_modal_active() => {
                 self.switch_to_tab(self.active_tab.previous());
                 return;
             }
