@@ -151,6 +151,26 @@ impl ServiceClient {
             .map_err(|e| format!("Query execution failed: {}", e))
     }
 
+    /// Fetch questions filtered by collection
+    pub async fn fetch_questions_by_collection(
+        &self,
+        collection_id: &str,
+        limit: Option<u32>,
+    ) -> Result<Vec<Question>, String> {
+        let service = QuestionService::new(self.client.clone());
+        let params = ListParams {
+            search: None,
+            limit,
+            collection: Some(collection_id.to_string()),
+            offset: None,
+        };
+
+        service
+            .list_questions(params)
+            .await
+            .map_err(|e| format!("Failed to fetch questions: {}", e))
+    }
+
     /// Fetch collections list
     pub async fn fetch_collections(&self) -> Result<Vec<CollectionItem>, String> {
         self.client

@@ -36,6 +36,8 @@ pub enum ContentView {
     Collections,
     Databases,
     QueryResult,
+    /// Questions filtered by a specific collection
+    CollectionQuestions,
 }
 
 /// Query result data for display in TUI.
@@ -86,6 +88,8 @@ pub struct ContentPanel {
     search_query: String,
     /// Active search query (used for display after search is executed)
     active_search: Option<String>,
+    /// Current collection context for CollectionQuestions view (id, name)
+    collection_context: Option<(u32, String)>,
 }
 
 impl Default for ContentPanel {
@@ -114,6 +118,7 @@ impl ContentPanel {
             input_mode: InputMode::Normal,
             search_query: String::new(),
             active_search: None,
+            collection_context: None,
         }
     }
 
@@ -274,8 +279,9 @@ impl ContentPanel {
     }
 
     /// Get the currently selected question ID.
+    /// Works in both Questions and CollectionQuestions views.
     pub fn get_selected_question_id(&self) -> Option<u32> {
-        if self.view != ContentView::Questions {
+        if self.view != ContentView::Questions && self.view != ContentView::CollectionQuestions {
             return None;
         }
         if let LoadState::Loaded(questions) = &self.questions {
@@ -284,6 +290,47 @@ impl ContentPanel {
             }
         }
         None
+    }
+
+    /// Get the currently selected collection info (id, name).
+    pub fn get_selected_collection_info(&self) -> Option<(u32, String)> {
+        if self.view != ContentView::Collections {
+            return None;
+        }
+        if let LoadState::Loaded(collections) = &self.collections {
+            if let Some(selected) = self.collections_table_state.selected() {
+                return collections
+                    .get(selected)
+                    .and_then(|c| c.id.map(|id| (id, c.name.clone())));
+            }
+        }
+        None
+    }
+
+    // === Collection Questions View ===
+
+    /// Enter collection questions view to show questions from a specific collection.
+    pub fn enter_collection_questions(&mut self, collection_id: u32, collection_name: String) {
+        self.collection_context = Some((collection_id, collection_name));
+        self.view = ContentView::CollectionQuestions;
+        // Reset questions state for new load
+        self.questions = LoadState::Idle;
+        self.table_state = TableState::default();
+    }
+
+    /// Exit collection questions view and return to collections list.
+    pub fn exit_collection_questions(&mut self) {
+        self.collection_context = None;
+        self.view = ContentView::Collections;
+        // Reset questions state
+        self.questions = LoadState::Idle;
+        self.table_state = TableState::default();
+    }
+
+    /// Get the current collection context (id, name) for CollectionQuestions view.
+    #[allow(dead_code)] // Designed for future features
+    pub fn get_collection_context(&self) -> Option<&(u32, String)> {
+        self.collection_context.as_ref()
     }
 
     // === Search functionality ===
@@ -1085,6 +1132,158 @@ impl ContentPanel {
         }
     }
 
+    /// Render collection questions view with table.
+    /// Shows questions filtered by a specific collection.
+    fn render_collection_questions(&mut self, area: Rect, frame: &mut Frame, focused: bool) {
+        let border_style = if focused {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
+        // Get collection name for title
+        let collection_name = self
+            .collection_context
+            .as_ref()
+            .map(|(_, name)| name.as_str())
+            .unwrap_or("Unknown");
+
+        match &self.questions {
+            LoadState::Idle => {
+                let paragraph = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("  Loading questions from '{}'...", collection_name),
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ])
+                .block(
+                    Block::default()
+                        .title(format!(" {} ", collection_name))
+                        .borders(Borders::ALL)
+                        .border_style(border_style),
+                );
+                frame.render_widget(paragraph, area);
+            }
+            LoadState::Loading => {
+                let paragraph = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("  ⏳ Loading questions from '{}'...", collection_name),
+                        Style::default().fg(Color::Yellow),
+                    )),
+                ])
+                .block(
+                    Block::default()
+                        .title(format!(" {} ", collection_name))
+                        .borders(Borders::ALL)
+                        .border_style(border_style),
+                );
+                frame.render_widget(paragraph, area);
+            }
+            LoadState::Error(msg) => {
+                let paragraph = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("  ❌ Error: {}", msg),
+                        Style::default().fg(Color::Red),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "  Press 'r' to retry or Esc to go back",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ])
+                .block(
+                    Block::default()
+                        .title(format!(" {} ", collection_name))
+                        .borders(Borders::ALL)
+                        .border_style(border_style),
+                );
+                frame.render_widget(paragraph, area);
+            }
+            LoadState::Loaded(questions) => {
+                if questions.is_empty() {
+                    let paragraph = Paragraph::new(vec![
+                        Line::from(""),
+                        Line::from(Span::styled(
+                            format!("  No questions found in '{}'", collection_name),
+                            Style::default().fg(Color::DarkGray),
+                        )),
+                        Line::from(""),
+                        Line::from(Span::styled(
+                            "  Press Esc to go back",
+                            Style::default().fg(Color::DarkGray),
+                        )),
+                    ])
+                    .block(
+                        Block::default()
+                            .title(format!(" {} (0) ", collection_name))
+                            .borders(Borders::ALL)
+                            .border_style(border_style),
+                    );
+                    frame.render_widget(paragraph, area);
+                } else {
+                    // Create table rows
+                    let rows: Vec<Row> = questions
+                        .iter()
+                        .map(|q| {
+                            Row::new(vec![
+                                Cell::from(format!("{}", q.id)),
+                                Cell::from(q.name.clone()),
+                                Cell::from(
+                                    q.description
+                                        .as_deref()
+                                        .unwrap_or("—")
+                                        .chars()
+                                        .take(50)
+                                        .collect::<String>(),
+                                ),
+                            ])
+                        })
+                        .collect();
+
+                    let table = Table::new(
+                        rows,
+                        [
+                            Constraint::Length(ID_WIDTH),
+                            Constraint::Min(NAME_MIN_WIDTH),
+                            Constraint::Min(30), // Description
+                        ],
+                    )
+                    .header(
+                        Row::new(vec!["ID", "Name", "Description"])
+                            .style(
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD),
+                            )
+                            .bottom_margin(1),
+                    )
+                    .block(
+                        Block::default()
+                            .title(format!(
+                                " {} ({}) - Press Esc to go back ",
+                                collection_name,
+                                questions.len()
+                            ))
+                            .borders(Borders::ALL)
+                            .border_style(border_style),
+                    )
+                    .row_highlight_style(
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .highlight_symbol("► ");
+
+                    frame.render_stateful_widget(table, area, &mut self.table_state);
+                }
+            }
+        }
+    }
+
     /// Render query result view with table.
     fn render_query_result(&mut self, area: Rect, frame: &mut Frame, focused: bool) {
         let border_style = if focused {
@@ -1275,6 +1474,10 @@ impl Component for ContentPanel {
                 self.render_query_result(area, frame, focused);
                 return;
             }
+            ContentView::CollectionQuestions => {
+                self.render_collection_questions(area, frame, focused);
+                return;
+            }
             ContentView::Welcome => {}
         }
 
@@ -1361,6 +1564,28 @@ impl Component for ContentPanel {
                 }
                 KeyCode::End | KeyCode::Char('G') => {
                     self.select_databases_last();
+                    true
+                }
+                _ => false,
+            }
+        } else if self.view == ContentView::CollectionQuestions {
+            // CollectionQuestions view has same navigation as Questions
+            // Enter/Esc handled by App
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.select_previous();
+                    true
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.select_next();
+                    true
+                }
+                KeyCode::Home | KeyCode::Char('g') => {
+                    self.select_first();
+                    true
+                }
+                KeyCode::End | KeyCode::Char('G') => {
+                    self.select_last();
                     true
                 }
                 _ => false,
