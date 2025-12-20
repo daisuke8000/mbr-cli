@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use mbr_core::api::client::MetabaseClient;
-use mbr_core::api::models::{CurrentUser, QueryResult, Question};
+use mbr_core::api::models::{CollectionItem, CurrentUser, Database, QueryResult, Question};
 use mbr_core::core::services::question_service::QuestionService;
 use mbr_core::core::services::types::ListParams;
 use mbr_core::storage::config::Config;
@@ -70,6 +70,10 @@ impl<T> LoadState<T> {
 pub struct AppData {
     /// Questions list with loading state
     pub questions: LoadState<Vec<Question>>,
+    /// Collections list with loading state
+    pub collections: LoadState<Vec<CollectionItem>>,
+    /// Databases list with loading state
+    pub databases: LoadState<Vec<Database>>,
     /// Current user information (if authenticated)
     pub current_user: Option<CurrentUser>,
     /// Query result data (centralized storage)
@@ -145,6 +149,22 @@ impl ServiceClient {
             .execute_question(id, None)
             .await
             .map_err(|e| format!("Query execution failed: {}", e))
+    }
+
+    /// Fetch collections list
+    pub async fn fetch_collections(&self) -> Result<Vec<CollectionItem>, String> {
+        self.client
+            .list_collections()
+            .await
+            .map_err(|e| format!("Failed to fetch collections: {}", e))
+    }
+
+    /// Fetch databases list
+    pub async fn fetch_databases(&self) -> Result<Vec<Database>, String> {
+        self.client
+            .list_databases()
+            .await
+            .map_err(|e| format!("Failed to fetch databases: {}", e))
     }
 }
 
