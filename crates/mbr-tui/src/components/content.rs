@@ -137,6 +137,19 @@ pub struct ContentPanel {
     sort_mode_active: bool,
     /// Selected column index in sort modal
     sort_modal_selection: usize,
+    // === Filter state ===
+    /// Filtered row indices (None = no filter, Some = filtered indices)
+    filter_indices: Option<Vec<usize>>,
+    /// Column index currently being filtered (None = no filter)
+    filter_column_index: Option<usize>,
+    /// Filter text (case-insensitive contains match)
+    filter_text: String,
+    /// Whether filter modal is active
+    filter_mode_active: bool,
+    /// Current step in filter modal (0 = column selection, 1 = text input)
+    filter_modal_step: usize,
+    /// Selected column index in filter modal
+    filter_modal_selection: usize,
 }
 
 impl Default for ContentPanel {
@@ -179,6 +192,12 @@ impl ContentPanel {
             sort_column_index: None,
             sort_mode_active: false,
             sort_modal_selection: 0,
+            filter_indices: None,
+            filter_column_index: None,
+            filter_text: String::new(),
+            filter_mode_active: false,
+            filter_modal_step: 0,
+            filter_modal_selection: 0,
         }
     }
 
@@ -621,13 +640,12 @@ impl ContentPanel {
         // Reset query result for new load
         self.query_result = None;
         self.sort_indices = None;
+        self.filter_indices = None;
         self.result_table_state = TableState::default();
         self.result_page = 0;
         self.scroll_x = 0;
-        // Reset sort state
-        self.sort_order = SortOrder::None;
-        self.sort_column_index = None;
-        self.sort_mode_active = false;
+        // Reset sort/filter state
+        self.reset_sort_filter_state();
         // Push current view (SchemaTables) to stack before switching
         self.push_view(ContentView::TablePreview);
     }
@@ -637,13 +655,12 @@ impl ContentPanel {
         self.table_context = None;
         self.query_result = None;
         self.sort_indices = None;
+        self.filter_indices = None;
         self.result_table_state = TableState::default();
         self.result_page = 0;
         self.scroll_x = 0;
-        // Reset sort state
-        self.sort_order = SortOrder::None;
-        self.sort_column_index = None;
-        self.sort_mode_active = false;
+        // Reset sort/filter state
+        self.reset_sort_filter_state();
         // Pop from navigation stack (defaults to SchemaTables if stack is empty)
         if self.pop_view().is_none() {
             self.view = ContentView::SchemaTables;
@@ -653,15 +670,14 @@ impl ContentPanel {
     /// Set table preview data (used when data is loaded after entering preview view).
     /// Does not change navigation state since enter_table_preview already handled that.
     pub fn set_table_preview_data(&mut self, data: QueryResultData) {
-        // Clear sort indices for new data (no need to clone rows)
+        // Clear sort/filter indices for new data
         self.sort_indices = None;
+        self.filter_indices = None;
         self.query_result = Some(data);
         self.result_table_state = TableState::default();
         self.result_page = 0;
-        // Reset sort state for new data
-        self.sort_order = SortOrder::None;
-        self.sort_column_index = None;
-        self.sort_mode_active = false;
+        // Reset sort/filter state for new data
+        self.reset_sort_filter_state();
         // Auto-select first row if available
         if self
             .query_result
@@ -765,7 +781,7 @@ impl ContentPanel {
                 let logical_index = page_start + selected;
 
                 // Get row using sorted index if sorting is active
-                if let Some(row) = self.get_sorted_row(logical_index) {
+                if let Some(row) = self.get_visible_row(logical_index) {
                     return Some((result.columns.clone(), row.clone()));
                 }
             }
@@ -776,16 +792,15 @@ impl ContentPanel {
     /// Set query result data and switch to QueryResult view.
     /// Uses navigation stack to enable returning to the originating view.
     pub fn set_query_result(&mut self, data: QueryResultData) {
-        // Clear sort indices for new data (no need to clone rows)
+        // Clear sort/filter indices for new data
         self.sort_indices = None;
+        self.filter_indices = None;
         self.query_result = Some(data);
         self.result_table_state = TableState::default();
         self.result_page = 0; // Reset to first page
         self.scroll_x = 0;
-        // Reset sort state for new data
-        self.sort_order = SortOrder::None;
-        self.sort_column_index = None;
-        self.sort_mode_active = false;
+        // Reset sort/filter state for new data
+        self.reset_sort_filter_state();
         // Auto-select first row if available
         if self
             .query_result
@@ -803,25 +818,46 @@ impl ContentPanel {
     pub fn back_to_questions(&mut self) {
         self.query_result = None;
         self.sort_indices = None;
+        self.filter_indices = None;
         self.result_table_state = TableState::default();
         self.result_page = 0;
         self.scroll_x = 0;
-        // Clear sort state
-        self.sort_order = SortOrder::None;
-        self.sort_column_index = None;
-        self.sort_mode_active = false;
+        // Reset sort/filter state
+        self.reset_sort_filter_state();
         // Pop from navigation stack (defaults to Questions if stack is empty)
         if self.pop_view().is_none() {
             self.view = ContentView::Questions;
         }
     }
 
-    /// Get total number of pages for query result.
+    /// Reset sort and filter state (helper for view transitions).
+    fn reset_sort_filter_state(&mut self) {
+        // Sort state
+        self.sort_order = SortOrder::None;
+        self.sort_column_index = None;
+        self.sort_mode_active = false;
+        // Filter state
+        self.filter_column_index = None;
+        self.filter_text.clear();
+        self.filter_mode_active = false;
+        self.filter_modal_step = 0;
+    }
+
+    /// Get the number of visible rows (after filter is applied).
+    fn visible_row_count(&self) -> usize {
+        if let Some(ref indices) = self.filter_indices {
+            indices.len()
+        } else {
+            self.query_result
+                .as_ref()
+                .map(|r| r.rows.len())
+                .unwrap_or(0)
+        }
+    }
+
+    /// Get total number of pages for query result (considers filter).
     fn total_pages(&self) -> usize {
-        self.query_result
-            .as_ref()
-            .map(|r| r.rows.len().div_ceil(self.rows_per_page))
-            .unwrap_or(0)
+        self.visible_row_count().div_ceil(self.rows_per_page)
     }
 
     /// Go to next page in query result.
@@ -1019,17 +1055,32 @@ impl ContentPanel {
                 return;
             }
 
-            // Create index array [0, 1, 2, ..., n-1]
-            let mut indices: Vec<usize> = (0..result.rows.len()).collect();
+            // Create index array based on filtered or full row count
+            let row_count = self.visible_row_count();
+            let mut indices: Vec<usize> = (0..row_count).collect();
 
             // Sort indices based on row values at col_idx
+            // When filter is active, we need to look up actual row through filter_indices
             let order = self.sort_order;
+            let filter_indices = &self.filter_indices;
             indices.sort_by(|&a, &b| {
-                let val_a = result.rows[a]
+                // Get actual row index (through filter if active)
+                let actual_a = if let Some(fi) = filter_indices {
+                    fi[a]
+                } else {
+                    a
+                };
+                let actual_b = if let Some(fi) = filter_indices {
+                    fi[b]
+                } else {
+                    b
+                };
+
+                let val_a = result.rows[actual_a]
                     .get(col_idx)
                     .map(|s| s.as_str())
                     .unwrap_or("");
-                let val_b = result.rows[b]
+                let val_b = result.rows[actual_b]
                     .get(col_idx)
                     .map(|s| s.as_str())
                     .unwrap_or("");
@@ -1053,17 +1104,24 @@ impl ContentPanel {
         }
     }
 
-    /// Get row at logical index (respects sort order if active).
-    /// Returns the actual row from query_result based on sort indices.
-    fn get_sorted_row(&self, logical_index: usize) -> Option<&Vec<String>> {
+    /// Get row at logical index (respects both filter and sort).
+    /// Returns the actual row from query_result based on filter and sort indices.
+    fn get_visible_row(&self, logical_index: usize) -> Option<&Vec<String>> {
         self.query_result.as_ref().and_then(|result| {
-            let actual_index = if let Some(ref indices) = self.sort_indices {
-                // Use sorted index
-                indices.get(logical_index).copied()?
+            // Step 1: Apply sort (if active), get index into visible rows
+            let sorted_index = if let Some(ref sort_idx) = self.sort_indices {
+                *sort_idx.get(logical_index)?
             } else {
-                // Use original order
                 logical_index
             };
+
+            // Step 2: Apply filter (if active), get actual row index
+            let actual_index = if let Some(ref filter_idx) = self.filter_indices {
+                *filter_idx.get(sorted_index)?
+            } else {
+                sorted_index
+            };
+
             result.rows.get(actual_index)
         })
     }
@@ -1076,6 +1134,365 @@ impl ContentPanel {
             }
         }
         None
+    }
+
+    // === Filter Modal Methods ===
+
+    /// Check if filter modal is active.
+    pub fn is_filter_mode_active(&self) -> bool {
+        self.filter_mode_active
+    }
+
+    /// Open filter column selection modal.
+    pub fn open_filter_modal(&mut self) {
+        if let Some(ref result) = self.query_result {
+            if !result.columns.is_empty() {
+                self.filter_mode_active = true;
+                self.filter_modal_step = 0; // Start at column selection
+                // Start at currently filtered column or first column
+                self.filter_modal_selection = self.filter_column_index.unwrap_or(0);
+            }
+        }
+    }
+
+    /// Close filter modal without applying.
+    pub fn close_filter_modal(&mut self) {
+        self.filter_mode_active = false;
+        self.filter_modal_step = 0;
+        // Don't clear filter_text here to preserve it for re-editing
+    }
+
+    /// Move selection up in filter modal (column selection step).
+    pub fn filter_modal_up(&mut self) {
+        if self.filter_modal_step == 0 && self.filter_modal_selection > 0 {
+            self.filter_modal_selection -= 1;
+        }
+    }
+
+    /// Move selection down in filter modal (column selection step).
+    pub fn filter_modal_down(&mut self) {
+        if self.filter_modal_step == 0 {
+            if let Some(ref result) = self.query_result {
+                if self.filter_modal_selection < result.columns.len().saturating_sub(1) {
+                    self.filter_modal_selection += 1;
+                }
+            }
+        }
+    }
+
+    /// Move to next step in filter modal (column selection → text input).
+    pub fn filter_modal_next_step(&mut self) {
+        if self.filter_modal_step == 0 {
+            self.filter_modal_step = 1;
+            // Pre-fill with existing filter text if same column
+            if self.filter_column_index != Some(self.filter_modal_selection) {
+                self.filter_text.clear();
+            }
+        }
+    }
+
+    /// Move to previous step in filter modal (text input → column selection).
+    pub fn filter_modal_prev_step(&mut self) {
+        if self.filter_modal_step == 1 {
+            self.filter_modal_step = 0;
+        }
+    }
+
+    /// Handle character input in filter modal (text input step).
+    pub fn filter_modal_input_char(&mut self, c: char) {
+        if self.filter_modal_step == 1 {
+            self.filter_text.push(c);
+        }
+    }
+
+    /// Handle backspace in filter modal (text input step).
+    pub fn filter_modal_delete_char(&mut self) {
+        if self.filter_modal_step == 1 {
+            self.filter_text.pop();
+        }
+    }
+
+    /// Apply filter on selected column with current filter text.
+    pub fn apply_filter(&mut self) {
+        let selected_col = self.filter_modal_selection;
+
+        if self.filter_text.is_empty() {
+            // Empty filter text - clear filter
+            self.clear_filter();
+        } else {
+            // Apply filter
+            self.filter_column_index = Some(selected_col);
+            self.update_filter_indices();
+            // Re-apply sort on filtered data
+            if self.sort_order != SortOrder::None {
+                self.update_sort_indices();
+            }
+        }
+
+        // Close modal
+        self.filter_mode_active = false;
+        self.filter_modal_step = 0;
+
+        // Reset to first page and first row after filter
+        self.result_page = 0;
+        self.result_table_state.select(Some(0));
+    }
+
+    /// Clear filter and restore all rows.
+    pub fn clear_filter(&mut self) {
+        self.filter_column_index = None;
+        self.filter_text.clear();
+        self.filter_indices = None;
+        // Re-apply sort on full data
+        if self.sort_order != SortOrder::None {
+            self.update_sort_indices();
+        }
+    }
+
+    /// Update filter indices based on current filter column and text.
+    fn update_filter_indices(&mut self) {
+        let col_idx = match self.filter_column_index {
+            Some(idx) => idx,
+            None => {
+                self.filter_indices = None;
+                return;
+            }
+        };
+
+        if self.filter_text.is_empty() {
+            self.filter_indices = None;
+            return;
+        }
+
+        if let Some(ref result) = self.query_result {
+            if col_idx >= result.columns.len() {
+                self.filter_indices = None;
+                return;
+            }
+
+            // Case-insensitive contains match
+            let filter_lower = self.filter_text.to_lowercase();
+            let indices: Vec<usize> = result
+                .rows
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| {
+                    row.get(col_idx)
+                        .map(|cell| cell.to_lowercase().contains(&filter_lower))
+                        .unwrap_or(false)
+                })
+                .map(|(i, _)| i)
+                .collect();
+
+            self.filter_indices = Some(indices);
+        }
+    }
+
+    /// Get current filter info for display.
+    /// Returns (column_name, filter_text, visible_row_count) if filter is active.
+    #[allow(dead_code)] // Designed for status bar display in future
+    pub fn get_filter_info(&self) -> Option<(String, String, usize)> {
+        if let (Some(col_idx), Some(result)) = (self.filter_column_index, &self.query_result) {
+            if col_idx < result.columns.len() && !self.filter_text.is_empty() {
+                let visible = self.visible_row_count();
+                return Some((
+                    result.columns[col_idx].clone(),
+                    self.filter_text.clone(),
+                    visible,
+                ));
+            }
+        }
+        None
+    }
+
+    /// Render filter column/text input modal as an overlay.
+    fn render_filter_modal(&self, frame: &mut Frame, area: Rect) {
+        let result = match &self.query_result {
+            Some(r) => r,
+            None => return,
+        };
+
+        if self.filter_modal_step == 0 {
+            // Step 0: Column selection (similar to sort modal)
+            self.render_filter_column_selection(frame, area, result);
+        } else {
+            // Step 1: Text input
+            self.render_filter_text_input(frame, area, result);
+        }
+    }
+
+    /// Render filter column selection modal (step 0).
+    fn render_filter_column_selection(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        result: &QueryResultData,
+    ) {
+        // Calculate modal dimensions (40% width, centered)
+        let modal_width = (area.width as f32 * 0.4).clamp(30.0, 60.0) as u16;
+        let max_height = (result.columns.len() + 4).min(20) as u16;
+        let modal_height = max_height.min(area.height.saturating_sub(4));
+
+        let modal_x = (area.width.saturating_sub(modal_width)) / 2;
+        let modal_y = (area.height.saturating_sub(modal_height)) / 2;
+
+        let modal_area = Rect::new(
+            area.x + modal_x,
+            area.y + modal_y,
+            modal_width,
+            modal_height,
+        );
+
+        // Create background overlay
+        let overlay = Block::default().style(Style::default().bg(Color::Black));
+        frame.render_widget(overlay, modal_area);
+
+        // Build column list items
+        let items: Vec<Line> = result
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(i, col)| {
+                let is_selected = i == self.filter_modal_selection;
+                let is_filtered = self.filter_column_index == Some(i);
+
+                // Build column text with filter indicator
+                let filter_indicator = if is_filtered { " ⚡" } else { "" };
+                let prefix = if is_selected { "► " } else { "  " };
+                let text = format!("{}{}{}", prefix, col, filter_indicator);
+
+                let style = if is_selected {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD)
+                } else if is_filtered {
+                    Style::default().fg(Color::Magenta)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+
+                Line::from(Span::styled(text, style))
+            })
+            .collect();
+
+        let paragraph = Paragraph::new(items)
+            .block(
+                Block::default()
+                    .title(" Filter by Column ")
+                    .title_style(
+                        Style::default()
+                            .fg(Color::Magenta)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Magenta)),
+            )
+            .style(Style::default().bg(Color::Black));
+
+        frame.render_widget(paragraph, modal_area);
+
+        // Render footer hint
+        if modal_area.height > 2 {
+            let footer_area = Rect::new(
+                modal_area.x + 1,
+                modal_area.y + modal_area.height.saturating_sub(1),
+                modal_area.width.saturating_sub(2),
+                1,
+            );
+            let hint = Paragraph::new(Line::from(vec![
+                Span::styled("Enter", Style::default().fg(Color::Yellow)),
+                Span::styled(": Next  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("Esc", Style::default().fg(Color::Yellow)),
+                Span::styled(": Cancel", Style::default().fg(Color::DarkGray)),
+            ]))
+            .style(Style::default().bg(Color::Black));
+            frame.render_widget(hint, footer_area);
+        }
+    }
+
+    /// Render filter text input modal (step 1).
+    fn render_filter_text_input(&self, frame: &mut Frame, area: Rect, result: &QueryResultData) {
+        // Calculate modal dimensions
+        let modal_width = (area.width as f32 * 0.5).clamp(40.0, 70.0) as u16;
+        let modal_height = 7_u16; // Fixed height for text input
+
+        let modal_x = (area.width.saturating_sub(modal_width)) / 2;
+        let modal_y = (area.height.saturating_sub(modal_height)) / 2;
+
+        let modal_area = Rect::new(
+            area.x + modal_x,
+            area.y + modal_y,
+            modal_width,
+            modal_height,
+        );
+
+        // Create background overlay
+        let overlay = Block::default().style(Style::default().bg(Color::Black));
+        frame.render_widget(overlay, modal_area);
+
+        // Get column name for title
+        let col_name = result
+            .columns
+            .get(self.filter_modal_selection)
+            .map(|s| s.as_str())
+            .unwrap_or("Column");
+
+        let title = format!(" Filter: {} ", col_name);
+
+        // Build input display with cursor
+        let input_display = format!("{}_", self.filter_text);
+
+        let lines = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Enter filter text (case-insensitive):",
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("  {}", input_display),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )),
+        ];
+
+        let paragraph = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(title)
+                    .title_style(
+                        Style::default()
+                            .fg(Color::Magenta)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Magenta)),
+            )
+            .style(Style::default().bg(Color::Black));
+
+        frame.render_widget(paragraph, modal_area);
+
+        // Render footer hint
+        if modal_area.height > 2 {
+            let footer_area = Rect::new(
+                modal_area.x + 1,
+                modal_area.y + modal_area.height.saturating_sub(1),
+                modal_area.width.saturating_sub(2),
+                1,
+            );
+            let hint = Paragraph::new(Line::from(vec![
+                Span::styled("Enter", Style::default().fg(Color::Yellow)),
+                Span::styled(": Apply  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("Esc", Style::default().fg(Color::Yellow)),
+                Span::styled(": Back  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("Backspace", Style::default().fg(Color::Yellow)),
+                Span::styled(": Delete", Style::default().fg(Color::DarkGray)),
+            ]))
+            .style(Style::default().bg(Color::Black));
+            frame.render_widget(hint, footer_area);
+        }
     }
 
     /// Render sort column selection modal as an overlay.
@@ -2302,7 +2719,7 @@ impl ContentPanel {
                     // Create table rows with sliced cells (only current page)
                     // Uses sort indices if sorting is active, otherwise original order
                     let rows: Vec<Row> = (page_start..page_end)
-                        .filter_map(|logical_idx| self.get_sorted_row(logical_idx))
+                        .filter_map(|logical_idx| self.get_visible_row(logical_idx))
                         .map(|row| {
                             let cells: Vec<Cell> = row[scroll_x..end_col.min(row.len())]
                                 .iter()
@@ -2410,6 +2827,10 @@ impl ContentPanel {
                     if self.sort_mode_active {
                         self.render_sort_modal(frame, area);
                     }
+                    // Render filter modal overlay if active
+                    if self.filter_mode_active {
+                        self.render_filter_modal(frame, area);
+                    }
                 }
             }
         }
@@ -2505,7 +2926,7 @@ impl ContentPanel {
                     // Create table rows with sliced cells (only current page)
                     // Uses sort indices if sorting is active, otherwise original order
                     let rows: Vec<Row> = (page_start..page_end)
-                        .filter_map(|logical_idx| self.get_sorted_row(logical_idx))
+                        .filter_map(|logical_idx| self.get_visible_row(logical_idx))
                         .map(|row| {
                             let cells: Vec<Cell> = row[scroll_x..end_col.min(row.len())]
                                 .iter()
@@ -2617,6 +3038,10 @@ impl ContentPanel {
                     // Render sort modal overlay if active
                     if self.sort_mode_active {
                         self.render_sort_modal(frame, area);
+                    }
+                    // Render filter modal overlay if active
+                    if self.filter_mode_active {
+                        self.render_filter_modal(frame, area);
                     }
                 }
             }
@@ -2773,8 +3198,54 @@ impl Component for ContentPanel {
                 _ => false,
             }
         } else if self.view == ContentView::QueryResult {
-            // Sort modal takes priority when active
-            if self.sort_mode_active {
+            // Filter modal takes priority when active
+            if self.filter_mode_active {
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.filter_modal_up();
+                        true
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.filter_modal_down();
+                        true
+                    }
+                    KeyCode::Enter => {
+                        if self.filter_modal_step == 0 {
+                            // Column selection → text input
+                            self.filter_modal_next_step();
+                        } else {
+                            // Text input → apply filter
+                            self.apply_filter();
+                        }
+                        true
+                    }
+                    KeyCode::Esc => {
+                        if self.filter_modal_step == 1 {
+                            // Text input → column selection
+                            self.filter_modal_prev_step();
+                        } else {
+                            // Column selection → close modal
+                            self.close_filter_modal();
+                        }
+                        true
+                    }
+                    KeyCode::Char('f') if self.filter_modal_step == 0 => {
+                        // Close modal if 'f' pressed in column selection
+                        self.close_filter_modal();
+                        true
+                    }
+                    KeyCode::Backspace => {
+                        self.filter_modal_delete_char();
+                        true
+                    }
+                    KeyCode::Char(c) if self.filter_modal_step == 1 => {
+                        self.filter_modal_input_char(c);
+                        true
+                    }
+                    _ => false,
+                }
+            } else if self.sort_mode_active {
+                // Sort modal takes priority when active
                 match key.code {
                     KeyCode::Up | KeyCode::Char('k') => {
                         self.sort_modal_up();
@@ -2846,6 +3317,19 @@ impl Component for ContentPanel {
                         self.open_sort_modal();
                         true
                     }
+                    // Filter: f to open filter modal
+                    KeyCode::Char('f') => {
+                        self.open_filter_modal();
+                        true
+                    }
+                    // Clear filter: F (shift+f) to clear filter
+                    KeyCode::Char('F') => {
+                        self.clear_filter();
+                        // Reset to first page after clearing filter
+                        self.result_page = 0;
+                        self.result_table_state.select(Some(0));
+                        true
+                    }
                     // Note: Esc is handled in App for returning to Questions
                     _ => false,
                 }
@@ -2895,8 +3379,49 @@ impl Component for ContentPanel {
                 _ => false,
             }
         } else if self.view == ContentView::TablePreview {
-            // Sort modal takes priority when active
-            if self.sort_mode_active {
+            // Filter modal takes priority when active
+            if self.filter_mode_active {
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.filter_modal_up();
+                        true
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.filter_modal_down();
+                        true
+                    }
+                    KeyCode::Enter => {
+                        if self.filter_modal_step == 0 {
+                            self.filter_modal_next_step();
+                        } else {
+                            self.apply_filter();
+                        }
+                        true
+                    }
+                    KeyCode::Esc => {
+                        if self.filter_modal_step == 1 {
+                            self.filter_modal_prev_step();
+                        } else {
+                            self.close_filter_modal();
+                        }
+                        true
+                    }
+                    KeyCode::Char('f') if self.filter_modal_step == 0 => {
+                        self.close_filter_modal();
+                        true
+                    }
+                    KeyCode::Backspace => {
+                        self.filter_modal_delete_char();
+                        true
+                    }
+                    KeyCode::Char(c) if self.filter_modal_step == 1 => {
+                        self.filter_modal_input_char(c);
+                        true
+                    }
+                    _ => false,
+                }
+            } else if self.sort_mode_active {
+                // Sort modal takes priority when active
                 match key.code {
                     KeyCode::Up | KeyCode::Char('k') => {
                         self.sort_modal_up();
@@ -2962,6 +3487,18 @@ impl Component for ContentPanel {
                     // Sort: s to open sort modal
                     KeyCode::Char('s') => {
                         self.open_sort_modal();
+                        true
+                    }
+                    // Filter: f to open filter modal
+                    KeyCode::Char('f') => {
+                        self.open_filter_modal();
+                        true
+                    }
+                    // Clear filter: F (shift+f) to clear filter
+                    KeyCode::Char('F') => {
+                        self.clear_filter();
+                        self.result_page = 0;
+                        self.result_table_state.select(Some(0));
                         true
                     }
                     // Note: Esc is handled in App for returning to SchemaTables

@@ -61,6 +61,15 @@ impl Default for App {
 }
 
 impl App {
+    /// Check if any modal is active that should block global navigation.
+    ///
+    /// When a modal (sort, filter, or future search) is active, global shortcuts
+    /// like tab switching (1/2/3), help (?), and Tab should be blocked to prevent
+    /// accidental navigation while the user is focused on the modal.
+    fn is_modal_active(&self) -> bool {
+        self.content.is_sort_mode_active() || self.content.is_filter_mode_active()
+    }
+
     /// Create a new application instance.
     pub fn new() -> Self {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
@@ -819,51 +828,63 @@ impl App {
                 return;
             }
             KeyCode::Esc => {
-                // If viewing query result, go back to Questions instead of quitting
-                if self.content.current_view() == ContentView::QueryResult {
+                // Skip if any modal is active (Esc handled by modal)
+                if self.is_modal_active() {
+                    // Let ContentPanel handle Esc for modals
+                    // Fall through to content.handle_key() below
+                } else if self.content.current_view() == ContentView::QueryResult {
+                    // If viewing query result, go back to Questions instead of quitting
                     let _ = self.action_tx.send(AppAction::BackToQuestions);
+                    return;
                 } else if self.content.current_view() == ContentView::CollectionQuestions {
                     // Return to Collections list from collection questions view
                     let _ = self.action_tx.send(AppAction::BackToCollections);
+                    return;
                 } else if self.content.current_view() == ContentView::DatabaseSchemas {
                     // Return to Databases list from schemas view
                     let _ = self.action_tx.send(AppAction::BackToDatabases);
+                    return;
                 } else if self.content.current_view() == ContentView::SchemaTables {
                     // Return to Schemas list from tables view
                     let _ = self.action_tx.send(AppAction::BackToSchemas);
+                    return;
                 } else if self.content.current_view() == ContentView::TablePreview {
                     // Return to Tables list from preview view
                     let _ = self.action_tx.send(AppAction::BackToTables);
+                    return;
                 } else if self.content.get_active_search().is_some() {
                     // Clear active search and reload all questions
                     self.content.clear_search();
                     let _ = self
                         .action_tx
                         .send(AppAction::LoadData(DataRequest::Questions));
+                    return;
                 } else {
                     self.should_quit = true;
+                    return;
                 }
-                return;
             }
-            KeyCode::Char('?') => {
+            KeyCode::Char('?') if !self.is_modal_active() => {
                 self.show_help = true;
                 return;
             }
             // Tab switching with number keys 1/2/3
-            KeyCode::Char('1') => {
+            // Skip when any modal is active (sort/filter) to prevent accidental navigation
+            KeyCode::Char('1') if !self.is_modal_active() => {
                 self.switch_to_tab(ActiveTab::Questions);
                 return;
             }
-            KeyCode::Char('2') => {
+            KeyCode::Char('2') if !self.is_modal_active() => {
                 self.switch_to_tab(ActiveTab::Collections);
                 return;
             }
-            KeyCode::Char('3') => {
+            KeyCode::Char('3') if !self.is_modal_active() => {
                 self.switch_to_tab(ActiveTab::Databases);
                 return;
             }
             // Tab cycling with Tab/Shift+Tab
-            KeyCode::Tab => {
+            // Skip when any modal is active to prevent accidental tab switch
+            KeyCode::Tab if !self.is_modal_active() => {
                 let new_tab = if modifiers.contains(KeyModifiers::SHIFT) {
                     self.active_tab.previous()
                 } else {
@@ -872,7 +893,7 @@ impl App {
                 self.switch_to_tab(new_tab);
                 return;
             }
-            KeyCode::BackTab => {
+            KeyCode::BackTab if !self.is_modal_active() => {
                 self.switch_to_tab(self.active_tab.previous());
                 return;
             }
@@ -929,10 +950,11 @@ impl App {
         }
 
         // Handle Enter in QueryResult view to show record detail
-        // Skip if sort modal is active (Enter applies sort in modal)
+        // Skip if sort/filter modal is active (Enter applies in modal)
         if code == KeyCode::Enter
             && self.content.current_view() == ContentView::QueryResult
             && !self.content.is_sort_mode_active()
+            && !self.content.is_filter_mode_active()
         {
             if let Some((columns, values)) = self.content.get_selected_record() {
                 self.record_detail = Some(RecordDetailOverlay::new(columns, values));
@@ -942,10 +964,11 @@ impl App {
         }
 
         // Handle Enter in TablePreview view to show record detail
-        // Skip if sort modal is active (Enter applies sort in modal)
+        // Skip if sort/filter modal is active (Enter applies in modal)
         if code == KeyCode::Enter
             && self.content.current_view() == ContentView::TablePreview
             && !self.content.is_sort_mode_active()
+            && !self.content.is_filter_mode_active()
         {
             if let Some((columns, values)) = self.content.get_selected_record() {
                 self.record_detail = Some(RecordDetailOverlay::new(columns, values));
