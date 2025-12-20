@@ -91,6 +91,8 @@ pub enum ContentTarget {
 pub enum DataRequest {
     /// Load questions list
     Questions,
+    /// Search questions by query string
+    SearchQuestions(String),
     /// Load collections list
     Collections,
     /// Load databases list

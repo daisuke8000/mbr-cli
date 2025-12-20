@@ -5,7 +5,7 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
-    layout::{Constraint, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Wrap},
@@ -16,6 +16,16 @@ use mbr_core::api::models::{CollectionItem, Database, Question};
 use super::{Component, ScrollState};
 use crate::layout::questions_table::{COLLECTION_WIDTH, ID_WIDTH, NAME_MIN_WIDTH};
 use crate::service::LoadState;
+
+/// Input mode for text input fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InputMode {
+    /// Normal navigation mode
+    #[default]
+    Normal,
+    /// Search input mode
+    Search,
+}
 
 /// Content view types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -70,6 +80,12 @@ pub struct ContentPanel {
     result_page: usize,
     /// Rows per page for query result pagination
     rows_per_page: usize,
+    /// Current input mode
+    input_mode: InputMode,
+    /// Current search query
+    search_query: String,
+    /// Active search query (used for display after search is executed)
+    active_search: Option<String>,
 }
 
 impl Default for ContentPanel {
@@ -95,6 +111,9 @@ impl ContentPanel {
             result_table_state: TableState::default(),
             result_page: 0,
             rows_per_page: DEFAULT_ROWS_PER_PAGE,
+            input_mode: InputMode::Normal,
+            search_query: String::new(),
+            active_search: None,
         }
     }
 
@@ -265,6 +284,69 @@ impl ContentPanel {
             }
         }
         None
+    }
+
+    // === Search functionality ===
+
+    /// Get the current input mode.
+    pub fn input_mode(&self) -> InputMode {
+        self.input_mode
+    }
+
+    /// Enter search mode.
+    pub fn enter_search_mode(&mut self) {
+        self.input_mode = InputMode::Search;
+        self.search_query.clear();
+    }
+
+    /// Exit search mode without executing search.
+    pub fn exit_search_mode(&mut self) {
+        self.input_mode = InputMode::Normal;
+        self.search_query.clear();
+    }
+
+    /// Get the current search query (for debugging/future use).
+    #[allow(dead_code)]
+    pub fn get_search_query(&self) -> &str {
+        &self.search_query
+    }
+
+    /// Get the active search query (after execution).
+    pub fn get_active_search(&self) -> Option<&str> {
+        self.active_search.as_deref()
+    }
+
+    /// Execute the current search query and return it for API call.
+    /// Returns Some(query) if there's a query to search, None if empty.
+    pub fn execute_search(&mut self) -> Option<String> {
+        self.input_mode = InputMode::Normal;
+        let query = self.search_query.trim().to_string();
+        if query.is_empty() {
+            self.active_search = None;
+            None
+        } else {
+            self.active_search = Some(query.clone());
+            // Reset selection for new results
+            self.table_state.select(Some(0));
+            Some(query)
+        }
+    }
+
+    /// Clear the active search and return to showing all questions.
+    pub fn clear_search(&mut self) {
+        self.active_search = None;
+        self.search_query.clear();
+        self.table_state.select(Some(0));
+    }
+
+    /// Handle character input in search mode.
+    pub fn handle_search_input(&mut self, c: char) {
+        self.search_query.push(c);
+    }
+
+    /// Handle backspace in search mode.
+    pub fn handle_search_backspace(&mut self) {
+        self.search_query.pop();
     }
 
     /// Get the currently selected record in QueryResult view.
@@ -494,7 +576,7 @@ impl ContentPanel {
             .wrap(Wrap { trim: false })
     }
 
-    /// Render questions view with table.
+    /// Render questions view with table and search bar.
     fn render_questions(&mut self, area: Rect, frame: &mut Frame, focused: bool) {
         let border_style = if focused {
             Style::default().fg(Color::Cyan)
@@ -502,22 +584,78 @@ impl ContentPanel {
             Style::default().fg(Color::DarkGray)
         };
 
+        // Calculate layout: search bar (if visible) + table
+        let show_search_bar = self.input_mode == InputMode::Search || self.active_search.is_some();
+        let (search_area, table_area) = if show_search_bar {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(3), Constraint::Min(5)])
+                .split(area);
+            (Some(chunks[0]), chunks[1])
+        } else {
+            (None, area)
+        };
+
+        // Render search bar if visible
+        if let Some(search_rect) = search_area {
+            let search_text = if self.input_mode == InputMode::Search {
+                format!("/{}", self.search_query)
+            } else if let Some(ref query) = self.active_search {
+                format!("Search: {} (Esc to clear)", query)
+            } else {
+                String::new()
+            };
+
+            let search_style = if self.input_mode == InputMode::Search {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+
+            let search_bar = Paragraph::new(search_text).style(search_style).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(if self.input_mode == InputMode::Search {
+                        Style::default().fg(Color::Yellow)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    })
+                    .title(" Search (/ to start, Enter to search, Esc to cancel) "),
+            );
+            frame.render_widget(search_bar, search_rect);
+        }
+
+        // Build title with search indicator
+        let title = if let Some(ref query) = self.active_search {
+            match &self.questions {
+                LoadState::Loaded(questions) => {
+                    format!(" Questions ({}) - Search: \"{}\" ", questions.len(), query)
+                }
+                _ => format!(" Questions - Search: \"{}\" ", query),
+            }
+        } else {
+            match &self.questions {
+                LoadState::Loaded(questions) => format!(" Questions ({}) ", questions.len()),
+                _ => " Questions ".to_string(),
+            }
+        };
+
         match &self.questions {
             LoadState::Idle => {
                 let paragraph = Paragraph::new(vec![
                     Line::from(""),
                     Line::from(Span::styled(
-                        "  Press 'r' to load questions",
+                        "  Press 'r' to load questions, '/' to search",
                         Style::default().fg(Color::DarkGray),
                     )),
                 ])
                 .block(
                     Block::default()
-                        .title(" Questions ")
+                        .title(title)
                         .borders(Borders::ALL)
                         .border_style(border_style),
                 );
-                frame.render_widget(paragraph, area);
+                frame.render_widget(paragraph, table_area);
             }
             LoadState::Loading => {
                 let paragraph = Paragraph::new(vec![
@@ -529,11 +667,11 @@ impl ContentPanel {
                 ])
                 .block(
                     Block::default()
-                        .title(" Questions ")
+                        .title(title)
                         .borders(Borders::ALL)
                         .border_style(border_style),
                 );
-                frame.render_widget(paragraph, area);
+                frame.render_widget(paragraph, table_area);
             }
             LoadState::Error(msg) => {
                 let paragraph = Paragraph::new(vec![
@@ -550,30 +688,40 @@ impl ContentPanel {
                 ])
                 .block(
                     Block::default()
-                        .title(" Questions ")
+                        .title(title)
                         .borders(Borders::ALL)
                         .border_style(border_style),
                 );
-                frame.render_widget(paragraph, area);
+                frame.render_widget(paragraph, table_area);
             }
             LoadState::Loaded(questions) => {
                 if questions.is_empty() {
+                    let empty_msg = if self.active_search.is_some() {
+                        "  No questions found matching your search"
+                    } else {
+                        "  No questions found"
+                    };
                     let paragraph = Paragraph::new(vec![
                         Line::from(""),
                         Line::from(Span::styled(
-                            "  No questions found",
+                            empty_msg,
+                            Style::default().fg(Color::DarkGray),
+                        )),
+                        Line::from(""),
+                        Line::from(Span::styled(
+                            "  Press '/' to search or Esc to clear search",
                             Style::default().fg(Color::DarkGray),
                         )),
                     ])
                     .block(
                         Block::default()
-                            .title(" Questions (0) ")
+                            .title(title)
                             .borders(Borders::ALL)
                             .border_style(border_style),
                     );
-                    frame.render_widget(paragraph, area);
+                    frame.render_widget(paragraph, table_area);
                 } else {
-                    // Create table rows (no manual styling - TableState handles highlight)
+                    // Create table rows
                     let rows: Vec<Row> = questions
                         .iter()
                         .map(|q| {
@@ -610,7 +758,7 @@ impl ContentPanel {
                     )
                     .block(
                         Block::default()
-                            .title(format!(" Questions ({}) ", questions.len()))
+                            .title(title)
                             .borders(Borders::ALL)
                             .border_style(border_style),
                     )
@@ -622,8 +770,7 @@ impl ContentPanel {
                     )
                     .highlight_symbol("► ");
 
-                    // Use stateful widget for automatic scroll management
-                    frame.render_stateful_widget(table, area, &mut self.table_state);
+                    frame.render_stateful_widget(table, table_area, &mut self.table_state);
                 }
             }
         }
@@ -1137,8 +1284,22 @@ impl Component for ContentPanel {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> bool {
+        // Search mode input handling (takes priority in Questions view)
+        if self.input_mode == InputMode::Search {
+            match key.code {
+                KeyCode::Char(c) => {
+                    self.handle_search_input(c);
+                    true
+                }
+                KeyCode::Backspace => {
+                    self.handle_search_backspace();
+                    true
+                }
+                // Enter and Esc are handled by App (to send actions)
+                _ => false,
+            }
         // Questions view has list navigation
-        if self.view == ContentView::Questions {
+        } else if self.view == ContentView::Questions {
             match key.code {
                 KeyCode::Up | KeyCode::Char('k') => {
                     self.select_previous();
@@ -1154,6 +1315,10 @@ impl Component for ContentPanel {
                 }
                 KeyCode::End | KeyCode::Char('G') => {
                     self.select_last();
+                    true
+                }
+                KeyCode::Char('/') => {
+                    self.enter_search_mode();
                     true
                 }
                 _ => false,

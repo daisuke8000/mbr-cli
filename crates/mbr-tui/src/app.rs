@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 
 use crate::action::{AppAction, ContentTarget, DataRequest};
 use crate::components::{
-    ActiveTab, Component, ContentPanel, ContentView, HelpOverlay, QueryResultData,
+    ActiveTab, Component, ContentPanel, ContentView, HelpOverlay, InputMode, QueryResultData,
     RecordDetailOverlay, StatusBar,
 };
 use crate::event::{Event, EventHandler};
@@ -314,6 +314,31 @@ impl App {
                     }
                 });
             }
+            DataRequest::SearchQuestions(query) => {
+                // Guard: prevent duplicate requests while loading
+                if matches!(self.data.questions, LoadState::Loading) {
+                    return;
+                }
+
+                // Set loading state
+                self.data.questions = LoadState::Loading;
+                // Sync to content panel for display
+                self.content.update_questions(&self.data.questions);
+                self.status_bar
+                    .set_message(format!("Searching for '{}'...", query));
+
+                // Spawn background task with search parameter
+                tokio::spawn(async move {
+                    match service.fetch_questions(Some(&query), Some(50)).await {
+                        Ok(questions) => {
+                            let _ = tx.send(AppAction::QuestionsLoaded(questions));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppAction::LoadFailed(DataRequest::Questions, e));
+                        }
+                    }
+                });
+            }
             DataRequest::Collections => {
                 // Guard: prevent duplicate requests while loading
                 if matches!(self.data.collections, LoadState::Loading) {
@@ -508,7 +533,38 @@ impl App {
             return;
         }
 
-        // Global keybindings (always active)
+        // Search mode handling (takes priority over global keys in Questions view)
+        if self.content.input_mode() == InputMode::Search {
+            match code {
+                KeyCode::Enter => {
+                    // Execute search
+                    if let Some(query) = self.content.execute_search() {
+                        let _ = self
+                            .action_tx
+                            .send(AppAction::LoadData(DataRequest::SearchQuestions(query)));
+                    } else {
+                        // Empty query: reload all questions
+                        let _ = self
+                            .action_tx
+                            .send(AppAction::LoadData(DataRequest::Questions));
+                    }
+                    return;
+                }
+                KeyCode::Esc => {
+                    // Cancel search mode
+                    self.content.exit_search_mode();
+                    return;
+                }
+                _ => {
+                    // Delegate to content panel for character input
+                    self.content
+                        .handle_key(crossterm::event::KeyEvent::new(code, modifiers));
+                    return;
+                }
+            }
+        }
+
+        // Global keybindings (always active when not in search mode)
         match code {
             KeyCode::Char('q') | KeyCode::Char('Q') => {
                 self.should_quit = true;
@@ -522,6 +578,12 @@ impl App {
                 // If viewing query result, go back to Questions instead of quitting
                 if self.content.current_view() == ContentView::QueryResult {
                     let _ = self.action_tx.send(AppAction::BackToQuestions);
+                } else if self.content.get_active_search().is_some() {
+                    // Clear active search and reload all questions
+                    self.content.clear_search();
+                    let _ = self
+                        .action_tx
+                        .send(AppAction::LoadData(DataRequest::Questions));
                 } else {
                     self.should_quit = true;
                 }
