@@ -67,7 +67,8 @@ impl ConfigHandler {
                     println!("Configuration saved successfully.");
                 } else {
                     return Err(AppError::Cli(CliError::InvalidArguments(
-                        "No URL provided. Use --url or set MBR_URL environment variable".to_string(),
+                        "No URL provided. Use --url or set MBR_URL environment variable"
+                            .to_string(),
                     )));
                 }
 
