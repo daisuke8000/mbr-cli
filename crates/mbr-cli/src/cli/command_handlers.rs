@@ -32,13 +32,16 @@ impl ConfigHandler {
                     "Attempting config show command using ConfigService",
                 );
 
-                let profiles = config_service.list_profiles();
-
                 // Show the current configuration
                 println!("Current Configuration:");
                 println!("=====================");
 
-                println!("Default Profile: {}", config_service.get_default_profile());
+                // Show URL status
+                if let Some(url) = config_service.get_url() {
+                    println!("URL: {}", url);
+                } else {
+                    println!("URL: ❌ Not configured");
+                }
 
                 // Show API key status
                 if has_api_key() {
@@ -47,58 +50,27 @@ impl ConfigHandler {
                     println!("API Key: ❌ Not set");
                 }
 
-                println!("\nProfiles:");
-                if profiles.is_empty() {
-                    println!("  No profiles configured");
-                } else {
-                    for (name, profile) in profiles {
-                        println!("  [{}]", name);
-                        println!("    URL: {}", profile.url);
-                        if let Some(email) = &profile.email {
-                            println!("    Email: {}", email);
-                        }
-                    }
-                }
-
                 Ok(())
             }
-            ConfigCommands::Set {
-                profile,
-                url,
-                email,
-            } => {
+            ConfigCommands::Set { url } => {
                 print_verbose(
                     verbose,
-                    &format!(
-                        "Attempting config set using ConfigService - profile: {}, url: {:?}, email: {:?}",
-                        profile, url, email
-                    ),
+                    &format!("Attempting config set using ConfigService - url: {:?}", url),
                 );
-
-                let mut updated_fields = Vec::new();
 
                 // Handle URL setting
                 if let Some(url_value) = url {
                     mbr_core::utils::validation::validate_url(&url_value)?;
-                    config_service.set_profile_field(&profile, "url", &url_value)?;
-                    updated_fields.push(format!("URL to: {}", url_value));
-                }
-
-                // Handle email setting
-                if let Some(email_value) = email {
-                    config_service.set_profile_field(&profile, "email", &email_value)?;
-                    updated_fields.push(format!("email to: {}", email_value));
-                }
-
-                if updated_fields.is_empty() {
+                    config_service.set_url(url_value.clone());
+                    config_service.save_config(None)?;
+                    println!("✅ URL set to: {}", url_value);
+                    println!("Configuration saved successfully.");
+                } else {
                     return Err(AppError::Cli(CliError::InvalidArguments(
-                        "No configuration values provided. Use --url and/or --email, or set MBR_URL/MBR_USERNAME environment variables".to_string(),
+                        "No URL provided. Use --url or set MBR_URL environment variable".to_string(),
                     )));
                 }
 
-                println!("✅ Set profile '{}' {}", profile, updated_fields.join(", "));
-                config_service.save_config(None)?;
-                println!("Configuration saved successfully.");
                 Ok(())
             }
             ConfigCommands::Validate => {

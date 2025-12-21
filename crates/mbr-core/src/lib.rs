@@ -78,7 +78,7 @@ pub mod prelude {
     pub use crate::core::services::question_service::QuestionService;
 
     // Storage
-    pub use crate::storage::config::{Config, Profile};
+    pub use crate::storage::config::Config;
     pub use crate::storage::credentials::{get_api_key, has_api_key};
 
     // Display utilities
@@ -102,7 +102,7 @@ pub mod storage;
 /// Utilities layer - shared helpers and common functionality.
 ///
 /// Provides reusable utilities:
-/// - [`utils::validation`]: URL, email, API key validation
+/// - [`utils::validation`]: URL and API key validation
 /// - [`utils::text`]: Text formatting and truncation
 /// - [`utils::data`]: Data manipulation helpers
 pub mod utils;

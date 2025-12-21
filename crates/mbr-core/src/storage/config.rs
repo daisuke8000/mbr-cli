@@ -1,24 +1,24 @@
+//! Configuration management
+//!
+//! Simple configuration with URL stored in config file or environment variable.
+//! Priority: CLI argument > MBR_URL environment variable > config.toml
+
 use super::Result;
 use crate::error::StorageError;
 use dirs;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
+/// Application configuration
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Config {
-    #[serde(flatten)]
-    pub profiles: HashMap<String, Profile>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Profile {
-    pub url: String,
-    pub email: Option<String>, // Optional email for login convenience
+    /// Metabase server URL
+    pub url: Option<String>,
 }
 
 impl Config {
+    /// Load configuration from file
     pub fn load(path: Option<PathBuf>) -> Result<Self> {
         let config_path = match path {
             Some(p) => p,
@@ -42,6 +42,7 @@ impl Config {
         Ok(config)
     }
 
+    /// Save configuration to file
     pub fn save(&self, path: Option<PathBuf>) -> Result<()> {
         let config_path = match path {
             Some(p) => p,
@@ -76,12 +77,16 @@ impl Config {
         Ok(config_file)
     }
 
-    pub fn get_profile(&self, name: &str) -> Option<&Profile> {
-        self.profiles.get(name)
+    /// Get URL with fallback to environment variable
+    pub fn get_url(&self) -> Option<String> {
+        self.url
+            .clone()
+            .or_else(|| std::env::var("MBR_URL").ok().filter(|s| !s.is_empty()))
     }
 
-    pub fn set_profile(&mut self, name: String, profile: Profile) {
-        self.profiles.insert(name, profile);
+    /// Set URL
+    pub fn set_url(&mut self, url: String) {
+        self.url = Some(url);
     }
 }
 
@@ -93,28 +98,16 @@ mod tests {
     #[test]
     fn test_config_default() {
         let config = Config::default();
-        assert_eq!(config.profiles.len(), 0);
+        assert!(config.url.is_none());
     }
 
     #[test]
-    fn test_profile_management() {
+    fn test_url_management() {
         let mut config = Config::default();
-        // Create a profile
-        let profile = Profile {
-            url: "http://example.test".to_string(),
-            email: Some("test@example.com".to_string()),
-        };
-        // Set the profile in the config
-        config.set_profile("test".to_string(), profile.clone());
-        // Get the profile
-        let retrieved = config.get_profile("test");
-        assert!(retrieved.is_some());
-        if let Some(retrieved) = retrieved {
-            assert_eq!(retrieved.url, profile.url);
-            assert_eq!(retrieved.email, profile.email);
-        }
-        // Nonexistent profile should return None
-        assert!(config.get_profile("nonexistent").is_none());
+        assert!(config.url.is_none());
+
+        config.set_url("http://example.test".to_string());
+        assert_eq!(config.url, Some("http://example.test".to_string()));
     }
 
     #[test]
@@ -124,25 +117,18 @@ mod tests {
 
         // Create a sample config
         let mut config = Config::default();
-        config.profiles.insert(
-            "test".to_string(),
-            Profile {
-                url: "http://example.test".to_string(),
-                email: Some("test@example.com".to_string()),
-            },
-        );
+        config.set_url("http://example.test".to_string());
 
-        // Save the config to the temp directory
+        // Save the config
         config
             .save(Some(config_path.clone()))
             .expect("Failed to save config");
 
-        // Load the config from the temp directory
+        // Load the config
         let loaded_config = Config::load(Some(config_path)).expect("Failed to load config");
 
         // Check if loaded config matches saved config
-        assert_eq!(loaded_config.profiles.len(), 1);
-        assert!(loaded_config.get_profile("test").is_some());
+        assert_eq!(loaded_config.url, Some("http://example.test".to_string()));
     }
 
     #[test]
@@ -155,6 +141,6 @@ mod tests {
         assert!(config.is_ok());
 
         let config = config.expect("Failed to load default config");
-        assert_eq!(config.profiles.len(), 0);
+        assert!(config.url.is_none());
     }
 }

@@ -22,10 +22,6 @@ pub struct Cli {
     #[arg(short, long, global = true)]
     pub verbose: bool,
 
-    /// Profile name to use (default: 'default')
-    #[arg(short, long, global = true)]
-    pub profile: Option<String>,
-
     /// Custom configuration directory path
     #[arg(long, global = true)]
     pub config_dir: Option<String>,
@@ -63,21 +59,14 @@ pub enum Commands {
 pub enum ConfigCommands {
     /// Show the current configuration
     Show,
-    /// Set configuration values for a profile
+    /// Set configuration values
     #[command(after_help = "Examples:
   mbr-cli config set --url http://localhost:3000
-  mbr-cli config set --profile prod --url https://metabase.example.com
-  mbr-cli config set --email user@example.com")]
+  mbr-cli config set --url https://metabase.example.com")]
     Set {
-        /// Profile name to configure
-        #[arg(long, default_value = "default")]
-        profile: String,
         /// Metabase server URL
         #[arg(long, env = "MBR_URL")]
         url: Option<String>,
-        /// Email address for this profile
-        #[arg(long, env = "MBR_USERNAME")]
-        email: Option<String>,
     },
     /// Validate API key and test connection to Metabase server
     #[command(after_help = "Examples:

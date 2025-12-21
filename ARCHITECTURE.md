@@ -20,7 +20,7 @@ graph TB
     subgraph External["External Systems"]
         Metabase[Metabase API]
         FileSystem[Config Files]
-        EnvVar[MBR_API_KEY]
+        EnvVar[MBR_API_KEY / MBR_URL]
     end
 
     CLI --> Services
@@ -193,12 +193,14 @@ flowchart LR
 **Configuration File:** `~/.config/mbr-cli/config.toml`
 
 ```toml
-[profiles.default]
 url = "https://metabase.example.com"
-
-[profiles.production]
-url = "https://metabase.prod.example.com"
 ```
+
+**Priority Order:**
+1. CLI `--api-key` argument
+2. `MBR_API_KEY` environment variable
+3. `MBR_URL` environment variable (for URL)
+4. `config.toml` file (for URL)
 
 ## Query Execution Flow
 
