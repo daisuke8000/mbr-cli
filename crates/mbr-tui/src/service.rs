@@ -235,11 +235,10 @@ pub fn init_service() -> Result<Arc<ServiceClient>, String> {
     // Try to load config for base URL
     let config = Config::load(None).ok();
 
-    // Get base URL from config (default profile) or use default
+    // Get base URL from config or use default
     let base_url = config
         .as_ref()
-        .and_then(|c| c.get_profile("default"))
-        .map(|p| p.url.clone())
+        .and_then(|c| c.get_url())
         .unwrap_or_else(|| "http://localhost:3000".to_string());
 
     ServiceClient::new(base_url, api_key).map(Arc::new)

@@ -1,3 +1,5 @@
+//! Configuration service for managing application configuration
+
 use crate::AppError;
 use crate::storage::config::Config;
 use std::path::PathBuf;
@@ -13,48 +15,14 @@ impl ConfigService {
         Self { config }
     }
 
-    /// Get profile by name
-    pub fn get_profile(&self, name: &str) -> Option<&crate::storage::config::Profile> {
-        self.config.profiles.get(name)
+    /// Get configured URL
+    pub fn get_url(&self) -> Option<String> {
+        self.config.get_url()
     }
 
-    /// Get default profile name (always returns "default")
-    pub fn get_default_profile(&self) -> &str {
-        "default"
-    }
-
-    /// Set profile field value
-    pub fn set_profile_field(
-        &mut self,
-        profile: &str,
-        field: &str,
-        value: &str,
-    ) -> Result<(), AppError> {
-        use crate::error::CliError;
-
-        // Get or create profile
-        let profile_entry = self
-            .config
-            .profiles
-            .entry(profile.to_string())
-            .or_insert_with(|| crate::storage::config::Profile {
-                url: "".to_string(),
-                email: None,
-            });
-
-        // Set field based on field name - only accept user-facing field names
-        match field {
-            "url" => profile_entry.url = value.to_string(),
-            "email" => profile_entry.email = Some(value.to_string()),
-            _ => {
-                return Err(AppError::Cli(CliError::InvalidArguments(format!(
-                    "Unknown field: {}. Use 'url' or 'email'",
-                    field
-                ))));
-            }
-        }
-
-        Ok(())
+    /// Set URL
+    pub fn set_url(&mut self, url: String) {
+        self.config.set_url(url);
     }
 
     /// Save configuration to file
@@ -62,9 +30,9 @@ impl ConfigService {
         self.config.save(path).map_err(|e| e.into())
     }
 
-    /// List all profiles
-    pub fn list_profiles(&self) -> Vec<(&String, &crate::storage::config::Profile)> {
-        self.config.profiles.iter().collect()
+    /// Check if URL is configured
+    pub fn has_url(&self) -> bool {
+        self.get_url().is_some()
     }
 }
 
@@ -74,47 +42,57 @@ mod tests {
 
     #[test]
     fn test_config_service_new() {
+        // Temporarily clear MBR_URL to ensure test isolation
+        let original = std::env::var("MBR_URL").ok();
+        unsafe {
+            std::env::remove_var("MBR_URL");
+        }
+
         let config = Config::default();
         let service = ConfigService::new(config);
 
-        // Verify ConfigService is created successfully
-        // Test that service is created successfully
-        assert!(service.config.profiles.is_empty());
+        // Verify ConfigService is created successfully without URL
+        assert!(!service.has_url());
+
+        // Restore original state
+        unsafe {
+            if let Some(value) = original {
+                std::env::set_var("MBR_URL", value);
+            }
+        }
     }
 
     #[test]
-    fn test_get_profile_returns_option() {
+    fn test_get_url_returns_option() {
+        // Temporarily clear MBR_URL to ensure test isolation
+        let original = std::env::var("MBR_URL").ok();
+        unsafe {
+            std::env::remove_var("MBR_URL");
+        }
+
         let config = Config::default();
         let service = ConfigService::new(config);
 
-        // Verify get_profile returns Option
-        let result = service.get_profile("default");
-        assert!(result.is_some() || result.is_none());
+        // No URL by default
+        assert!(service.get_url().is_none());
+
+        // Restore original state
+        unsafe {
+            if let Some(value) = original {
+                std::env::set_var("MBR_URL", value);
+            }
+        }
     }
 
     #[test]
-    fn test_list_profiles_returns_vec() {
-        let config = Config::default();
-        let service = ConfigService::new(config);
-
-        // Verify list_profiles returns Vec
-        let profiles = service.list_profiles();
-        assert!(profiles.is_empty() || !profiles.is_empty());
-    }
-
-    #[test]
-    fn test_set_profile_field_returns_result() {
+    fn test_set_url() {
         let config = Config::default();
         let mut service = ConfigService::new(config);
 
-        // Verify set_profile_field returns Result with user-facing field name
-        let result = service.set_profile_field("default", "url", "http://localhost:3000");
-        assert!(result.is_ok());
+        service.set_url("http://localhost:3000".to_string());
 
-        // Verify the field was set
-        let profile = service.get_profile("default");
-        assert!(profile.is_some());
-        assert_eq!(profile.unwrap().url, "http://localhost:3000");
+        assert!(service.has_url());
+        assert_eq!(service.get_url(), Some("http://localhost:3000".to_string()));
     }
 
     #[test]
@@ -125,27 +103,5 @@ mod tests {
         // Verify save_config returns Result
         let result = service.save_config(None);
         assert!(result.is_ok() || result.is_err());
-    }
-
-    #[test]
-    fn test_set_profile_field_rejects_internal_field_names() {
-        let config = Config::default();
-        let mut service = ConfigService::new(config);
-
-        // Should reject internal field names
-        let result = service.set_profile_field("test", "host", "http://example.com");
-        assert!(result.is_err());
-        assert!(format!("{:?}", result).contains("Unknown field: host"));
-
-        let result = service.set_profile_field("test", "invalid_field", "http://example.com");
-        assert!(result.is_err());
-        assert!(format!("{:?}", result).contains("Unknown field: invalid_field"));
-
-        // Should accept user-facing field names
-        let result = service.set_profile_field("test", "url", "http://example.com");
-        assert!(result.is_ok());
-
-        let result = service.set_profile_field("test", "email", "test@example.com");
-        assert!(result.is_ok());
     }
 }

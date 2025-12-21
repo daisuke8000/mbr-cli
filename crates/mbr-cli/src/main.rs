@@ -25,12 +25,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Determine the profile to use (default to "default" if not specified)
-    let profile_name = cli.profile.clone().unwrap_or_else(|| "default".to_string());
-
     if cli.verbose {
         println!("Verbose mode is enabled");
-        println!("Using profile: {}", profile_name);
 
         if let Some(config_dir) = &cli.config_dir {
             println!("Using config directory: {}", config_dir);
@@ -42,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Create dispatcher
-    let dispatcher = Dispatcher::new(config, profile_name, cli.verbose, cli.api_key, config_path);
+    let dispatcher = Dispatcher::new(config, cli.verbose, cli.api_key);
 
     // Execute the command
     if let Err(e) = dispatcher.dispatch(cli.command).await {

@@ -5,7 +5,7 @@ Rust-based CLI/TUI tool for Metabase API interaction.
 ## Features
 
 - **API Key Authentication**: Simple authentication via `MBR_API_KEY` environment variable
-- **Multi-Profile Configuration**: TOML-based configuration with profile support
+- **Simple Configuration**: TOML-based configuration with URL setting
 - **CLI Interface**: Command-line tool for scripting and quick operations
 - **Rich TUI Experience**: Interactive terminal UI with keyboard navigation (`mbr-tui`)
 - **Hierarchical Error Handling**: Comprehensive error system with troubleshooting hints
@@ -89,7 +89,6 @@ mbr-cli query 123 --param date=2024-01-01   # Execute with parameters
 
 ### Global Options
 - `--verbose, -v` - Enable verbose output
-- `--profile, -p <PROFILE>` - Use specific profile (defaults to 'default')
 - `--config-dir <DIR>` - Override default config directory
 - `--api-key <KEY>` - Set API key (also via `MBR_API_KEY` environment variable)
 
@@ -108,6 +107,7 @@ mbr-cli query 123 --param date=2024-01-01   # Execute with parameters
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `MBR_API_KEY` | Metabase API key for authentication | Yes |
+| `MBR_URL` | Metabase server URL (alternative to config file) | No |
 
 ## Development
 
