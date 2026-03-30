@@ -1,5 +1,7 @@
 use crate::cli::interactive_display::InteractiveDisplay;
-use crate::cli::main_types::{CollectionCommands, ConfigCommands, DatabaseCommands, QueryArgs};
+use crate::cli::main_types::{
+    CollectionCommands, ConfigCommands, DatabaseCommands, QueryArgs, ResolvedQuery,
+};
 use mbr_core::api::client::MetabaseClient;
 use mbr_core::core::services::config_service::ConfigService;
 use mbr_core::display::{
@@ -144,25 +146,62 @@ impl QueryHandler {
         args: QueryArgs,
         client: MetabaseClient,
         verbose: bool,
+        use_colors: bool,
     ) -> Result<(), AppError> {
-        // Determine mode: list vs execute
-        if args.list {
-            // List mode
-            self.handle_list(&args, client, verbose).await
-        } else if let Some(id) = args.id {
-            // Execute mode
-            self.handle_execute(id, &args, client, verbose).await
-        } else {
-            // No ID and no --list flag
-            Err(AppError::Cli(CliError::InvalidArguments(
-                "Please provide a question ID to execute, or use --list to show available questions".to_string(),
-            )))
+        let resolved = args
+            .resolve()
+            .map_err(|msg| AppError::Cli(CliError::InvalidArguments(msg)))?;
+
+        match resolved {
+            ResolvedQuery::List {
+                search,
+                collection,
+                limit,
+            } => {
+                self.handle_list(
+                    search.as_deref(),
+                    collection.as_deref(),
+                    limit,
+                    client,
+                    verbose,
+                )
+                .await
+            }
+            ResolvedQuery::Run {
+                id,
+                param,
+                format,
+                limit,
+                full,
+                no_fullscreen,
+                offset,
+                columns,
+                page_size,
+            } => {
+                self.handle_execute(
+                    id,
+                    &param,
+                    &format,
+                    limit,
+                    full,
+                    no_fullscreen,
+                    offset,
+                    columns.as_deref(),
+                    page_size,
+                    client,
+                    verbose,
+                    use_colors,
+                )
+                .await
+            }
         }
     }
 
     async fn handle_list(
         &self,
-        args: &QueryArgs,
+        search: Option<&str>,
+        collection: Option<&str>,
+        limit: u32,
         client: MetabaseClient,
         verbose: bool,
     ) -> Result<(), AppError> {
@@ -170,7 +209,7 @@ impl QueryHandler {
             verbose,
             &format!(
                 "Listing questions - Search: {:?}, Limit: {}, Collection: {:?}",
-                args.search, args.limit, args.collection
+                search, limit, collection
             ),
         );
 
@@ -178,11 +217,7 @@ impl QueryHandler {
         spinner.start();
 
         let questions = client
-            .list_questions(
-                args.search.as_deref(),
-                Some(args.limit),
-                args.collection.as_deref(),
-            )
+            .list_questions(search, Some(limit), collection)
             .await?;
 
         spinner.stop(Some("✅ Questions fetched successfully"));
@@ -198,33 +233,42 @@ impl QueryHandler {
 
             let interactive_display = InteractiveDisplay::new();
             interactive_display
-                .display_question_list_pagination(&questions, args.limit as usize)
+                .display_question_list_pagination(&questions, limit as usize)
                 .await?;
         }
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn handle_execute(
         &self,
         id: u32,
-        args: &QueryArgs,
+        param: &[String],
+        format: &str,
+        limit: u32,
+        full: bool,
+        no_fullscreen: bool,
+        offset: Option<usize>,
+        _columns: Option<&str>,
+        page_size: usize,
         client: MetabaseClient,
         verbose: bool,
+        use_colors: bool,
     ) -> Result<(), AppError> {
         print_verbose(
             verbose,
             &format!(
                 "Executing question {} - Params: {:?}, Format: {}, Limit: {}, Full: {}, Offset: {:?}, Page size: {}",
-                id, args.param, args.format, args.limit, args.full, args.offset, args.page_size
+                id, param, format, limit, full, offset, page_size
             ),
         );
 
         // Convert parameters from Vec<String> to HashMap<String, String>
-        let parameters = if args.param.is_empty() {
+        let parameters = if param.is_empty() {
             None
         } else {
             let mut param_map = std::collections::HashMap::new();
-            for param_str in &args.param {
+            for param_str in param {
                 if let Some((key, value)) = param_str.split_once('=') {
                     param_map.insert(key.to_string(), value.to_string());
                 } else {
@@ -251,7 +295,7 @@ impl QueryHandler {
         let mut processed_result = result;
 
         // Apply offset if specified
-        if let Some(offset_val) = args.offset
+        if let Some(offset_val) = offset
             && offset_val > 0
         {
             let offset_manager = OffsetManager::new(Some(offset_val));
@@ -266,10 +310,10 @@ impl QueryHandler {
             );
         }
 
-        let table_display = TableDisplay::new();
+        let table_display = TableDisplay::new().with_colors(use_colors);
 
-        let display_start = args.offset.map(|o| o + 1).unwrap_or(1);
-        let limit_for_display = if args.full { None } else { Some(args.limit) };
+        let display_start = offset.map(|o| o + 1).unwrap_or(1);
+        let limit_for_display = if full { None } else { Some(limit) };
         let actual_displayed_rows = if let Some(limit_val) = limit_for_display {
             processed_result.data.rows.len().min(limit_val as usize)
         } else {
@@ -286,7 +330,7 @@ impl QueryHandler {
             .source_id(id)
             .total_records(original_row_count)
             .display_range(display_start, display_end)
-            .offset(args.offset.unwrap_or(0))
+            .offset(offset.unwrap_or(0))
             .build();
 
         print!(
@@ -295,18 +339,18 @@ impl QueryHandler {
         );
 
         let mut final_result = processed_result;
-        if let Some(ref _column_filter) = args.columns {}
+        // Column filtering placeholder (reserved for future use)
 
-        if !args.full {
+        if !full {
             final_result.data.rows = final_result
                 .data
                 .rows
                 .into_iter()
-                .take(args.limit as usize)
+                .take(limit as usize)
                 .collect();
         }
 
-        match args.format.as_str() {
+        match format {
             "json" => match serde_json::to_string_pretty(&final_result) {
                 Ok(json_output) => println!("{}", json_output),
                 Err(e) => {
@@ -337,14 +381,14 @@ impl QueryHandler {
                 }
             }
             _ => {
-                if args.full {
+                if full {
                     print_verbose(verbose, "Using full display mode");
                     let rendered_table = table_display.render_query_result(&final_result)?;
                     println!("{}", rendered_table);
-                } else if args.no_fullscreen {
+                } else if no_fullscreen {
                     print_verbose(verbose, "Using simple pagination mode");
                     let rendered_table = table_display
-                        .render_query_result_with_limit(&final_result, Some(args.page_size))?;
+                        .render_query_result_with_limit(&final_result, Some(page_size))?;
                     println!("{}", rendered_table);
                 } else {
                     print_verbose(verbose, "Using full interactive mode with crossterm");
@@ -353,9 +397,9 @@ impl QueryHandler {
                     interactive_display
                         .display_query_result_pagination(
                             &final_result,
-                            args.page_size,
-                            args.offset,
-                            args.no_fullscreen,
+                            page_size,
+                            offset,
+                            no_fullscreen,
                             id,
                             &format!("Question {}", id),
                         )

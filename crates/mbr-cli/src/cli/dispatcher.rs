@@ -14,6 +14,7 @@ use mbr_core::utils::logging::print_verbose;
 pub struct Dispatcher {
     config: Config,
     verbose: bool,
+    use_colors: bool,
 }
 
 impl Dispatcher {
@@ -21,8 +22,12 @@ impl Dispatcher {
         print_verbose(self.verbose, msg);
     }
 
-    pub fn new(config: Config, verbose: bool) -> Self {
-        Self { config, verbose }
+    pub fn new(config: Config, verbose: bool, use_colors: bool) -> Self {
+        Self {
+            config,
+            verbose,
+            use_colors,
+        }
     }
 
     fn get_url(&self) -> Result<String, AppError> {
@@ -156,10 +161,16 @@ impl Dispatcher {
             Commands::Query(args) => {
                 let handler = QueryHandler::new();
                 let client = self.create_client()?;
-                match handler.handle(args.clone(), client, self.verbose).await {
+                let use_colors = self.use_colors;
+                match handler
+                    .handle(*args.clone(), client, self.verbose, use_colors)
+                    .await
+                {
                     Err(ref e) if Self::is_unauthorized(e) => {
                         if let Some(new_client) = self.try_auto_relogin().await {
-                            handler.handle(args, new_client, self.verbose).await
+                            handler
+                                .handle(*args, new_client, self.verbose, use_colors)
+                                .await
                         } else {
                             Err(AppError::Auth(AuthError::SessionExpired))
                         }
