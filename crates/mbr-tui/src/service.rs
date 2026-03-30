@@ -121,7 +121,7 @@ impl ServiceClient {
         &self.base_url
     }
 
-    /// Validate API key by fetching current user
+    /// Validate session by fetching current user
     pub async fn validate_auth(&self) -> Result<CurrentUser, String> {
         self.client
             .get_current_user()

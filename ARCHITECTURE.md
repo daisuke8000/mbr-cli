@@ -19,8 +19,8 @@ graph TB
 
     subgraph External["External Systems"]
         Metabase[Metabase API]
-        FileSystem[Config Files]
-        EnvVar[MBR_API_KEY / MBR_URL]
+        FileSystem[Config Files / Session]
+        EnvVar[MBR_USERNAME / MBR_PASSWORD / MBR_URL]
     end
 
     CLI --> Services
@@ -46,7 +46,7 @@ The shared library containing all business logic, API communication, and data ma
 **Modules:**
 - `api/` - Metabase HTTP client and data models
 - `core/services/` - Business logic services (ConfigService, QuestionService)
-- `storage/` - Configuration (TOML) and credential management
+- `storage/` - Configuration (TOML) and session credential management (session.json)
 - `utils/` - Validation, text formatting, data helpers
 - `display/` - Table rendering, pagination, progress indicators
 - `error.rs` - Hierarchical error system
@@ -58,7 +58,7 @@ Thin CLI wrapper using clap for argument parsing.
 **Modules:**
 - `cli/main_types.rs` - Command definitions with clap derive
 - `cli/dispatcher.rs` - Facade delegating to services
-- `cli/command_handlers.rs` - Config, Query handlers
+- `cli/command_handlers.rs` - Config, Query, Collection, Database handlers
 - `cli/interactive_display.rs` - Paginated output
 
 ### 3. mbr-tui (Terminal User Interface)
@@ -74,6 +74,8 @@ Interactive TUI using ratatui framework.
 
 ## Authentication Flow
 
+### Login Flow
+
 ```mermaid
 sequenceDiagram
     participant User
@@ -82,19 +84,58 @@ sequenceDiagram
     participant Client
     participant API
 
-    User->>App: Set MBR_API_KEY env var
-    App->>Storage: get_api_key()
-    Storage-->>App: API Key
-    App->>Client: new(url, api_key)
-    Client->>API: GET /api/user/current
-    API-->>Client: User info
-    Client-->>App: Authenticated
+    User->>App: mbr-cli login
+    App->>User: Prompt username/password
+    Note over App: Or read MBR_USERNAME/MBR_PASSWORD env vars
+    App->>Client: login(url, username, password)
+    Client->>API: POST /api/session
+    API-->>Client: { id: "session-token" }
+    Client-->>App: Session token
+    App->>Storage: save_session(session.json)
+    Storage-->>App: Saved
+    App-->>User: Login successful
+```
+
+### Authenticated Request Flow
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant Storage
+    participant Client
+    participant API
+
+    App->>Storage: load_session()
+    Storage-->>App: Session { token, url, username }
+    App->>Client: with_session_token(url, token)
+    Client->>API: Request with X-Metabase-Session header
+    API-->>Client: Response
+    Note over App,API: On 401 Unauthorized, auto re-login if MBR_USERNAME/MBR_PASSWORD set
+```
+
+### Logout Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant App
+    participant Storage
+    participant Client
+    participant API
+
+    User->>App: mbr-cli logout
+    App->>Storage: load_session()
+    App->>Client: DELETE /api/session
+    App->>Storage: delete_session()
+    App-->>User: Logged out
 ```
 
 **Key Points:**
-- Authentication is stateless via `MBR_API_KEY` environment variable
-- No session management or token storage
-- API key is passed with each request as `x-api-key` header
+- Session-based authentication via `mbr-cli login` command
+- Session token stored at `~/.config/mbr-cli/session.json`
+- Each API request includes `X-Metabase-Session` header with the session token
+- Auto re-login on 401 if `MBR_USERNAME` and `MBR_PASSWORD` environment variables are set
+- Credentials can be provided interactively (prompt) or via environment variables
 
 ## Error Handling Hierarchy
 
@@ -118,9 +159,9 @@ graph TD
     ApiError --> A2[Http]
     ApiError --> A3[Unauthorized]
 
-    AuthError --> AU1[MissingApiKey]
-    AuthError --> AU2[ApiKeyInvalid]
-    AuthError --> AU3[AuthFailed]
+    AuthError --> AU1[NotLoggedIn]
+    AuthError --> AU2[SessionExpired]
+    AuthError --> AU3[LoginFailed]
 
     ConfigError --> CF1[FileNotFound]
     ConfigError --> CF2[MissingField]
@@ -175,19 +216,22 @@ flowchart LR
         Resolver[Config Resolver]
     end
 
-    subgraph Priority["Priority Order"]
-        P1[1. CLI --api-key]
-        P2[2. MBR_API_KEY env]
-        P3[3. config.toml]
+    subgraph Priority["Priority Order (URL)"]
+        P1[1. MBR_URL env]
+        P2[2. config.toml]
+    end
+
+    subgraph Auth["Authentication"]
+        S1[Session token from session.json]
+        S2[Auto re-login via MBR_USERNAME/MBR_PASSWORD]
     end
 
     CLI_Args --> Parser
     Env --> Resolver
     TOML --> Resolver
 
-    Parser --> P1
+    Resolver --> P1
     Resolver --> P2
-    Resolver --> P3
 ```
 
 **Configuration File:** `~/.config/mbr-cli/config.toml`
@@ -196,17 +240,31 @@ flowchart LR
 url = "https://metabase.example.com"
 ```
 
-**Priority Order:**
-1. CLI `--api-key` argument
-2. `MBR_API_KEY` environment variable
-3. `MBR_URL` environment variable (for URL)
-4. `config.toml` file (for URL)
+**Session File:** `~/.config/mbr-cli/session.json`
+
+```json
+{
+  "session_token": "...",
+  "url": "https://metabase.example.com",
+  "username": "user@example.com",
+  "created_at": "2026-03-30T12:00:00Z"
+}
+```
+
+**URL Priority Order:**
+1. `MBR_URL` environment variable
+2. `config.toml` file
+
+**Authentication:**
+- Session token loaded from `~/.config/mbr-cli/session.json`
+- Created by `mbr-cli login` command
+- Auto re-login on 401 if `MBR_USERNAME` and `MBR_PASSWORD` are set
 
 ## Query Execution Flow
 
 ```mermaid
 flowchart TD
-    Start([query 123]) --> CheckAuth{API Key Set?}
+    Start([query 123]) --> CheckAuth{Session Valid?}
     CheckAuth -->|No| AuthError[Show Auth Error]
     CheckAuth -->|Yes| GetQuestion[Get Question Details]
 
