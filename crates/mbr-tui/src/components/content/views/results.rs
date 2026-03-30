@@ -156,6 +156,20 @@ impl ContentPanel {
         focused: bool,
         title_prefix: &str,
     ) {
+        // Process dirty flags before rendering (lazy recomputation)
+        if self.search_dirty {
+            self.update_result_search_indices();
+            self.search_dirty = false;
+        }
+        if self.filter_dirty {
+            self.update_filter_indices();
+            self.filter_dirty = false;
+        }
+        if self.sort_dirty {
+            self.update_sort_indices();
+            self.sort_dirty = false;
+        }
+
         // Get result reference - caller guarantees query_result is Some
         let result = match &self.query_result {
             Some(r) => r,
@@ -178,15 +192,23 @@ impl ContentPanel {
         let visible_cols = (available_width / min_col_width).max(1).min(total_cols);
         let end_col = (scroll_x + visible_cols).min(total_cols);
 
-        // Slice columns based on scroll position
-        let visible_columns: Vec<String> = result.columns[scroll_x..end_col].to_vec();
+        // Slice columns based on scroll position (use reference, avoid clone)
+        let visible_columns = &result.columns[scroll_x..end_col];
         let visible_col_count = visible_columns.len();
 
         // Always include selection gutter column to prevent layout shift
         // The gutter is always present but only shows ✓ for selected rows
         let mut constraints: Vec<Constraint> = Vec::new();
         constraints.push(Constraint::Length(2)); // Selection indicator column (always present)
-        if visible_col_count <= 3 {
+
+        // Use pre-computed column widths if available, otherwise fall back to heuristic
+        if let Some(ref cached_widths) = self.cached_column_widths {
+            constraints.extend((scroll_x..end_col).map(|col_idx| {
+                let width = cached_widths.get(col_idx).copied().unwrap_or(15);
+                // Add 2 for padding
+                Constraint::Min(width.max(8) + 2)
+            }));
+        } else if visible_col_count <= 3 {
             constraints.extend(
                 visible_columns
                     .iter()
@@ -194,39 +216,45 @@ impl ContentPanel {
             );
         } else {
             constraints.extend(visible_columns.iter().map(|_| Constraint::Min(15)));
-        };
+        }
 
-        // Create table rows with sliced cells (only current page)
-        // Apply selection style to selected rows
-        let rows: Vec<Row> = (page_start..page_end)
+        // Pre-collect row metadata to avoid borrow conflicts with render_stateful_widget.
+        // We extract (original_idx, is_selected, sliced cells as owned) to release
+        // the immutable borrow on self before render_stateful_widget borrows mutably.
+        struct RowInfo {
+            is_selected: bool,
+            cells: Vec<String>,
+        }
+        let row_infos: Vec<RowInfo> = (page_start..page_end)
             .filter_map(|logical_idx| {
-                let row_data = self.get_visible_row(logical_idx)?;
+                let row = self.get_visible_row(logical_idx)?;
                 let original_idx = self.get_original_row_index(logical_idx);
-                Some((original_idx, row_data))
-            })
-            .map(|(original_idx, row)| {
-                let mut cells: Vec<Cell> = Vec::new();
-
-                // Always add selection indicator column (gutter)
                 let is_selected = original_idx
                     .map(|idx| self.is_row_selected(idx))
                     .unwrap_or(false);
+                let end = end_col.min(row.len());
+                // Use as_str() + to_owned() for the visible slice only (not all columns)
+                let cells: Vec<String> = row[scroll_x..end]
+                    .iter()
+                    .map(|cell| cell.to_owned())
+                    .collect();
+                Some(RowInfo { is_selected, cells })
+            })
+            .collect();
 
-                // Use 2-char width: "✓ " for selected, "  " for unselected
-                let indicator = if is_selected { "✓ " } else { "  " };
+        // Build Row widgets from pre-collected data (no borrow on self.query_result)
+        let rows: Vec<Row> = row_infos
+            .into_iter()
+            .map(|info| {
+                let mut cells: Vec<Cell> = Vec::with_capacity(info.cells.len() + 1);
+                // Always add selection indicator column (gutter)
+                let indicator = if info.is_selected { "✓ " } else { "  " };
                 cells.push(Cell::from(indicator));
-
                 // Add data cells
-                cells.extend(
-                    row[scroll_x..end_col.min(row.len())]
-                        .iter()
-                        .map(|cell| Cell::from(cell.clone())),
-                );
+                cells.extend(info.cells.into_iter().map(Cell::from));
 
                 let mut row_widget = Row::new(cells);
-
-                // Apply selection style if this row is selected
-                if is_selected {
+                if info.is_selected {
                     row_widget = row_widget.style(multi_selected_style());
                 }
                 row_widget
@@ -239,7 +267,7 @@ impl ContentPanel {
         // Always add empty gutter column header (matches data rows)
         header_cells.push(Cell::from("  "));
 
-        // Add data column headers
+        // Add data column headers (avoid clone when no sort indicator needed)
         header_cells.extend(
             visible_columns
                 .iter()
@@ -248,18 +276,16 @@ impl ContentPanel {
                     let actual_col_idx = scroll_x + visible_idx;
                     let is_sorted = self.sort_column_index == Some(actual_col_idx);
 
-                    let header_text = if is_sorted {
+                    if is_sorted {
                         let indicator = match self.sort_order {
                             SortOrder::Ascending => " ↑",
                             SortOrder::Descending => " ↓",
                             SortOrder::None => "",
                         };
-                        format!("{}{}", col, indicator)
+                        Cell::from(format!("{}{}", col, indicator))
                     } else {
-                        col.clone()
-                    };
-
-                    Cell::from(header_text)
+                        Cell::from(col.as_str())
+                    }
                 }),
         );
 

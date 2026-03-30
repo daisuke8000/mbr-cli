@@ -70,6 +70,8 @@ impl ContentPanel {
     pub fn filter_modal_input_char(&mut self, c: char) {
         if self.filter_modal_step == 1 {
             self.filter_text.push(c);
+            // Invalidate cached lowercase text
+            self.cached_filter_lower = Some(self.filter_text.to_lowercase());
         }
     }
 
@@ -77,6 +79,8 @@ impl ContentPanel {
     pub fn filter_modal_delete_char(&mut self) {
         if self.filter_modal_step == 1 {
             self.filter_text.pop();
+            // Invalidate cached lowercase text
+            self.cached_filter_lower = Some(self.filter_text.to_lowercase());
         }
     }
 
@@ -111,6 +115,7 @@ impl ContentPanel {
         self.filter_column_index = None;
         self.filter_text.clear();
         self.filter_indices = None;
+        self.cached_filter_lower = None;
         // Re-apply sort on full data
         if self.sort_order != SortOrder::None {
             self.update_sort_indices();
@@ -139,8 +144,11 @@ impl ContentPanel {
                 return;
             }
 
-            // Case-insensitive contains match
-            let filter_lower = self.filter_text.to_lowercase();
+            // Use cached lowercase text to avoid recomputing on each call
+            let filter_lower = self
+                .cached_filter_lower
+                .get_or_insert_with(|| self.filter_text.to_lowercase())
+                .clone();
 
             // Determine the base set of indices to filter from
             let base_indices: Box<dyn Iterator<Item = usize>> =

@@ -160,5 +160,11 @@ impl ContentPanel {
         self.result_search_active = false;
         self.result_search_text.clear();
         self.result_search_indices = None;
+        // Clear dirty flags and caches
+        self.sort_dirty = false;
+        self.filter_dirty = false;
+        self.search_dirty = false;
+        self.cached_filter_lower = None;
+        self.cached_column_widths = None;
     }
 }

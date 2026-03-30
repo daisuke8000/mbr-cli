@@ -123,6 +123,17 @@ pub struct ContentPanel {
     /// Anchor position for range selection (Shift+Arrow)
     /// Stores the starting row index when range selection begins
     pub(super) selection_anchor: Option<usize>,
+    // === Dirty flags for lazy index recomputation ===
+    /// Whether sort indices need to be recomputed before next render
+    pub(super) sort_dirty: bool,
+    /// Whether filter indices need to be recomputed before next render
+    pub(super) filter_dirty: bool,
+    /// Whether search indices need to be recomputed before next render
+    pub(super) search_dirty: bool,
+    /// Cached lowercase filter text (recomputed only when filter text changes)
+    pub(super) cached_filter_lower: Option<String>,
+    /// Pre-computed column widths for query results (computed on data load)
+    pub(super) cached_column_widths: Option<Vec<u16>>,
 }
 
 impl Default for ContentPanel {
@@ -172,6 +183,11 @@ impl ContentPanel {
             result_search_indices: None,
             selected_rows: HashSet::new(),
             selection_anchor: None,
+            sort_dirty: false,
+            filter_dirty: false,
+            search_dirty: false,
+            cached_filter_lower: None,
+            cached_column_widths: None,
         }
     }
 

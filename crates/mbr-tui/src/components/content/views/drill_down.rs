@@ -65,14 +65,14 @@ impl ContentPanel {
             return;
         }
 
-        // Create table rows
+        // Create table rows (minimize clones)
         let rows: Vec<Row> = questions
             .iter()
             .map(|q| {
                 Row::new(vec![
-                    Cell::from(format!("{}", q.id)),
-                    Cell::from(q.name.clone()),
-                    Cell::from(q.description.as_deref().unwrap_or("—").to_string()),
+                    Cell::from(q.id.to_string()),
+                    Cell::from(q.name.as_str()),
+                    Cell::from(q.description.as_deref().unwrap_or("—")),
                 ])
             })
             .collect();
@@ -151,14 +151,14 @@ impl ContentPanel {
             return;
         }
 
-        // Create table rows
+        // Create table rows (use as_str() to avoid cloning)
         let rows: Vec<Row> = schemas
             .iter()
             .enumerate()
             .map(|(i, schema)| {
                 Row::new(vec![
-                    Cell::from(format!("{}", i + 1)),
-                    Cell::from(schema.clone()),
+                    Cell::from((i + 1).to_string()),
+                    Cell::from(schema.as_str()),
                 ])
             })
             .collect();
@@ -236,17 +236,17 @@ impl ContentPanel {
             return;
         }
 
-        // Create table rows
+        // Create table rows (minimize clones)
         let rows: Vec<Row> = tables
             .iter()
             .map(|t| {
                 let display_name = t.display_name.as_deref().unwrap_or(t.name.as_str());
                 let desc = t.description.as_deref().unwrap_or("—");
                 Row::new(vec![
-                    Cell::from(format!("{}", t.id)),
-                    Cell::from(t.name.clone()),
-                    Cell::from(display_name.to_string()),
-                    Cell::from(desc.to_string()),
+                    Cell::from(t.id.to_string()),
+                    Cell::from(t.name.as_str()),
+                    Cell::from(display_name),
+                    Cell::from(desc),
                 ])
             })
             .collect();

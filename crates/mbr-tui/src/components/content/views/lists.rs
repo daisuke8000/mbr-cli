@@ -167,7 +167,7 @@ impl ContentPanel {
                     );
                     frame.render_widget(paragraph, table_area);
                 } else {
-                    // Create table rows
+                    // Create table rows (use as_str() to avoid cloning)
                     let rows: Vec<Row> = questions
                         .iter()
                         .map(|q| {
@@ -178,9 +178,9 @@ impl ContentPanel {
                                 .unwrap_or("—");
 
                             Row::new(vec![
-                                Cell::from(format!("{}", q.id)),
-                                Cell::from(q.name.clone()),
-                                Cell::from(collection_name.to_string()),
+                                Cell::from(q.id.to_string()),
+                                Cell::from(q.name.as_str()),
+                                Cell::from(collection_name),
                             ])
                         })
                         .collect();
@@ -254,7 +254,7 @@ impl ContentPanel {
             return;
         }
 
-        // Create table rows
+        // Create table rows (minimize clones)
         let rows: Vec<Row> = collections
             .iter()
             .map(|c| {
@@ -266,9 +266,9 @@ impl ContentPanel {
 
                 Row::new(vec![
                     Cell::from(id_str),
-                    Cell::from(c.name.clone()),
-                    Cell::from(location.to_string()),
-                    Cell::from(desc.to_string()),
+                    Cell::from(c.name.as_str()),
+                    Cell::from(location),
+                    Cell::from(desc),
                 ])
             })
             .collect();
@@ -331,7 +331,7 @@ impl ContentPanel {
             return;
         }
 
-        // Create table rows
+        // Create table rows (minimize clones)
         let rows: Vec<Row> = databases
             .iter()
             .map(|db| {
@@ -340,10 +340,10 @@ impl ContentPanel {
                 let sample_marker = if db.is_sample { " (sample)" } else { "" };
 
                 Row::new(vec![
-                    Cell::from(format!("{}", db.id)),
+                    Cell::from(db.id.to_string()),
                     Cell::from(format!("{}{}", db.name, sample_marker)),
-                    Cell::from(engine.to_string()),
-                    Cell::from(desc.to_string()),
+                    Cell::from(engine),
+                    Cell::from(desc),
                 ])
             })
             .collect();

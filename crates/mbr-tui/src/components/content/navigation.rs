@@ -170,6 +170,8 @@ impl ContentPanel {
         // Clear sort/filter indices for new data
         self.sort_indices = None;
         self.filter_indices = None;
+        // Pre-compute column widths based on header + first N rows
+        self.cached_column_widths = Some(Self::compute_column_widths(&data));
         self.query_result = Some(data);
         self.result_table_state = TableState::default();
         self.result_page = 0;
@@ -248,6 +250,8 @@ impl ContentPanel {
         // Clear sort/filter indices for new data
         self.sort_indices = None;
         self.filter_indices = None;
+        // Pre-compute column widths based on header + first N rows
+        self.cached_column_widths = Some(Self::compute_column_widths(&data));
         self.query_result = Some(data);
         self.result_table_state = TableState::default();
         self.result_page = 0; // Reset to first page
@@ -281,5 +285,27 @@ impl ContentPanel {
         if self.pop_view().is_none() {
             self.view = ContentView::Questions;
         }
+    }
+
+    /// Pre-compute column widths based on header + first N rows.
+    /// Samples up to 100 rows to estimate optimal column widths.
+    /// Caps individual columns at 50 characters.
+    fn compute_column_widths(data: &QueryResultData) -> Vec<u16> {
+        data.columns
+            .iter()
+            .enumerate()
+            .map(|(col_idx, col_name)| {
+                let header_width = col_name.len();
+                let max_data_width = data
+                    .rows
+                    .iter()
+                    .take(100) // Sample first 100 rows
+                    .filter_map(|row| row.get(col_idx))
+                    .map(|cell| cell.len())
+                    .max()
+                    .unwrap_or(0);
+                (header_width.max(max_data_width).min(50)) as u16 // Cap at 50
+            })
+            .collect()
     }
 }
