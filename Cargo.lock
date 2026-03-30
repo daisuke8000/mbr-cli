@@ -1108,6 +1108,7 @@ dependencies = [
 name = "mbr-cli"
 version = "0.1.5"
 dependencies = [
+ "atty",
  "clap",
  "crossterm 0.29.0",
  "mbr-core",

@@ -31,7 +31,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let dispatcher = Dispatcher::new(config, cli.verbose);
+    let use_colors = cli.color.should_use_colors();
+    let dispatcher = Dispatcher::new(config, cli.verbose, use_colors);
 
     if let Err(e) = dispatcher.dispatch(cli.command).await {
         eprintln!("Error: {}", e);
