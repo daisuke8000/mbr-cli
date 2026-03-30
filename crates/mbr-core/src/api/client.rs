@@ -179,6 +179,9 @@ impl MetabaseClient {
         }
 
         // Otherwise, use /api/card endpoint for listing all questions
+        // TODO: Metabase's /api/card endpoint does not support server-side limit/offset.
+        // Pagination is applied client-side via truncation below.
+        // Consider migrating to /api/search with empty query for server-side pagination.
         let mut params = vec!["f=all".to_string()];
 
         if let Some(collection_id) = collection
@@ -211,6 +214,7 @@ impl MetabaseClient {
     /// Search questions using /api/search endpoint.
     /// Uses reqwest's .query() for proper URL encoding of search terms,
     /// including multibyte characters (Japanese, etc.).
+    /// Supports server-side pagination via limit and offset parameters.
     async fn search_questions(
         &self,
         search_term: &str,
@@ -218,17 +222,20 @@ impl MetabaseClient {
     ) -> Result<Vec<crate::api::models::Question>, AppError> {
         use crate::api::models::{Collection, Question, SearchResponse};
 
-        /// Query parameters for Metabase search API
+        /// Query parameters for Metabase search API with pagination support
         #[derive(Serialize)]
         struct SearchQuery<'a> {
             q: &'a str,
             models: &'static str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            limit: Option<u32>,
         }
 
         let endpoint = "/api/search";
         let query = SearchQuery {
             q: search_term,
             models: "card",
+            limit,
         };
 
         // Use build_request_with_query for type-safe URL encoding
@@ -241,7 +248,7 @@ impl MetabaseClient {
         let search_response: SearchResponse = Self::handle_response(response, endpoint).await?;
 
         // Convert SearchResultItem to Question
-        let mut questions: Vec<Question> = search_response
+        let questions: Vec<Question> = search_response
             .data
             .into_iter()
             .filter(|item| item.model == "card")
@@ -256,13 +263,6 @@ impl MetabaseClient {
                 }),
             })
             .collect();
-
-        // Apply client-side limit if specified
-        if let Some(limit_value) = limit
-            && limit_value > 0
-        {
-            questions.truncate(limit_value as usize);
-        }
 
         Ok(questions)
     }

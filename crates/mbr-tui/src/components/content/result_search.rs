@@ -23,31 +23,35 @@ impl ContentPanel {
         self.result_search_active = false;
     }
 
-    /// Add a character to result search text (real-time search).
+    /// Add a character to result search text.
+    /// Uses debounce: only triggers search when 3+ characters are typed.
+    /// Actual index recomputation is deferred via dirty flags until next render.
     pub fn result_search_input_char(&mut self, c: char) {
         self.result_search_text.push(c);
-        self.update_result_search_indices();
-        // If filter is active, re-apply filter on new search results
-        if self.filter_column_index.is_some() && !self.filter_text.is_empty() {
-            self.update_filter_indices();
-        }
-        // Re-apply sort on new filtered/searched data
-        if self.sort_order != SortOrder::None {
-            self.update_sort_indices();
+        // Only trigger search with 3+ characters (debounce)
+        if self.result_search_text.len() >= 3 {
+            self.search_dirty = true;
+            // Cascade: filter and sort also need recomputation
+            if self.filter_column_index.is_some() && !self.filter_text.is_empty() {
+                self.filter_dirty = true;
+            }
+            if self.sort_order != SortOrder::None {
+                self.sort_dirty = true;
+            }
         }
     }
 
     /// Delete the last character from result search text.
+    /// Uses dirty flags for deferred recomputation.
     pub fn result_search_delete_char(&mut self) {
         self.result_search_text.pop();
-        self.update_result_search_indices();
-        // If filter is active, re-apply filter on new search results
+        // Mark dirty for recomputation (including when dropping below 3 chars to clear results)
+        self.search_dirty = true;
         if self.filter_column_index.is_some() && !self.filter_text.is_empty() {
-            self.update_filter_indices();
+            self.filter_dirty = true;
         }
-        // Re-apply sort on new filtered/searched data
         if self.sort_order != SortOrder::None {
-            self.update_sort_indices();
+            self.sort_dirty = true;
         }
     }
 
@@ -64,19 +68,19 @@ impl ContentPanel {
         self.result_search_text.clear();
         self.result_search_indices = None;
         self.result_search_active = false;
-        // If filter is active, re-apply filter on full data
+        self.search_dirty = false; // Already cleared manually
+        // Cascade: filter and sort need recomputation on full data
         if self.filter_column_index.is_some() && !self.filter_text.is_empty() {
-            self.update_filter_indices();
+            self.filter_dirty = true;
         }
-        // Re-apply sort
         if self.sort_order != SortOrder::None {
-            self.update_sort_indices();
+            self.sort_dirty = true;
         }
     }
 
     /// Update result search indices based on current search text.
     /// Searches all columns with case-insensitive contains match.
-    fn update_result_search_indices(&mut self) {
+    pub(super) fn update_result_search_indices(&mut self) {
         if self.result_search_text.is_empty() {
             self.result_search_indices = None;
             return;

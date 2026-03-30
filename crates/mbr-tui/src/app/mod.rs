@@ -15,6 +15,8 @@ mod input_handler;
 
 use std::sync::Arc;
 
+use crossterm::event::EventStream;
+use futures::StreamExt;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -29,7 +31,6 @@ use crate::components::{
     ActiveTab, Component, ContentPanel, ContentView, CopyMenu, HelpOverlay, RecordDetailOverlay,
     StatusBar,
 };
-use crate::event::{Event, EventHandler};
 use crate::layout::main::{HEADER_HEIGHT, STATUS_BAR_HEIGHT};
 use crate::service::{AppData, ConnectionStatus, LoadState, ServiceClient, init_service};
 
@@ -129,12 +130,13 @@ impl App {
         }
     }
 
-    /// Run the main application loop (async version).
-    pub async fn run_async(
-        &mut self,
-        terminal: &mut ratatui::Terminal<impl ratatui::backend::Backend>,
-    ) -> std::io::Result<()> {
-        let event_handler = EventHandler::new(250);
+    /// Run the main application loop (async event-driven version).
+    ///
+    /// Uses crossterm's EventStream with tokio::select! for zero-cost idle.
+    /// Renders only when state changes (needs_render flag).
+    pub async fn run_async(&mut self) -> std::io::Result<()> {
+        let mut terminal = crate::setup_terminal()?;
+        let mut reader = EventStream::new();
 
         // Validate authentication on startup if we have a service client
         if let Some(service) = &self.service
@@ -152,29 +154,55 @@ impl App {
                 .send(AppAction::LoadData(DataRequest::Questions));
         }
 
-        while !self.should_quit {
-            // Process any pending actions
-            self.process_actions();
+        // Initial render
+        terminal.draw(|frame| self.draw(frame))?;
 
-            // Draw the UI
-            terminal.draw(|frame| self.draw(frame))?;
+        let mut needs_render = false;
 
-            // Handle events
-            match event_handler.next()? {
-                Event::Key(key) => self.handle_key(key.code, key.modifiers),
-                Event::Resize(_, _) => {} // Terminal will redraw automatically
-                Event::Tick => {}         // Can be used for animations/updates
+        loop {
+            tokio::select! {
+                // Handle async actions (data loaded, query results, etc.)
+                Some(action) = self.action_rx.recv() => {
+                    self.handle_action(action);
+                    needs_render = true;
+                }
+                // Handle keyboard/terminal events
+                maybe_event = reader.next() => {
+                    match maybe_event {
+                        Some(Ok(event)) => {
+                            if let crossterm::event::Event::Key(key) = event {
+                                if key.kind == crossterm::event::KeyEventKind::Press {
+                                    self.handle_key(key.code, key.modifiers);
+                                    needs_render = true;
+                                }
+                            } else if let crossterm::event::Event::Resize(_, _) = event {
+                                needs_render = true;
+                            }
+                        }
+                        Some(Err(_)) => break,
+                        None => break,
+                    }
+                }
+            }
+
+            // Process any queued actions from key handling
+            while let Ok(action) = self.action_rx.try_recv() {
+                self.handle_action(action);
+                needs_render = true;
+            }
+
+            if self.should_quit {
+                break;
+            }
+
+            if needs_render {
+                terminal.draw(|frame| self.draw(frame))?;
+                needs_render = false;
             }
         }
 
+        crate::restore_terminal()?;
         Ok(())
-    }
-
-    /// Process pending actions from the action queue.
-    fn process_actions(&mut self) {
-        while let Ok(action) = self.action_rx.try_recv() {
-            self.handle_action(action);
-        }
     }
 
     /// Validate authentication asynchronously.
