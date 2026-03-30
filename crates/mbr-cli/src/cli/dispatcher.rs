@@ -210,7 +210,7 @@ fn prompt_username() -> Result<String, AppError> {
 }
 
 fn prompt_password() -> Result<String, AppError> {
-    rpassword::prompt_password("Metabase Password: ").map_err(|_| {
+    rpassword::prompt_password_stderr("Metabase Password: ").map_err(|_| {
         AppError::Auth(AuthError::LoginFailed {
             message: "Failed to read password".to_string(),
         })

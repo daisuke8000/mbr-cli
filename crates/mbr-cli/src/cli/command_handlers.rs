@@ -6,7 +6,7 @@ use mbr_core::display::{
     OperationStatus, ProgressSpinner, TableDisplay, TableHeaderInfoBuilder, display_status,
 };
 use mbr_core::error::{AppError, CliError};
-use mbr_core::storage::credentials::has_api_key;
+use mbr_core::storage::credentials::load_session;
 use mbr_core::utils::data::OffsetManager;
 use mbr_core::utils::logging::print_verbose;
 
@@ -32,22 +32,19 @@ impl ConfigHandler {
                     "Attempting config show command using ConfigService",
                 );
 
-                // Show the current configuration
                 println!("Current Configuration:");
                 println!("=====================");
 
-                // Show URL status
                 if let Some(url) = config_service.get_url() {
                     println!("URL: {}", url);
                 } else {
                     println!("URL: ❌ Not configured");
                 }
 
-                // Show API key status
-                if has_api_key() {
-                    println!("API Key: ✅ Set (MBR_API_KEY)");
+                if let Some(session) = load_session() {
+                    println!("Session: ✅ Logged in ({})", session.username);
                 } else {
-                    println!("API Key: ❌ Not set");
+                    println!("Session: ❌ Not logged in");
                 }
 
                 Ok(())
@@ -75,38 +72,36 @@ impl ConfigHandler {
                 Ok(())
             }
             ConfigCommands::Validate => {
-                print_verbose(verbose, "Validating API key and connection");
+                print_verbose(verbose, "Validating session and connection");
 
-                // Check if API key is set
-                if !has_api_key() {
-                    println!("❌ MBR_API_KEY environment variable is not set.\n");
-                    println!("To authenticate, set your Metabase API key:");
-                    println!("  export MBR_API_KEY=\"your_api_key\"\n");
-                    println!("Generate an API key in Metabase:");
-                    println!("  Settings → Admin settings → API Keys");
+                let session = load_session();
+                if session.is_none() {
+                    println!("❌ Not logged in.\n");
+                    println!("To authenticate, run:");
+                    println!("  mbr-cli login\n");
+                    println!("Or set environment variables:");
+                    println!("  export MBR_USERNAME=\"your_username\"");
+                    println!("  export MBR_PASSWORD=\"your_password\"");
                     return Err(AppError::Cli(CliError::AuthRequired {
-                        message: "MBR_API_KEY is not set".to_string(),
-                        hint: "Set the MBR_API_KEY environment variable".to_string(),
-                        available_profiles: vec![],
+                        message: "Not logged in".to_string(),
+                        hint: "Run 'mbr-cli login' to authenticate".to_string(),
                     }));
                 }
 
                 if !client.is_authenticated() {
-                    println!("❌ API key is not configured properly.");
+                    println!("❌ Session token is not configured properly.");
                     return Err(AppError::Cli(CliError::AuthRequired {
                         message: "Client is not authenticated".to_string(),
-                        hint: "Check your MBR_API_KEY environment variable".to_string(),
-                        available_profiles: vec![],
+                        hint: "Run 'mbr-cli login' to re-authenticate".to_string(),
                     }));
                 }
 
-                // Test connection by getting current user
-                let mut spinner = ProgressSpinner::new("Validating API key...".to_string());
+                let mut spinner = ProgressSpinner::new("Validating session...".to_string());
                 spinner.start();
 
                 match client.get_current_user().await {
                     Ok(user) => {
-                        spinner.stop(Some("✅ API key validated successfully"));
+                        spinner.stop(Some("✅ Session validated successfully"));
                         println!("\nAuthentication Status:");
                         println!("=====================");
                         println!("✅ Connected to Metabase");
@@ -122,12 +117,12 @@ impl ConfigHandler {
                         Ok(())
                     }
                     Err(e) => {
-                        spinner.stop(Some("❌ API key validation failed"));
-                        println!("\n❌ Failed to validate API key: {}", e);
+                        spinner.stop(Some("❌ Session validation failed"));
+                        println!("\n❌ Failed to validate session: {}", e);
                         println!("\nPossible causes:");
-                        println!("  - API key is invalid or expired");
+                        println!("  - Session has expired");
                         println!("  - Metabase server is unreachable");
-                        println!("  - API key doesn't have required permissions");
+                        println!("\nTry running 'mbr-cli login' to re-authenticate.");
                         Err(e)
                     }
                 }

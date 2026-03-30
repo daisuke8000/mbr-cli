@@ -11,7 +11,6 @@ use cli::main_types::Cli;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    // Load Config
     let config_path = cli
         .config_dir
         .as_ref()
@@ -27,20 +26,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if cli.verbose {
         println!("Verbose mode is enabled");
-
         if let Some(config_dir) = &cli.config_dir {
             println!("Using config directory: {}", config_dir);
         }
-
-        if cli.api_key.as_ref().is_some_and(|key| !key.is_empty()) {
-            println!("Using API key provided via env or command line");
-        }
     }
 
-    // Create dispatcher
-    let dispatcher = Dispatcher::new(config, cli.verbose, cli.api_key);
+    let dispatcher = Dispatcher::new(config, cli.verbose);
 
-    // Execute the command
     if let Err(e) = dispatcher.dispatch(cli.command).await {
         eprintln!("Error: {}", e);
         std::process::exit(1);
