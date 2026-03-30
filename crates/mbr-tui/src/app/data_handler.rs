@@ -98,9 +98,6 @@ impl App {
         }
     }
 
-    /// Page size for question list pagination.
-    const QUESTIONS_PAGE_SIZE: u32 = 50;
-
     fn load_questions(
         &mut self,
         service: Arc<crate::service::ServiceClient>,
@@ -115,12 +112,9 @@ impl App {
         self.status_bar.set_message("Loading questions...");
 
         tokio::spawn(async move {
-            match service
-                .fetch_questions_page(None, Some(Self::QUESTIONS_PAGE_SIZE), None)
-                .await
-            {
-                Ok((questions, total)) => {
-                    let _ = tx.send(AppAction::QuestionsPageLoaded(questions, total, 0));
+            match service.fetch_questions(None, None).await {
+                Ok(questions) => {
+                    let _ = tx.send(AppAction::QuestionsLoaded(questions));
                 }
                 Err(e) => {
                     let _ = tx.send(AppAction::LoadFailed(DataRequest::Questions, e));
@@ -145,48 +139,9 @@ impl App {
             .set_message(format!("Searching for '{}'...", query));
 
         tokio::spawn(async move {
-            match service
-                .fetch_questions_page(Some(&query), Some(Self::QUESTIONS_PAGE_SIZE), None)
-                .await
-            {
-                Ok((questions, total)) => {
-                    let _ = tx.send(AppAction::QuestionsPageLoaded(questions, total, 0));
-                }
-                Err(e) => {
-                    let _ = tx.send(AppAction::LoadFailed(DataRequest::Questions, e));
-                }
-            }
-        });
-    }
-
-    /// Load a specific page of questions by offset (for n/p pagination).
-    pub(super) fn load_questions_page(&mut self, offset: u32) {
-        let service = match &self.service {
-            Some(s) => Arc::clone(s),
-            None => return,
-        };
-
-        if matches!(self.data.questions, LoadState::Loading) {
-            return;
-        }
-
-        self.data.questions = LoadState::Loading;
-        self.content.update_questions(&self.data.questions);
-
-        let search = self.content.get_active_search().map(|s| s.to_string());
-        let tx = self.action_tx.clone();
-
-        tokio::spawn(async move {
-            match service
-                .fetch_questions_page(
-                    search.as_deref(),
-                    Some(Self::QUESTIONS_PAGE_SIZE),
-                    Some(offset),
-                )
-                .await
-            {
-                Ok((questions, total)) => {
-                    let _ = tx.send(AppAction::QuestionsPageLoaded(questions, total, offset));
+            match service.fetch_questions(Some(&query), Some(200)).await {
+                Ok(questions) => {
+                    let _ = tx.send(AppAction::QuestionsLoaded(questions));
                 }
                 Err(e) => {
                     let _ = tx.send(AppAction::LoadFailed(DataRequest::Questions, e));

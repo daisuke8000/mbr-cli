@@ -119,27 +119,14 @@ impl ServiceClient {
             .map_err(|e| format!("Authentication failed: {}", e))
     }
 
-    /// Fetch questions list (without pagination metadata).
-    #[allow(dead_code)]
+    /// Fetch questions list.
     pub async fn fetch_questions(
         &self,
         search: Option<&str>,
         limit: Option<u32>,
     ) -> Result<Vec<Question>, String> {
-        let (questions, _total) = self.fetch_questions_page(search, limit, None).await?;
-        Ok(questions)
-    }
-
-    /// Fetch questions with offset for pagination.
-    /// Returns (questions, total_count) for pagination UI.
-    pub async fn fetch_questions_page(
-        &self,
-        search: Option<&str>,
-        limit: Option<u32>,
-        offset: Option<u32>,
-    ) -> Result<(Vec<Question>, Option<u32>), String> {
         self.client
-            .list_questions_with_offset(search, limit, None, offset)
+            .list_questions(search, limit, None)
             .await
             .map_err(|e| format!("Failed to fetch questions: {}", e))
     }

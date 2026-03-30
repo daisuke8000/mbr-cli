@@ -103,15 +103,6 @@ pub struct TableInfo {
 #[derive(Debug, Deserialize, Clone)]
 pub struct SearchResponse {
     pub data: Vec<SearchResultItem>,
-    /// Total number of matching results (server-side count)
-    #[serde(default)]
-    pub total: Option<u32>,
-    /// Limit used in the request
-    #[serde(default)]
-    pub limit: Option<u32>,
-    /// Offset used in the request
-    #[serde(default)]
-    pub offset: Option<u32>,
 }
 
 /// Individual search result item (used for cards/questions)

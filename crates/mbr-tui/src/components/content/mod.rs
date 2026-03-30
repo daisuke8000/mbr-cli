@@ -197,7 +197,7 @@ impl ContentPanel {
             cached_column_widths: None,
             questions_total: None,
             questions_offset: 0,
-            questions_page_size: 50,
+            questions_page_size: 100,
         }
     }
 
@@ -253,12 +253,12 @@ impl ContentPanel {
         )
     }
 
-    // === Questions list pagination ===
+    // === Questions list pagination (client-side, 100 items per page) ===
 
-    /// Update questions pagination metadata.
-    pub fn update_questions_pagination(&mut self, total: Option<u32>, offset: u32) {
-        self.questions_total = total;
-        self.questions_offset = offset;
+    /// Reset pagination state when new data is loaded.
+    pub fn reset_questions_pagination(&mut self, total: u32) {
+        self.questions_total = Some(total);
+        self.questions_offset = 0;
     }
 
     /// Check if there is a next page of questions.
@@ -275,24 +275,36 @@ impl ContentPanel {
         self.questions_offset > 0
     }
 
-    /// Get the offset for the next page.
-    pub fn next_questions_page_offset(&self) -> u32 {
-        self.questions_offset + self.questions_page_size
+    /// Navigate to the next page (updates offset, resets selection).
+    pub fn next_questions_page(&mut self) {
+        if self.has_next_questions_page() {
+            self.questions_offset += self.questions_page_size;
+            self.table_state = TableState::default();
+            self.table_state.select(Some(0));
+        }
     }
 
-    /// Get the offset for the previous page.
-    pub fn prev_questions_page_offset(&self) -> u32 {
-        self.questions_offset.saturating_sub(self.questions_page_size)
+    /// Navigate to the previous page (updates offset, resets selection).
+    pub fn prev_questions_page(&mut self) {
+        if self.has_prev_questions_page() {
+            self.questions_offset = self
+                .questions_offset
+                .saturating_sub(self.questions_page_size);
+            self.table_state = TableState::default();
+            self.table_state.select(Some(0));
+        }
     }
 
     /// Get questions pagination info for status display.
-    /// Returns (current_page, total_pages, total_items) if available.
+    /// Returns (current_page, total_pages, total_items).
     pub fn questions_pagination_info(&self) -> Option<(u32, u32, u32)> {
-        self.questions_total.map(|total| {
-            let current_page = self.questions_offset / self.questions_page_size + 1;
-            let total_pages = (total + self.questions_page_size - 1) / self.questions_page_size;
-            (current_page, total_pages, total)
-        })
+        self.questions_total
+            .filter(|&t| t > self.questions_page_size)
+            .map(|total| {
+                let current_page = self.questions_offset / self.questions_page_size + 1;
+                let total_pages = (total + self.questions_page_size - 1) / self.questions_page_size;
+                (current_page, total_pages, total)
+            })
     }
 
     // === Multi-select methods ===

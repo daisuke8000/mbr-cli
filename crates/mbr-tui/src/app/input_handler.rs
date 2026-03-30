@@ -225,22 +225,21 @@ impl App {
                 true
             }
             // Questions list pagination: n = next page, p = previous page
+            // Works in both Questions and CollectionQuestions views
             KeyCode::Char('n')
-                if self.content.current_view() == ContentView::Questions
+                if self.content.is_questions_view()
                     && !self.is_modal_active()
                     && self.content.has_next_questions_page() =>
             {
-                let offset = self.content.next_questions_page_offset();
-                let _ = self.action_tx.send(AppAction::LoadQuestionsPage(offset));
+                self.content.next_questions_page();
                 true
             }
             KeyCode::Char('p')
-                if self.content.current_view() == ContentView::Questions
+                if self.content.is_questions_view()
                     && !self.is_modal_active()
                     && self.content.has_prev_questions_page() =>
             {
-                let offset = self.content.prev_questions_page_offset();
-                let _ = self.action_tx.send(AppAction::LoadQuestionsPage(offset));
+                self.content.prev_questions_page();
                 true
             }
             // Copy record(s) in result view with 'c'

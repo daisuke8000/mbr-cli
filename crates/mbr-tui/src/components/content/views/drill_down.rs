@@ -65,8 +65,13 @@ impl ContentPanel {
             return;
         }
 
-        // Create table rows (minimize clones)
-        let rows: Vec<Row> = questions
+        // Client-side pagination: show only current page slice
+        let offset = self.questions_offset as usize;
+        let page_size = self.questions_page_size as usize;
+        let end = (offset + page_size).min(questions.len());
+        let page_questions = &questions[offset..end];
+
+        let rows: Vec<Row> = page_questions
             .iter()
             .map(|q| {
                 Row::new(vec![
@@ -76,6 +81,11 @@ impl ContentPanel {
                 ])
             })
             .collect();
+
+        let pagination_hint = self
+            .questions_pagination_info()
+            .map(|(page, total_pages, _)| format!(" [{}/{}]", page, total_pages))
+            .unwrap_or_default();
 
         let table = Table::new(
             rows,
@@ -93,9 +103,10 @@ impl ContentPanel {
         .block(
             Block::default()
                 .title(format!(
-                    " {} ({}) - Press Esc to go back ",
+                    " {} ({}){} - Esc: back, n/p: page ",
                     collection_name,
-                    questions.len()
+                    questions.len(),
+                    pagination_hint,
                 ))
                 .borders(Borders::ALL)
                 .border_style(border_style(focused)),

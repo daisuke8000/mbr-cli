@@ -12,16 +12,27 @@ use crate::service::LoadState;
 impl ContentPanel {
     // === Questions view navigation ===
 
-    /// Select next question in list.
-    pub fn select_next(&mut self) {
+    /// Get the number of questions visible on the current page.
+    fn questions_page_len(&self) -> usize {
         if let LoadState::Loaded(questions) = &self.questions {
-            if questions.is_empty() {
-                return;
-            }
-            let current = self.table_state.selected().unwrap_or(0);
-            let next = (current + 1).min(questions.len() - 1);
-            self.table_state.select(Some(next));
+            let offset = self.questions_offset as usize;
+            let page_size = self.questions_page_size as usize;
+            let end = (offset + page_size).min(questions.len());
+            end.saturating_sub(offset)
+        } else {
+            0
         }
+    }
+
+    /// Select next question in list (page-aware).
+    pub fn select_next(&mut self) {
+        let page_len = self.questions_page_len();
+        if page_len == 0 {
+            return;
+        }
+        let current = self.table_state.selected().unwrap_or(0);
+        let next = (current + 1).min(page_len - 1);
+        self.table_state.select(Some(next));
     }
 
     /// Select previous question in list.
@@ -36,12 +47,11 @@ impl ContentPanel {
         self.table_state.select(Some(0));
     }
 
-    /// Select last question in list.
+    /// Select last question in list (page-aware).
     pub fn select_last(&mut self) {
-        if let LoadState::Loaded(questions) = &self.questions
-            && !questions.is_empty()
-        {
-            self.table_state.select(Some(questions.len() - 1));
+        let page_len = self.questions_page_len();
+        if page_len > 0 {
+            self.table_state.select(Some(page_len - 1));
         }
     }
 
@@ -283,6 +293,7 @@ impl ContentPanel {
 
     /// Get the currently selected question ID.
     /// Works in both Questions and CollectionQuestions views.
+    /// Converts page-local selection index to global index.
     pub fn get_selected_question_id(&self) -> Option<u32> {
         if !self.is_questions_view() {
             return None;
@@ -290,7 +301,8 @@ impl ContentPanel {
         if let LoadState::Loaded(questions) = &self.questions
             && let Some(selected) = self.table_state.selected()
         {
-            return questions.get(selected).map(|q| q.id);
+            let global_idx = self.questions_offset as usize + selected;
+            return questions.get(global_idx).map(|q| q.id);
         }
         None
     }
