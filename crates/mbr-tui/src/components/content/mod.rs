@@ -134,6 +134,13 @@ pub struct ContentPanel {
     pub(super) cached_filter_lower: Option<String>,
     /// Pre-computed column widths for query results (computed on data load)
     pub(super) cached_column_widths: Option<Vec<u16>>,
+    // === Questions list pagination state ===
+    /// Total number of questions available on server (from search API)
+    pub(super) questions_total: Option<u32>,
+    /// Current offset in questions list (for server-side pagination)
+    pub(super) questions_offset: u32,
+    /// Page size for questions list pagination
+    pub(super) questions_page_size: u32,
 }
 
 impl Default for ContentPanel {
@@ -188,6 +195,9 @@ impl ContentPanel {
             search_dirty: false,
             cached_filter_lower: None,
             cached_column_widths: None,
+            questions_total: None,
+            questions_offset: 0,
+            questions_page_size: 50,
         }
     }
 
@@ -241,6 +251,48 @@ impl ContentPanel {
             self.view,
             ContentView::QueryResult | ContentView::TablePreview { .. }
         )
+    }
+
+    // === Questions list pagination ===
+
+    /// Update questions pagination metadata.
+    pub fn update_questions_pagination(&mut self, total: Option<u32>, offset: u32) {
+        self.questions_total = total;
+        self.questions_offset = offset;
+    }
+
+    /// Check if there is a next page of questions.
+    pub fn has_next_questions_page(&self) -> bool {
+        if let Some(total) = self.questions_total {
+            self.questions_offset + self.questions_page_size < total
+        } else {
+            false
+        }
+    }
+
+    /// Check if there is a previous page of questions.
+    pub fn has_prev_questions_page(&self) -> bool {
+        self.questions_offset > 0
+    }
+
+    /// Get the offset for the next page.
+    pub fn next_questions_page_offset(&self) -> u32 {
+        self.questions_offset + self.questions_page_size
+    }
+
+    /// Get the offset for the previous page.
+    pub fn prev_questions_page_offset(&self) -> u32 {
+        self.questions_offset.saturating_sub(self.questions_page_size)
+    }
+
+    /// Get questions pagination info for status display.
+    /// Returns (current_page, total_pages, total_items) if available.
+    pub fn questions_pagination_info(&self) -> Option<(u32, u32, u32)> {
+        self.questions_total.map(|total| {
+            let current_page = self.questions_offset / self.questions_page_size + 1;
+            let total_pages = (total + self.questions_page_size - 1) / self.questions_page_size;
+            (current_page, total_pages, total)
+        })
     }
 
     // === Multi-select methods ===

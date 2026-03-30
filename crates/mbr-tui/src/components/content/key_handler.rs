@@ -48,6 +48,7 @@ impl ContentPanel {
     }
 
     /// Handle keys in Questions view.
+    /// Note: 'n'/'p' for pagination are handled by App (need to send actions).
     fn handle_questions_key(&mut self, key: KeyEvent) -> bool {
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
@@ -70,6 +71,7 @@ impl ContentPanel {
                 self.enter_search_mode();
                 true
             }
+            // n/p for pagination are handled at the App level (need to dispatch actions)
             _ => false,
         }
     }

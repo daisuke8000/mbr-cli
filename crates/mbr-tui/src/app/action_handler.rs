@@ -52,6 +52,12 @@ impl App {
             AppAction::QuestionsLoaded(questions) => {
                 self.handle_questions_loaded(questions);
             }
+            AppAction::QuestionsPageLoaded(questions, total, offset) => {
+                self.handle_questions_page_loaded(questions, total, offset);
+            }
+            AppAction::LoadQuestionsPage(offset) => {
+                self.load_questions_page(offset);
+            }
             AppAction::CollectionsLoaded(collections) => {
                 self.handle_collections_loaded(collections);
             }
@@ -127,8 +133,26 @@ impl App {
         let count = questions.len();
         self.data.questions = LoadState::Loaded(questions);
         self.content.update_questions(&self.data.questions);
+        self.content.update_questions_pagination(None, 0);
         self.status_bar
             .set_message(format!("Loaded {} questions", count));
+    }
+
+    fn handle_questions_page_loaded(
+        &mut self,
+        questions: Vec<mbr_core::api::models::Question>,
+        total: Option<u32>,
+        offset: u32,
+    ) {
+        let count = questions.len();
+        self.data.questions = LoadState::Loaded(questions);
+        self.content.update_questions(&self.data.questions);
+        self.content.update_questions_pagination(total, offset);
+        let total_msg = total
+            .map(|t| format!(" (total: {})", t))
+            .unwrap_or_default();
+        self.status_bar
+            .set_message(format!("Loaded {} questions{}", count, total_msg));
     }
 
     fn handle_collections_loaded(

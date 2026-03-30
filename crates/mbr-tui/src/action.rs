@@ -44,8 +44,14 @@ pub enum AppAction {
     ClearStatus,
 
     // === Completion Notifications (Phase 4) ===
-    /// Questions loaded successfully from API
+    /// Questions loaded successfully from API (questions, total_count)
     QuestionsLoaded(Vec<Question>),
+
+    /// Questions loaded with pagination metadata (questions, total, offset)
+    QuestionsPageLoaded(Vec<Question>, Option<u32>, u32),
+
+    /// Load next/previous page of questions
+    LoadQuestionsPage(u32), // offset
 
     /// Collections loaded successfully from API
     CollectionsLoaded(Vec<CollectionItem>),

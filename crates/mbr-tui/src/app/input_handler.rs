@@ -224,6 +224,25 @@ impl App {
                 self.handle_refresh();
                 true
             }
+            // Questions list pagination: n = next page, p = previous page
+            KeyCode::Char('n')
+                if self.content.current_view() == ContentView::Questions
+                    && !self.is_modal_active()
+                    && self.content.has_next_questions_page() =>
+            {
+                let offset = self.content.next_questions_page_offset();
+                let _ = self.action_tx.send(AppAction::LoadQuestionsPage(offset));
+                true
+            }
+            KeyCode::Char('p')
+                if self.content.current_view() == ContentView::Questions
+                    && !self.is_modal_active()
+                    && self.content.has_prev_questions_page() =>
+            {
+                let offset = self.content.prev_questions_page_offset();
+                let _ = self.action_tx.send(AppAction::LoadQuestionsPage(offset));
+                true
+            }
             // Copy record(s) in result view with 'c'
             KeyCode::Char('c') if self.content.is_result_view() && !self.is_modal_active() => {
                 // Check if multi-select is active

@@ -71,17 +71,31 @@ impl ContentPanel {
             frame.render_widget(search_bar, search_rect);
         }
 
-        // Build title with search indicator
+        // Build title with search indicator and pagination info
+        let pagination_hint = self
+            .questions_pagination_info()
+            .map(|(page, total_pages, total)| {
+                format!(" [{}/{} pages, {} total, n/p: page]", page, total_pages, total)
+            })
+            .unwrap_or_default();
+
         let title = if let Some(ref query) = self.active_search {
             match &self.questions {
                 LoadState::Loaded(questions) => {
-                    format!(" Questions ({}) - Search: \"{}\" ", questions.len(), query)
+                    format!(
+                        " Questions ({}) - Search: \"{}\"{} ",
+                        questions.len(),
+                        query,
+                        pagination_hint
+                    )
                 }
                 _ => format!(" Questions - Search: \"{}\" ", query),
             }
         } else {
             match &self.questions {
-                LoadState::Loaded(questions) => format!(" Questions ({}) ", questions.len()),
+                LoadState::Loaded(questions) => {
+                    format!(" Questions ({}){} ", questions.len(), pagination_hint)
+                }
                 _ => " Questions ".to_string(),
             }
         };
