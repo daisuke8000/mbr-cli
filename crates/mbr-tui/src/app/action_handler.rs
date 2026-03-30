@@ -188,7 +188,6 @@ impl App {
         if request_id == self.current_request_id {
             let row_count = result_data.rows.len();
             let name = result_data.question_name.clone();
-            self.data.query_result = Some(result_data.clone());
             self.content.set_query_result(result_data);
             self.status_bar
                 .set_message(format!("Query '{}': {} rows", name, row_count));
@@ -251,23 +250,25 @@ impl App {
     }
 
     fn handle_schemas_loaded(&mut self, schemas: Vec<String>) {
-        self.data.schemas = LoadState::Loaded(schemas.clone());
+        let count = schemas.len();
+        self.data.schemas = LoadState::Loaded(schemas);
         self.content.update_schemas(&self.data.schemas);
         self.status_bar
-            .set_message(format!("Loaded {} schemas", schemas.len()));
+            .set_message(format!("Loaded {} schemas", count));
     }
 
     fn handle_tables_loaded(&mut self, tables: Vec<mbr_core::api::models::TableInfo>) {
-        self.data.tables = LoadState::Loaded(tables.clone());
+        let count = tables.len();
+        self.data.tables = LoadState::Loaded(tables);
         self.content.update_tables(&self.data.tables);
         self.status_bar
-            .set_message(format!("Loaded {} tables", tables.len()));
+            .set_message(format!("Loaded {} tables", count));
     }
 
     fn handle_table_preview_loaded(&mut self, data: QueryResultData) {
-        self.data.query_result = Some(data.clone());
-        self.content.set_table_preview_data(data.clone());
+        let row_count = data.rows.len();
+        self.content.set_table_preview_data(data);
         self.status_bar
-            .set_message(format!("Preview: {} rows loaded", data.rows.len()));
+            .set_message(format!("Preview: {} rows loaded", row_count));
     }
 }

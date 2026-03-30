@@ -138,7 +138,6 @@ pub fn render_empty(
 }
 
 /// Render an empty state with custom message and hint.
-#[allow(dead_code)] // Reserved for future views that need hint messages
 pub fn render_empty_with_hint(
     frame: &mut Frame,
     area: Rect,

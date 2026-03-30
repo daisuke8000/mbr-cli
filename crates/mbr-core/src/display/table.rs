@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use crate::api::models::{QueryResult, Question};
 use crate::error::AppError;
 use crate::utils::text::truncate_text;
@@ -207,10 +209,11 @@ impl TableDisplay {
 
         let mut output = table.to_string();
         if rows_to_display != total_rows {
-            output.push_str(&format!(
+            let _ = write!(
+                output,
                 "\nShowing {} of {} rows",
                 rows_to_display, total_rows
-            ));
+            );
         }
 
         Ok(output)
@@ -219,10 +222,11 @@ impl TableDisplay {
     pub fn render_question_header_with_results(&self, params: &QuestionHeaderParams) -> String {
         let mut header = String::with_capacity(HEADER_CAPACITY);
 
-        header.push_str(&format!(
-            "🚀 Question #{}: {}\n",
+        let _ = writeln!(
+            header,
+            "🚀 Question #{}: {}",
             params.question_id, params.question_name
-        ));
+        );
 
         if let (Some(current), Some(total), Some(start), Some(end)) = (
             params.current_page,
@@ -230,26 +234,29 @@ impl TableDisplay {
             params.start_row,
             params.end_row,
         ) {
-            header.push_str(&format!(
-                "📊 Question execution result: {} total | Page {}/{} ({}-{} / {} records)\n",
+            let _ = writeln!(
+                header,
+                "📊 Question execution result: {} total | Page {}/{} ({}-{} / {} records)",
                 params.total_records,
                 current + 1,
                 total,
                 start + 1,
                 end,
                 params.total_records
-            ));
+            );
         } else {
-            header.push_str(&format!(
-                "📊 Question execution result: {} total records\n",
+            let _ = writeln!(
+                header,
+                "📊 Question execution result: {} total records",
                 params.total_records
-            ));
+            );
         }
 
-        header.push_str(&format!(
-            "⏰ Execution time: {:?} | 💡 Tips: --format json/csv\n",
+        let _ = writeln!(
+            header,
+            "⏰ Execution time: {:?} | 💡 Tips: --format json/csv",
             std::time::SystemTime::now()
-        ));
+        );
         header.push_str("──────────────────────────────────────────────────────────\n");
 
         header
@@ -264,32 +271,29 @@ impl TableDisplay {
             } else {
                 "Data"
             };
-            header.push_str(&format!(
-                "🚀 {}: {} (ID: {})\n",
-                label, info.data_source, id
-            ));
+            let _ = writeln!(header, "🚀 {}: {} (ID: {})", label, info.data_source, id);
         } else {
-            header.push_str(&format!("🚀 Data: {}\n", info.data_source));
+            let _ = writeln!(header, "🚀 Data: {}", info.data_source);
         }
 
-        let range_info = if info.start_position == info.end_position {
-            format!("Display: {} record", info.start_position)
+        if info.start_position == info.end_position {
+            let _ = write!(
+                header,
+                "📊 Display: {} record | Total records: {}",
+                info.start_position, info.total_records
+            );
         } else {
-            format!(
-                "Display: records {}-{}",
-                info.start_position, info.end_position
-            )
-        };
-
-        header.push_str(&format!(
-            "📊 {} | Total records: {}",
-            range_info, info.total_records
-        ));
+            let _ = write!(
+                header,
+                "📊 Display: records {}-{} | Total records: {}",
+                info.start_position, info.end_position, info.total_records
+            );
+        }
 
         if let Some(offset) = info.offset
             && offset > 0
         {
-            header.push_str(&format!(" | Offset: +{}", offset));
+            let _ = write!(header, " | Offset: +{}", offset);
         }
 
         if info.is_filtered {
@@ -299,22 +303,25 @@ impl TableDisplay {
         header.push('\n');
 
         if let Some(ref page_info) = info.pagination_info {
-            header.push_str(&format!(
-                "📄 Page: {}/{} | Page size: {} records\n",
+            let _ = writeln!(
+                header,
+                "📄 Page: {}/{} | Page size: {} records",
                 page_info.current_page + 1,
                 page_info.total_pages,
                 page_info.page_size
-            ));
+            );
         }
 
-        header.push_str(&format!(
-            "⏰ Execution time: {:?} | 💡 Tips: --limit, --offset, --format\n",
+        let _ = writeln!(
+            header,
+            "⏰ Execution time: {:?} | 💡 Tips: --limit, --offset, --format",
             std::time::SystemTime::now()
-        ));
-        header.push_str(&format!(
-            "{}\n",
+        );
+        let _ = writeln!(
+            header,
+            "{}",
             "─".repeat(self.max_width.unwrap_or(80).min(80))
-        ));
+        );
 
         header
     }
@@ -369,7 +376,7 @@ impl TableDisplay {
     pub fn format_cell_value(&self, value: &serde_json::Value) -> String {
         match value {
             serde_json::Value::Null => "-".to_string(),
-            serde_json::Value::String(s) if s.len() > 100 => truncate_text(s, 100),
+            serde_json::Value::String(s) if s.len() > 100 => truncate_text(s, 100).into_owned(),
             serde_json::Value::String(s) => s.clone(),
             serde_json::Value::Number(n) => n.to_string(),
             serde_json::Value::Bool(b) => b.to_string(),

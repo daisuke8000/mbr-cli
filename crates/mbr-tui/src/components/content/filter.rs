@@ -166,22 +166,4 @@ impl ContentPanel {
             self.filter_indices = Some(indices);
         }
     }
-
-    /// Get current filter info for display.
-    /// Returns (column_name, filter_text, visible_row_count) if filter is active.
-    #[allow(dead_code)] // Designed for status bar display in future
-    pub fn get_filter_info(&self) -> Option<(String, String, usize)> {
-        if let (Some(col_idx), Some(result)) = (self.filter_column_index, &self.query_result)
-            && col_idx < result.columns.len()
-            && !self.filter_text.is_empty()
-        {
-            let visible = self.visible_row_count();
-            return Some((
-                result.columns[col_idx].clone(),
-                self.filter_text.clone(),
-                visible,
-            ));
-        }
-        None
-    }
 }

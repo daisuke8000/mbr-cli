@@ -26,7 +26,7 @@ impl Dispatcher {
     }
 
     fn get_url(&self) -> Result<String, AppError> {
-        self.config.get_url().ok_or_else(|| {
+        self.config.get_url().map(|cow| cow.into_owned()).ok_or_else(|| {
             AppError::Cli(CliError::InvalidArguments(
                 "Metabase URL is not configured. Use 'mbr-cli config set --url <url>' or set MBR_URL environment variable".to_string(),
             ))

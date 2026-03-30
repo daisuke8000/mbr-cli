@@ -1,8 +1,10 @@
 //! Configuration service for managing application configuration
 
+use std::borrow::Cow;
+use std::path::PathBuf;
+
 use crate::AppError;
 use crate::storage::config::Config;
-use std::path::PathBuf;
 
 /// Configuration service for managing application configuration
 pub struct ConfigService {
@@ -16,7 +18,7 @@ impl ConfigService {
     }
 
     /// Get configured URL
-    pub fn get_url(&self) -> Option<String> {
+    pub fn get_url(&self) -> Option<Cow<'_, str>> {
         self.config.get_url()
     }
 
@@ -92,7 +94,7 @@ mod tests {
         service.set_url("http://localhost:3000".to_string());
 
         assert!(service.has_url());
-        assert_eq!(service.get_url(), Some("http://localhost:3000".to_string()));
+        assert_eq!(service.get_url().as_deref(), Some("http://localhost:3000"));
     }
 
     #[test]
