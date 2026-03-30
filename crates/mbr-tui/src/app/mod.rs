@@ -91,16 +91,19 @@ impl App {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
 
         // Initialize service client
-        let (service, connection_status) = match init_service() {
-            Ok(client) => {
-                let status = if client.is_authenticated() {
-                    ConnectionStatus::Connecting
-                } else {
-                    ConnectionStatus::Disconnected
-                };
-                (Some(client), status)
+        let (service, connection_status) = {
+            let rt = tokio::runtime::Handle::current();
+            match tokio::task::block_in_place(|| rt.block_on(init_service())) {
+                Ok(client) => {
+                    let status = if client.is_authenticated() {
+                        ConnectionStatus::Connecting
+                    } else {
+                        ConnectionStatus::Disconnected
+                    };
+                    (Some(client), status)
+                }
+                Err(e) => (None, ConnectionStatus::Error(e)),
             }
-            Err(e) => (None, ConnectionStatus::Error(e)),
         };
 
         // Set initial view to Questions
