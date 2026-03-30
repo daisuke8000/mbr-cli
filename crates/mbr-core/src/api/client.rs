@@ -166,25 +166,28 @@ impl MetabaseClient {
 
     /// List questions from Metabase with optional search, limit, and collection filters.
     ///
-    /// - With `collection`: uses `/api/collection/{id}/items?models=card` for accurate filtering
-    /// - With `search`: uses `/api/search?q=...&models=card` for text search
-    /// - Otherwise: uses `/api/search?models=card` for paginated listing
+    /// - With `collection`: uses `/api/card?f=all` + client-side collection_id filter
+    /// - With `search` or no filter: uses `/api/search?models=card` with server-side pagination
     pub async fn list_questions(
         &self,
         search: Option<&str>,
         limit: Option<u32>,
         collection: Option<&str>,
     ) -> Result<Vec<crate::api::models::Question>, AppError> {
-        if let Some(collection_id) = collection.filter(|c| !c.is_empty()) {
-            return self.list_collection_questions(collection_id, limit).await;
+        // Collection filtering: /api/card?f=all + client-side filter
+        // (Metabase has no server-side collection filter for card listing)
+        if let Some(coll_id) = collection.filter(|c| !c.is_empty()) {
+            return self.list_questions_in_collection(coll_id).await;
         }
+
+        // Search / general listing: /api/search with server-side pagination
         let (questions, _total) = self
             .search_questions_with_total(search, limit, None)
             .await?;
         Ok(questions)
     }
 
-    /// List questions with explicit offset for pagination.
+    /// List questions with explicit offset for server-side pagination.
     /// Returns (questions, total_count).
     pub async fn list_questions_with_offset(
         &self,
@@ -193,79 +196,37 @@ impl MetabaseClient {
         collection: Option<&str>,
         offset: Option<u32>,
     ) -> Result<(Vec<crate::api::models::Question>, Option<u32>), AppError> {
-        if let Some(collection_id) = collection.filter(|c| !c.is_empty()) {
-            let questions = self.list_collection_questions(collection_id, limit).await?;
-            let total = Some(questions.len() as u32);
-            return Ok((questions, total));
+        // Collection filtering: no server-side pagination, fetch + filter all
+        if let Some(coll_id) = collection.filter(|c| !c.is_empty()) {
+            let questions = self.list_questions_in_collection(coll_id).await?;
+            let total = questions.len() as u32;
+            return Ok((questions, Some(total)));
         }
+
         self.search_questions_with_total(search, limit, offset)
             .await
     }
 
-    /// List questions within a specific collection using `/api/collection/{id}/items`.
-    /// This is the correct Metabase endpoint for collection-scoped question listing.
-    async fn list_collection_questions(
+    /// Fetch all cards and filter by collection_id client-side.
+    async fn list_questions_in_collection(
         &self,
         collection_id: &str,
-        limit: Option<u32>,
     ) -> Result<Vec<crate::api::models::Question>, AppError> {
-        use crate::api::models::Question;
-
-        let endpoint = format!("/api/collection/{}/items", collection_id);
-
-        #[derive(Serialize)]
-        struct CollectionItemsQuery {
-            models: &'static str,
-        }
-
-        let query = CollectionItemsQuery { models: "card" };
-
+        let endpoint = "/api/card?f=all";
         let response = self
-            .build_request_with_query(Method::GET, &endpoint, Some(&query))
+            .build_request(Method::GET, endpoint)
             .send()
             .await
-            .map_err(|e| AppError::Api(convert_request_error(e, &endpoint)))?;
+            .map_err(|e| AppError::Api(convert_request_error(e, endpoint)))?;
 
-        // /api/collection/{id}/items returns { "data": [...], "total": N, ... }
-        #[derive(serde::Deserialize)]
-        struct CollectionItemsResponse {
-            data: Vec<CollectionItemRaw>,
-        }
+        let all_questions: Vec<crate::api::models::Question> =
+            Self::handle_response(response, endpoint).await?;
 
-        #[derive(serde::Deserialize)]
-        struct CollectionItemRaw {
-            id: u32,
-            name: String,
-            description: Option<String>,
-            #[serde(default)]
-            collection_id: Option<u32>,
-            /// model type (e.g. "card")
-            model: String,
-        }
-
-        let items_response: CollectionItemsResponse =
-            Self::handle_response(response, &endpoint).await?;
-
-        let mut questions: Vec<Question> = items_response
-            .data
+        let target_id: Option<u32> = collection_id.parse().ok();
+        Ok(all_questions
             .into_iter()
-            .filter(|item| item.model == "card")
-            .map(|item| Question {
-                id: item.id,
-                name: item.name,
-                description: item.description,
-                collection_id: item.collection_id,
-                collection: None,
-            })
-            .collect();
-
-        if let Some(limit_value) = limit
-            && limit_value > 0
-        {
-            questions.truncate(limit_value as usize);
-        }
-
-        Ok(questions)
+            .filter(|q| q.collection_id == target_id)
+            .collect())
     }
 
     /// Search questions using /api/search endpoint.
@@ -281,11 +242,10 @@ impl MetabaseClient {
         use crate::api::models::{Collection, Question, SearchResponse};
 
         /// Query parameters for Metabase search API with pagination support.
-        /// `q` is always sent (empty string for general listing) because
-        /// Metabase requires it in some versions.
         #[derive(Serialize)]
         struct SearchQuery<'a> {
-            q: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            q: Option<&'a str>,
             models: &'static str,
             #[serde(skip_serializing_if = "Option::is_none")]
             limit: Option<u32>,
@@ -294,9 +254,7 @@ impl MetabaseClient {
         }
 
         let endpoint = "/api/search";
-        let search_term = search
-            .filter(|s| !s.is_empty())
-            .unwrap_or("");
+        let search_term = search.filter(|s| !s.is_empty());
 
         let query = SearchQuery {
             q: search_term,

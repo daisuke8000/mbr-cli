@@ -159,11 +159,8 @@ impl App {
         });
     }
 
-    /// Load a specific page of questions (for pagination).
-    pub(super) fn load_questions_page(
-        &mut self,
-        offset: u32,
-    ) {
+    /// Load a specific page of questions by offset (for n/p pagination).
+    pub(super) fn load_questions_page(&mut self, offset: u32) {
         let service = match &self.service {
             Some(s) => Arc::clone(s),
             None => return,
