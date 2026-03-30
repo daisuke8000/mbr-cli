@@ -314,10 +314,10 @@ impl ContentPanel {
     /// Used for Shift+Arrow range selection.
     pub fn extend_selection_to(&mut self, target_display_idx: usize) {
         // Set anchor if not already set
-        if self.selection_anchor.is_none() {
-            if let Some(current) = self.result_table_state.selected() {
-                self.selection_anchor = Some(current);
-            }
+        if self.selection_anchor.is_none()
+            && let Some(current) = self.result_table_state.selected()
+        {
+            self.selection_anchor = Some(current);
         }
 
         if let Some(anchor) = self.selection_anchor {

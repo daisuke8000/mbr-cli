@@ -251,19 +251,19 @@ impl QueryHandler {
         let mut processed_result = result;
 
         // Apply offset if specified
-        if let Some(offset_val) = args.offset {
-            if offset_val > 0 {
-                let offset_manager = OffsetManager::new(Some(offset_val));
-                processed_result = offset_manager.apply_offset(&processed_result)?;
-                print_verbose(
-                    verbose,
-                    &format!(
-                        "Applied offset: {}, remaining rows: {}",
-                        offset_val,
-                        processed_result.data.rows.len()
-                    ),
-                );
-            }
+        if let Some(offset_val) = args.offset
+            && offset_val > 0
+        {
+            let offset_manager = OffsetManager::new(Some(offset_val));
+            processed_result = offset_manager.apply_offset(&processed_result)?;
+            print_verbose(
+                verbose,
+                &format!(
+                    "Applied offset: {}, remaining rows: {}",
+                    offset_val,
+                    processed_result.data.rows.len()
+                ),
+            );
         }
 
         let table_display = TableDisplay::new();

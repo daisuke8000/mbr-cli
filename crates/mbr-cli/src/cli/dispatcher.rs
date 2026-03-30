@@ -88,12 +88,11 @@ impl Dispatcher {
 
     /// Handle the `mbr logout` command.
     async fn handle_logout(&self) -> Result<(), AppError> {
-        if let Some(session) = load_session() {
-            if let Ok(client) =
+        if let Some(session) = load_session()
+            && let Ok(client) =
                 MetabaseClient::with_session_token(session.url, session.session_token)
-            {
-                let _ = client.logout().await;
-            }
+        {
+            let _ = client.logout().await;
         }
 
         match delete_session() {

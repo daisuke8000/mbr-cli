@@ -236,10 +236,10 @@ pub async fn init_service() -> Result<Arc<ServiceClient>, String> {
         .unwrap_or_else(|| "http://localhost:3000".to_string());
 
     // Try stored session first
-    if let Some(session) = load_session() {
-        if session.url == base_url {
-            return ServiceClient::new(base_url, Some(session.session_token)).map(Arc::new);
-        }
+    if let Some(session) = load_session()
+        && session.url == base_url
+    {
+        return ServiceClient::new(base_url, Some(session.session_token)).map(Arc::new);
     }
 
     // Try auto-login via environment variables

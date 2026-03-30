@@ -137,10 +137,10 @@ impl App {
         let event_handler = EventHandler::new(250);
 
         // Validate authentication on startup if we have a service client
-        if let Some(service) = &self.service {
-            if service.is_authenticated() {
-                self.validate_auth_async().await;
-            }
+        if let Some(service) = &self.service
+            && service.is_authenticated()
+        {
+            self.validate_auth_async().await;
         }
 
         // Auto-load Questions data on startup (initial view is Questions)
@@ -276,17 +276,17 @@ impl App {
         }
 
         // Draw record detail overlay if visible
-        if self.show_record_detail {
-            if let Some(ref mut detail) = self.record_detail {
-                detail.render(frame, size);
-            }
+        if self.show_record_detail
+            && let Some(ref mut detail) = self.record_detail
+        {
+            detail.render(frame, size);
         }
 
         // Draw copy menu overlay if visible
-        if self.show_copy_menu {
-            if let Some(ref menu) = self.copy_menu {
-                menu.render(frame, size);
-            }
+        if self.show_copy_menu
+            && let Some(ref menu) = self.copy_menu
+        {
+            menu.render(frame, size);
         }
     }
 

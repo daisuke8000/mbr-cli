@@ -194,10 +194,10 @@ impl ContentPanel {
                 // Also available in SchemaTables since we're drilling down from DatabaseSchemas
                 // Need to look at navigation stack for the db_name
                 for view in self.navigation_stack.iter().rev() {
-                    if let ContentView::DatabaseSchemas { db_id: id, db_name } = view {
-                        if *id == *db_id {
-                            return Some((*id, db_name.clone()));
-                        }
+                    if let ContentView::DatabaseSchemas { db_id: id, db_name } = view
+                        && *id == *db_id
+                    {
+                        return Some((*id, db_name.clone()));
                     }
                 }
                 None
@@ -205,10 +205,10 @@ impl ContentPanel {
             ContentView::TablePreview { db_id, .. } => {
                 // Look at navigation stack for database context
                 for view in self.navigation_stack.iter().rev() {
-                    if let ContentView::DatabaseSchemas { db_id: id, db_name } = view {
-                        if *id == *db_id {
-                            return Some((*id, db_name.clone()));
-                        }
+                    if let ContentView::DatabaseSchemas { db_id: id, db_name } = view
+                        && *id == *db_id
+                    {
+                        return Some((*id, db_name.clone()));
                     }
                 }
                 None
@@ -229,10 +229,9 @@ impl ContentPanel {
                         db_id: id,
                         schema_name,
                     } = view
+                        && *id == *db_id
                     {
-                        if *id == *db_id {
-                            return Some((*id, schema_name.clone()));
-                        }
+                        return Some((*id, schema_name.clone()));
                     }
                 }
                 None

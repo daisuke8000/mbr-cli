@@ -172,19 +172,19 @@ impl MetabaseClient {
         collection: Option<&str>,
     ) -> Result<Vec<crate::api::models::Question>, AppError> {
         // If search term is provided, use /api/search endpoint
-        if let Some(search_term) = search {
-            if !search_term.is_empty() {
-                return self.search_questions(search_term, limit).await;
-            }
+        if let Some(search_term) = search
+            && !search_term.is_empty()
+        {
+            return self.search_questions(search_term, limit).await;
         }
 
         // Otherwise, use /api/card endpoint for listing all questions
         let mut params = vec!["f=all".to_string()];
 
-        if let Some(collection_id) = collection {
-            if !collection_id.is_empty() {
-                params.push(format!("collection={}", collection_id));
-            }
+        if let Some(collection_id) = collection
+            && !collection_id.is_empty()
+        {
+            params.push(format!("collection={}", collection_id));
         }
 
         let endpoint = format!("/api/card?{}", params.join("&"));
@@ -199,10 +199,10 @@ impl MetabaseClient {
             Self::handle_response(response, &endpoint).await?;
 
         // Apply client-side limit if specified
-        if let Some(limit_value) = limit {
-            if limit_value > 0 {
-                questions.truncate(limit_value as usize);
-            }
+        if let Some(limit_value) = limit
+            && limit_value > 0
+        {
+            questions.truncate(limit_value as usize);
         }
 
         Ok(questions)
@@ -258,10 +258,10 @@ impl MetabaseClient {
             .collect();
 
         // Apply client-side limit if specified
-        if let Some(limit_value) = limit {
-            if limit_value > 0 {
-                questions.truncate(limit_value as usize);
-            }
+        if let Some(limit_value) = limit
+            && limit_value > 0
+        {
+            questions.truncate(limit_value as usize);
         }
 
         Ok(questions)
@@ -277,10 +277,10 @@ impl MetabaseClient {
 
         let mut request = self.build_request(Method::POST, &endpoint);
 
-        if let Some(params) = parameters {
-            if !params.is_empty() {
-                request = request.json(&params);
-            }
+        if let Some(params) = parameters
+            && !params.is_empty()
+        {
+            request = request.json(&params);
         }
 
         // Extended timeout for query execution

@@ -14,12 +14,12 @@ impl ContentPanel {
 
     /// Open sort column selection modal.
     pub fn open_sort_modal(&mut self) {
-        if let Some(ref result) = self.query_result {
-            if !result.columns.is_empty() {
-                self.sort_mode_active = true;
-                // Start at currently sorted column or first column
-                self.sort_modal_selection = self.sort_column_index.unwrap_or(0);
-            }
+        if let Some(ref result) = self.query_result
+            && !result.columns.is_empty()
+        {
+            self.sort_mode_active = true;
+            // Start at currently sorted column or first column
+            self.sort_modal_selection = self.sort_column_index.unwrap_or(0);
         }
     }
 
@@ -37,10 +37,10 @@ impl ContentPanel {
 
     /// Move selection down in sort modal.
     pub fn sort_modal_down(&mut self) {
-        if let Some(ref result) = self.query_result {
-            if self.sort_modal_selection < result.columns.len().saturating_sub(1) {
-                self.sort_modal_selection += 1;
-            }
+        if let Some(ref result) = self.query_result
+            && self.sort_modal_selection < result.columns.len().saturating_sub(1)
+        {
+            self.sort_modal_selection += 1;
         }
     }
 
@@ -162,10 +162,11 @@ impl ContentPanel {
 
     /// Get current sort info for display.
     pub fn get_sort_info(&self) -> Option<(String, SortOrder)> {
-        if let (Some(col_idx), Some(result)) = (self.sort_column_index, &self.query_result) {
-            if col_idx < result.columns.len() && self.sort_order != SortOrder::None {
-                return Some((result.columns[col_idx].clone(), self.sort_order));
-            }
+        if let (Some(col_idx), Some(result)) = (self.sort_column_index, &self.query_result)
+            && col_idx < result.columns.len()
+            && self.sort_order != SortOrder::None
+        {
+            return Some((result.columns[col_idx].clone(), self.sort_order));
         }
         None
     }
