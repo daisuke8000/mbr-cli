@@ -79,7 +79,7 @@ pub mod prelude {
 
     // Storage
     pub use crate::storage::config::Config;
-    pub use crate::storage::credentials::{get_api_key, has_api_key};
+    pub use crate::storage::credentials::{get_credentials, load_session, save_session, delete_session, now_iso8601, Session};
 
     // Display utilities
     pub use crate::display::TableDisplay;
@@ -149,4 +149,4 @@ pub use core::services::question_service::QuestionService;
 #[doc(hidden)]
 pub use storage::config::Config;
 #[doc(hidden)]
-pub use storage::credentials::{get_api_key, has_api_key};
+pub use storage::credentials::{get_credentials, load_session, save_session, delete_session, now_iso8601, Session};
