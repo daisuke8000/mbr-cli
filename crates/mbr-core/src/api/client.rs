@@ -12,7 +12,7 @@ const USER_AGENT: &str = concat!("mbr-cli/", env!("CARGO_PKG_VERSION"));
 pub struct MetabaseClient {
     client: Client,
     pub base_url: String,
-    pub api_key: Option<String>,
+    pub session_token: Option<String>,
 }
 
 impl MetabaseClient {
@@ -27,23 +27,23 @@ impl MetabaseClient {
         Ok(MetabaseClient {
             client,
             base_url: base_url.trim_end_matches('/').to_string(),
-            api_key: None,
+            session_token: None,
         })
     }
 
     pub fn is_authenticated(&self) -> bool {
-        self.api_key.is_some()
+        self.session_token.is_some()
     }
 
-    pub fn with_api_key(base_url: String, api_key: String) -> Result<Self, ApiError> {
+    pub fn with_session_token(base_url: String, session_token: String) -> Result<Self, ApiError> {
         let mut client = MetabaseClient::new(base_url)?;
-        client.api_key = Some(api_key);
+        client.session_token = Some(session_token);
         Ok(client)
     }
 
     /// Build a request with the given HTTP method and path.
     ///
-    /// Automatically adds API key authentication header if configured.
+    /// Automatically adds session token authentication header if configured.
     /// For query parameters, either:
     /// - Chain `.query()` on the returned `RequestBuilder`
     /// - Use `build_request_with_query()` for typed parameters
@@ -51,8 +51,8 @@ impl MetabaseClient {
         let url = format!("{}{}", self.base_url, path);
         let mut request = self.client.request(method, url);
 
-        if let Some(api_key) = &self.api_key {
-            request = request.header("x-api-key", api_key);
+        if let Some(token) = &self.session_token {
+            request = request.header("X-Metabase-Session", token);
         }
 
         request
@@ -92,7 +92,7 @@ impl MetabaseClient {
     }
 
     /// Get current user information from Metabase
-    /// Used for validating API key authentication
+    /// Used for validating session authentication
     pub async fn get_current_user(&self) -> Result<crate::api::models::CurrentUser, AppError> {
         let endpoint = "/api/user/current";
 
@@ -103,6 +103,65 @@ impl MetabaseClient {
             .map_err(|e| AppError::Api(convert_request_error(e, endpoint)))?;
 
         Self::handle_response(response, endpoint).await
+    }
+
+    /// Login to Metabase and return a session token.
+    pub async fn login(base_url: &str, username: &str, password: &str) -> Result<String, AppError> {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
+            .user_agent(USER_AGENT)
+            .build()
+            .map_err(|e| AppError::Api(convert_request_error(e, "client_init")))?;
+
+        let url = format!("{}/api/session", base_url.trim_end_matches('/'));
+        let body = serde_json::json!({
+            "username": username,
+            "password": password
+        });
+
+        let response = client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| AppError::Api(convert_request_error(e, "/api/session")))?;
+
+        if response.status().is_success() {
+            #[derive(serde::Deserialize)]
+            struct SessionResponse {
+                id: String,
+            }
+            let session: SessionResponse = response
+                .json()
+                .await
+                .map_err(|e| AppError::Api(convert_json_error(e, "/api/session")))?;
+            Ok(session.id)
+        } else {
+            let status = response.status().as_u16();
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            Err(AppError::Auth(crate::error::AuthError::LoginFailed {
+                message: if status == 401 {
+                    "Invalid username or password".to_string()
+                } else {
+                    format!("Server returned {}: {}", status, error_text)
+                },
+            }))
+        }
+    }
+
+    /// Logout from Metabase by invalidating the server-side session.
+    pub async fn logout(&self) -> Result<(), AppError> {
+        if self.session_token.is_none() {
+            return Ok(());
+        }
+        let _ = self
+            .build_request(Method::DELETE, "/api/session")
+            .send()
+            .await;
+        Ok(())
     }
 
     /// List questions from Metabase with optional search, limit, and collection filters
@@ -428,20 +487,20 @@ mod tests {
     }
 
     #[test]
-    fn test_not_authenticated_without_api_key() {
+    fn test_not_authenticated_without_session_token() {
         let client =
             MetabaseClient::new("http://example.test".to_string()).expect("client creation failed");
         assert!(!client.is_authenticated());
     }
 
     #[test]
-    fn test_with_api_key() {
+    fn test_with_session_token() {
         let client =
-            MetabaseClient::with_api_key("http://example.test".to_string(), "key".to_string());
+            MetabaseClient::with_session_token("http://example.test".to_string(), "token".to_string());
         assert!(client.is_ok());
         if let Ok(client) = client {
             assert!(client.is_authenticated());
-            assert_eq!(Some("key".to_string()), client.api_key);
+            assert_eq!(Some("token".to_string()), client.session_token);
         }
     }
 
@@ -455,14 +514,14 @@ mod tests {
 
         assert_eq!(built_request.url().as_str(), "http://example.test/api/card");
         assert_eq!(built_request.method(), Method::GET);
-        assert!(built_request.headers().get("x-api-key").is_none());
+        assert!(built_request.headers().get("X-Metabase-Session").is_none());
     }
 
     #[test]
-    fn test_build_request_with_api_key() {
-        let client = MetabaseClient::with_api_key(
+    fn test_build_request_with_session_token() {
+        let client = MetabaseClient::with_session_token(
             "http://example.test".to_string(),
-            "test_api_key_123".to_string(),
+            "test_session_token_123".to_string(),
         )
         .expect("client creation failed");
 
@@ -472,11 +531,11 @@ mod tests {
         assert_eq!(
             built_request
                 .headers()
-                .get("x-api-key")
+                .get("X-Metabase-Session")
                 .unwrap()
                 .to_str()
                 .unwrap(),
-            "test_api_key_123"
+            "test_session_token_123"
         );
     }
 
