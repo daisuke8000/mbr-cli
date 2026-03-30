@@ -38,10 +38,10 @@ impl ContentPanel {
 
     /// Select last question in list.
     pub fn select_last(&mut self) {
-        if let LoadState::Loaded(questions) = &self.questions {
-            if !questions.is_empty() {
-                self.table_state.select(Some(questions.len() - 1));
-            }
+        if let LoadState::Loaded(questions) = &self.questions
+            && !questions.is_empty()
+        {
+            self.table_state.select(Some(questions.len() - 1));
         }
     }
 
@@ -73,11 +73,11 @@ impl ContentPanel {
 
     /// Select last collection in list.
     pub(super) fn select_collections_last(&mut self) {
-        if let LoadState::Loaded(collections) = &self.collections {
-            if !collections.is_empty() {
-                self.collections_table_state
-                    .select(Some(collections.len() - 1));
-            }
+        if let LoadState::Loaded(collections) = &self.collections
+            && !collections.is_empty()
+        {
+            self.collections_table_state
+                .select(Some(collections.len() - 1));
         }
     }
 
@@ -109,10 +109,10 @@ impl ContentPanel {
 
     /// Select last database in list.
     pub(super) fn select_databases_last(&mut self) {
-        if let LoadState::Loaded(databases) = &self.databases {
-            if !databases.is_empty() {
-                self.databases_table_state.select(Some(databases.len() - 1));
-            }
+        if let LoadState::Loaded(databases) = &self.databases
+            && !databases.is_empty()
+        {
+            self.databases_table_state.select(Some(databases.len() - 1));
         }
     }
 
@@ -144,10 +144,10 @@ impl ContentPanel {
 
     /// Select last schema in list.
     pub(super) fn select_schemas_last(&mut self) {
-        if let LoadState::Loaded(schemas) = &self.schemas {
-            if !schemas.is_empty() {
-                self.schemas_table_state.select(Some(schemas.len() - 1));
-            }
+        if let LoadState::Loaded(schemas) = &self.schemas
+            && !schemas.is_empty()
+        {
+            self.schemas_table_state.select(Some(schemas.len() - 1));
         }
     }
 
@@ -179,10 +179,10 @@ impl ContentPanel {
 
     /// Select last table in list.
     pub(super) fn select_tables_last(&mut self) {
-        if let LoadState::Loaded(tables) = &self.tables {
-            if !tables.is_empty() {
-                self.tables_table_state.select(Some(tables.len() - 1));
-            }
+        if let LoadState::Loaded(tables) = &self.tables
+            && !tables.is_empty()
+        {
+            self.tables_table_state.select(Some(tables.len() - 1));
         }
     }
 
@@ -215,10 +215,11 @@ impl ContentPanel {
         self.questions = questions.clone();
 
         // Auto-select first item when data is loaded
-        if let LoadState::Loaded(items) = questions {
-            if !items.is_empty() && self.table_state.selected().is_none() {
-                self.table_state.select(Some(0));
-            }
+        if let LoadState::Loaded(items) = questions
+            && !items.is_empty()
+            && self.table_state.selected().is_none()
+        {
+            self.table_state.select(Some(0));
         }
     }
 
@@ -228,10 +229,11 @@ impl ContentPanel {
         self.collections = collections.clone();
 
         // Auto-select first item when data is loaded
-        if let LoadState::Loaded(items) = collections {
-            if !items.is_empty() && self.collections_table_state.selected().is_none() {
-                self.collections_table_state.select(Some(0));
-            }
+        if let LoadState::Loaded(items) = collections
+            && !items.is_empty()
+            && self.collections_table_state.selected().is_none()
+        {
+            self.collections_table_state.select(Some(0));
         }
     }
 
@@ -241,10 +243,11 @@ impl ContentPanel {
         self.databases = databases.clone();
 
         // Auto-select first item when data is loaded
-        if let LoadState::Loaded(items) = databases {
-            if !items.is_empty() && self.databases_table_state.selected().is_none() {
-                self.databases_table_state.select(Some(0));
-            }
+        if let LoadState::Loaded(items) = databases
+            && !items.is_empty()
+            && self.databases_table_state.selected().is_none()
+        {
+            self.databases_table_state.select(Some(0));
         }
     }
 
@@ -254,10 +257,11 @@ impl ContentPanel {
         self.schemas = schemas.clone();
 
         // Auto-select first item when data is loaded
-        if let LoadState::Loaded(items) = schemas {
-            if !items.is_empty() && self.schemas_table_state.selected().is_none() {
-                self.schemas_table_state.select(Some(0));
-            }
+        if let LoadState::Loaded(items) = schemas
+            && !items.is_empty()
+            && self.schemas_table_state.selected().is_none()
+        {
+            self.schemas_table_state.select(Some(0));
         }
     }
 
@@ -267,10 +271,11 @@ impl ContentPanel {
         self.tables = tables.clone();
 
         // Auto-select first item when data is loaded
-        if let LoadState::Loaded(items) = tables {
-            if !items.is_empty() && self.tables_table_state.selected().is_none() {
-                self.tables_table_state.select(Some(0));
-            }
+        if let LoadState::Loaded(items) = tables
+            && !items.is_empty()
+            && self.tables_table_state.selected().is_none()
+        {
+            self.tables_table_state.select(Some(0));
         }
     }
 
@@ -282,10 +287,10 @@ impl ContentPanel {
         if !self.is_questions_view() {
             return None;
         }
-        if let LoadState::Loaded(questions) = &self.questions {
-            if let Some(selected) = self.table_state.selected() {
-                return questions.get(selected).map(|q| q.id);
-            }
+        if let LoadState::Loaded(questions) = &self.questions
+            && let Some(selected) = self.table_state.selected()
+        {
+            return questions.get(selected).map(|q| q.id);
         }
         None
     }
@@ -295,12 +300,12 @@ impl ContentPanel {
         if self.view != ContentView::Collections {
             return None;
         }
-        if let LoadState::Loaded(collections) = &self.collections {
-            if let Some(selected) = self.collections_table_state.selected() {
-                return collections
-                    .get(selected)
-                    .and_then(|c| c.id.map(|id| (id, c.name.clone())));
-            }
+        if let LoadState::Loaded(collections) = &self.collections
+            && let Some(selected) = self.collections_table_state.selected()
+        {
+            return collections
+                .get(selected)
+                .and_then(|c| c.id.map(|id| (id, c.name.clone())));
         }
         None
     }
@@ -310,10 +315,10 @@ impl ContentPanel {
         if self.view != ContentView::Databases {
             return None;
         }
-        if let LoadState::Loaded(databases) = &self.databases {
-            if let Some(selected) = self.databases_table_state.selected() {
-                return databases.get(selected).map(|db| (db.id, db.name.clone()));
-            }
+        if let LoadState::Loaded(databases) = &self.databases
+            && let Some(selected) = self.databases_table_state.selected()
+        {
+            return databases.get(selected).map(|db| (db.id, db.name.clone()));
         }
         None
     }
@@ -323,10 +328,10 @@ impl ContentPanel {
         if !self.is_database_schemas_view() {
             return None;
         }
-        if let LoadState::Loaded(schemas) = &self.schemas {
-            if let Some(selected) = self.schemas_table_state.selected() {
-                return schemas.get(selected).cloned();
-            }
+        if let LoadState::Loaded(schemas) = &self.schemas
+            && let Some(selected) = self.schemas_table_state.selected()
+        {
+            return schemas.get(selected).cloned();
         }
         None
     }
@@ -336,10 +341,10 @@ impl ContentPanel {
         if !self.is_schema_tables_view() {
             return None;
         }
-        if let LoadState::Loaded(tables) = &self.tables {
-            if let Some(selected) = self.tables_table_state.selected() {
-                return tables.get(selected).map(|t| (t.id, t.name.clone()));
-            }
+        if let LoadState::Loaded(tables) = &self.tables
+            && let Some(selected) = self.tables_table_state.selected()
+        {
+            return tables.get(selected).map(|t| (t.id, t.name.clone()));
         }
         None
     }
@@ -351,16 +356,16 @@ impl ContentPanel {
         if !self.is_result_view() {
             return None;
         }
-        if let Some(ref result) = self.query_result {
-            if let Some(selected) = self.result_table_state.selected() {
-                // Calculate logical index considering pagination
-                let page_start = self.result_page * self.rows_per_page;
-                let logical_index = page_start + selected;
+        if let Some(ref result) = self.query_result
+            && let Some(selected) = self.result_table_state.selected()
+        {
+            // Calculate logical index considering pagination
+            let page_start = self.result_page * self.rows_per_page;
+            let logical_index = page_start + selected;
 
-                // Get row using sorted index if sorting is active
-                if let Some(row) = self.get_visible_row(logical_index) {
-                    return Some((result.columns.clone(), row.clone()));
-                }
+            // Get row using sorted index if sorting is active
+            if let Some(row) = self.get_visible_row(logical_index) {
+                return Some((result.columns.clone(), row.clone()));
             }
         }
         None

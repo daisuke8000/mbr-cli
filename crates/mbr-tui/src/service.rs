@@ -11,7 +11,7 @@ use mbr_core::api::models::{
 use mbr_core::core::services::question_service::QuestionService;
 use mbr_core::core::services::types::ListParams;
 use mbr_core::storage::config::Config;
-use mbr_core::storage::credentials::get_api_key;
+use mbr_core::storage::credentials::{Session, get_credentials, load_session};
 
 use crate::components::QueryResultData;
 
@@ -98,9 +98,9 @@ pub struct ServiceClient {
 
 impl ServiceClient {
     /// Create a new service client from configuration
-    pub fn new(base_url: String, api_key: Option<String>) -> Result<Self, String> {
-        let client = if let Some(key) = api_key {
-            MetabaseClient::with_api_key(base_url.clone(), key)
+    pub fn new(base_url: String, session_token: Option<String>) -> Result<Self, String> {
+        let client = if let Some(token) = session_token {
+            MetabaseClient::with_session_token(base_url.clone(), token)
                 .map_err(|e| format!("Failed to create client: {}", e))?
         } else {
             MetabaseClient::new(base_url.clone())
@@ -227,27 +227,50 @@ impl ServiceClient {
     }
 }
 
-/// Initialize service client from environment and config, wrapped in Arc.
-pub fn init_service() -> Result<Arc<ServiceClient>, String> {
-    // Get API key from environment
-    let api_key = get_api_key();
-
-    // Try to load config for base URL
+/// Initialize service client from stored session or environment credentials.
+pub async fn init_service() -> Result<Arc<ServiceClient>, String> {
     let config = Config::load(None).ok();
-
-    // Get base URL from config or use default
     let base_url = config
         .as_ref()
         .and_then(|c| c.get_url())
         .unwrap_or_else(|| "http://localhost:3000".to_string());
 
-    ServiceClient::new(base_url, api_key).map(Arc::new)
+    // Try stored session first
+    if let Some(session) = load_session()
+        && session.url == base_url
+    {
+        return ServiceClient::new(base_url, Some(session.session_token)).map(Arc::new);
+    }
+
+    // Try auto-login via environment variables
+    if let Some((username, password)) = get_credentials() {
+        match MetabaseClient::login(&base_url, &username, &password).await {
+            Ok(token) => {
+                let session = Session {
+                    session_token: token.clone(),
+                    url: base_url.clone(),
+                    username,
+                    created_at: mbr_core::storage::credentials::now_iso8601(),
+                };
+                let _ = mbr_core::storage::credentials::save_session(&session);
+                return ServiceClient::new(base_url, Some(token)).map(Arc::new);
+            }
+            Err(e) => {
+                return Err(format!(
+                    "Auto-login failed: {}\n\nPlease run 'mbr login' first, or check MBR_USERNAME and MBR_PASSWORD.",
+                    e
+                ));
+            }
+        }
+    }
+
+    Err("No active session.\n\nPlease run 'mbr login' first, or set MBR_USERNAME and MBR_PASSWORD environment variables.".to_string())
 }
 
 /// Connection status for display
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum ConnectionStatus {
-    /// Not connected (no API key)
+    /// Not connected (no session)
     #[default]
     Disconnected,
     /// Connecting/validating

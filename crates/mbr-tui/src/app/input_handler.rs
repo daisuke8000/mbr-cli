@@ -109,15 +109,15 @@ impl App {
                     }
                 }
                 KeyCode::Char('c') => {
-                    if let Some(ref detail) = self.record_detail {
-                        if let Some(value) = detail.selected_value() {
-                            match copy_to_clipboard(value) {
-                                Ok(()) => {
-                                    self.status_bar.set_message("Copied to clipboard");
-                                }
-                                Err(e) => {
-                                    self.status_bar.set_message(format!("Copy failed: {}", e));
-                                }
+                    if let Some(ref detail) = self.record_detail
+                        && let Some(value) = detail.selected_value()
+                    {
+                        match copy_to_clipboard(value) {
+                            Ok(()) => {
+                                self.status_bar.set_message("Copied to clipboard");
+                            }
+                            Err(e) => {
+                                self.status_bar.set_message(format!("Copy failed: {}", e));
                             }
                         }
                     }
@@ -338,32 +338,33 @@ impl App {
         }
 
         // Handle drill-down views
-        if self.content.is_collection_questions_view() {
-            if let Some(question_id) = self.content.get_selected_question_id() {
-                let _ = self.action_tx.send(AppAction::ExecuteQuestion(question_id));
-                return true;
-            }
+        if self.content.is_collection_questions_view()
+            && let Some(question_id) = self.content.get_selected_question_id()
+        {
+            let _ = self.action_tx.send(AppAction::ExecuteQuestion(question_id));
+            return true;
         }
-        if self.content.is_database_schemas_view() {
-            if let Some(schema_name) = self.content.get_selected_schema() {
-                let _ = self.action_tx.send(AppAction::DrillDownSchema(schema_name));
-                return true;
-            }
+        if self.content.is_database_schemas_view()
+            && let Some(schema_name) = self.content.get_selected_schema()
+        {
+            let _ = self.action_tx.send(AppAction::DrillDownSchema(schema_name));
+            return true;
         }
-        if self.content.is_schema_tables_view() {
-            if let Some((table_id, table_name)) = self.content.get_selected_table_info() {
-                let _ = self
-                    .action_tx
-                    .send(AppAction::DrillDownTable(table_id, table_name));
-                return true;
-            }
+        if self.content.is_schema_tables_view()
+            && let Some((table_id, table_name)) = self.content.get_selected_table_info()
+        {
+            let _ = self
+                .action_tx
+                .send(AppAction::DrillDownTable(table_id, table_name));
+            return true;
         }
-        if self.content.is_table_preview_view() && !modal_active {
-            if let Some((columns, values)) = self.content.get_selected_record() {
-                self.record_detail = Some(RecordDetailOverlay::new(columns, values));
-                self.show_record_detail = true;
-                return true;
-            }
+        if self.content.is_table_preview_view()
+            && !modal_active
+            && let Some((columns, values)) = self.content.get_selected_record()
+        {
+            self.record_detail = Some(RecordDetailOverlay::new(columns, values));
+            self.show_record_detail = true;
+            return true;
         }
 
         false

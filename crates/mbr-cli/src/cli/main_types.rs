@@ -5,17 +5,20 @@ use clap::{Args, Parser, Subcommand};
 #[command(about = "Command line interface tool for interacting with Metabase APIs")]
 #[command(version)]
 #[command(after_help = "Examples:
-  mbr-cli query --list                  # List available questions
-  mbr-cli query --list --limit 10       # List first 10 questions
-  mbr-cli query 123                     # Execute question ID 123
-  mbr-cli query 123 --format json       # Execute and output as JSON
-  mbr-cli config show                   # Show current configuration
-  mbr-cli config validate               # Validate API key and connection
-  mbr-cli collection list               # List all collections
-  mbr-cli database list                 # List all databases
+  mbr-cli login                        # Login to Metabase
+  mbr-cli logout                       # Logout from Metabase
+  mbr-cli query --list                 # List available questions
+  mbr-cli query --list --limit 10      # List first 10 questions
+  mbr-cli query 123                    # Execute question ID 123
+  mbr-cli query 123 --format json      # Execute and output as JSON
+  mbr-cli config show                  # Show current configuration
+  mbr-cli config validate              # Validate session and connection
+  mbr-cli collection list              # List all collections
+  mbr-cli database list                # List all databases
 
 Environment Variables:
-  MBR_API_KEY   Metabase API key (required for authentication)
+  MBR_USERNAME  Metabase username (for non-interactive login)
+  MBR_PASSWORD  Metabase password (for non-interactive login)
   MBR_URL       Metabase server URL")]
 pub struct Cli {
     /// Enable verbose output for debugging
@@ -25,10 +28,6 @@ pub struct Cli {
     /// Custom configuration directory path
     #[arg(long, global = true)]
     pub config_dir: Option<String>,
-
-    /// Metabase API key for authentication
-    #[arg(long, global = true, env = "MBR_API_KEY")]
-    pub api_key: Option<String>,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -53,6 +52,10 @@ pub enum Commands {
         #[command(subcommand)]
         command: DatabaseCommands,
     },
+    /// Login to Metabase with username and password
+    Login,
+    /// Logout from Metabase (clear session)
+    Logout,
 }
 
 #[derive(Subcommand, Debug)]
@@ -68,13 +71,13 @@ pub enum ConfigCommands {
         #[arg(long, env = "MBR_URL")]
         url: Option<String>,
     },
-    /// Validate API key and test connection to Metabase server
+    /// Validate session and test connection to Metabase server
     #[command(after_help = "Examples:
-  mbr-cli config validate               # Validate using MBR_API_KEY env var")]
+  mbr-cli config validate               # Validate current session")]
     Validate,
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 pub enum CollectionCommands {
     /// List all collections
     #[command(after_help = "Examples:
@@ -88,7 +91,7 @@ pub enum CollectionCommands {
     },
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 pub enum DatabaseCommands {
     /// List all databases
     #[command(after_help = "Examples:
@@ -103,7 +106,7 @@ pub enum DatabaseCommands {
 }
 
 /// Query arguments for executing or listing questions
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 #[command(after_help = "Examples:
   mbr-cli query --list                  # List all questions
   mbr-cli query --list --search sales   # Search questions

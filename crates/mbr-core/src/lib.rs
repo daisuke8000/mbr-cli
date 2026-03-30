@@ -50,8 +50,7 @@
 //!
 //! ## Feature Highlights
 //!
-//! - **API Key Authentication**: Simple authentication via `MBR_API_KEY` environment variable
-//! - **Multi-Profile**: Manage multiple Metabase server configurations
+//! - **Session Authentication**: Login via `MBR_USERNAME`/`MBR_PASSWORD` or interactive prompt
 //! - **Rich Error Handling**: Contextual errors with severity levels
 
 pub use error::AppError;
@@ -79,7 +78,9 @@ pub mod prelude {
 
     // Storage
     pub use crate::storage::config::Config;
-    pub use crate::storage::credentials::{get_api_key, has_api_key};
+    pub use crate::storage::credentials::{
+        Session, delete_session, get_credentials, load_session, now_iso8601, save_session,
+    };
 
     // Display utilities
     pub use crate::display::TableDisplay;
@@ -96,13 +97,13 @@ pub mod core;
 ///
 /// Manages persistent data:
 /// - [`storage::config`]: TOML configuration with multi-profile support
-/// - [`storage::credentials`]: API key retrieval from environment
+/// - [`storage::credentials`]: Session token persistence and environment credential retrieval
 pub mod storage;
 
 /// Utilities layer - shared helpers and common functionality.
 ///
 /// Provides reusable utilities:
-/// - [`utils::validation`]: URL and API key validation
+/// - [`utils::validation`]: URL validation
 /// - [`utils::text`]: Text formatting and truncation
 /// - [`utils::data`]: Data manipulation helpers
 pub mod utils;
@@ -149,4 +150,6 @@ pub use core::services::question_service::QuestionService;
 #[doc(hidden)]
 pub use storage::config::Config;
 #[doc(hidden)]
-pub use storage::credentials::{get_api_key, has_api_key};
+pub use storage::credentials::{
+    Session, delete_session, get_credentials, load_session, now_iso8601, save_session,
+};

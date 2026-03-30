@@ -14,13 +14,13 @@ impl ContentPanel {
 
     /// Open filter column selection modal.
     pub fn open_filter_modal(&mut self) {
-        if let Some(ref result) = self.query_result {
-            if !result.columns.is_empty() {
-                self.filter_mode_active = true;
-                self.filter_modal_step = 0; // Start at column selection
-                // Start at currently filtered column or first column
-                self.filter_modal_selection = self.filter_column_index.unwrap_or(0);
-            }
+        if let Some(ref result) = self.query_result
+            && !result.columns.is_empty()
+        {
+            self.filter_mode_active = true;
+            self.filter_modal_step = 0; // Start at column selection
+            // Start at currently filtered column or first column
+            self.filter_modal_selection = self.filter_column_index.unwrap_or(0);
         }
     }
 
@@ -40,12 +40,11 @@ impl ContentPanel {
 
     /// Move selection down in filter modal (column selection step).
     pub fn filter_modal_down(&mut self) {
-        if self.filter_modal_step == 0 {
-            if let Some(ref result) = self.query_result {
-                if self.filter_modal_selection < result.columns.len().saturating_sub(1) {
-                    self.filter_modal_selection += 1;
-                }
-            }
+        if self.filter_modal_step == 0
+            && let Some(ref result) = self.query_result
+            && self.filter_modal_selection < result.columns.len().saturating_sub(1)
+        {
+            self.filter_modal_selection += 1;
         }
     }
 
@@ -172,15 +171,16 @@ impl ContentPanel {
     /// Returns (column_name, filter_text, visible_row_count) if filter is active.
     #[allow(dead_code)] // Designed for status bar display in future
     pub fn get_filter_info(&self) -> Option<(String, String, usize)> {
-        if let (Some(col_idx), Some(result)) = (self.filter_column_index, &self.query_result) {
-            if col_idx < result.columns.len() && !self.filter_text.is_empty() {
-                let visible = self.visible_row_count();
-                return Some((
-                    result.columns[col_idx].clone(),
-                    self.filter_text.clone(),
-                    visible,
-                ));
-            }
+        if let (Some(col_idx), Some(result)) = (self.filter_column_index, &self.query_result)
+            && col_idx < result.columns.len()
+            && !self.filter_text.is_empty()
+        {
+            let visible = self.visible_row_count();
+            return Some((
+                result.columns[col_idx].clone(),
+                self.filter_text.clone(),
+                visible,
+            ));
         }
         None
     }
