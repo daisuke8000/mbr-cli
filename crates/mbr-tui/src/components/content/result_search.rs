@@ -99,20 +99,4 @@ impl ContentPanel {
             self.result_search_indices = Some(indices);
         }
     }
-
-    /// Get current result search info for display.
-    /// Returns (search_text, matched_count, total_count) if search is active.
-    #[allow(dead_code)] // Designed for status bar display
-    pub fn get_result_search_info(&self) -> Option<(String, usize, usize)> {
-        if !self.result_search_text.is_empty() {
-            let total = self
-                .query_result
-                .as_ref()
-                .map(|r| r.rows.len())
-                .unwrap_or(0);
-            let matched = self.visible_row_count();
-            return Some((self.result_search_text.clone(), matched, total));
-        }
-        None
-    }
 }

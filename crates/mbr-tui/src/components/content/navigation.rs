@@ -240,20 +240,6 @@ impl ContentPanel {
         }
     }
 
-    /// Get the current table context (db_id, table_id, table_name) for TablePreview view.
-    /// Extracts context from the ContentView variant.
-    #[allow(dead_code)] // Designed for future features
-    pub fn get_table_context(&self) -> Option<(u32, u32, String)> {
-        match &self.view {
-            ContentView::TablePreview {
-                db_id,
-                table_id,
-                table_name,
-            } => Some((*db_id, *table_id, table_name.clone())),
-            _ => None,
-        }
-    }
-
     // === Query Result Navigation ===
 
     /// Set query result data and switch to QueryResult view.

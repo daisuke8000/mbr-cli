@@ -81,14 +81,6 @@ impl ContentPanel {
         self.result_table_state.select(Some(0));
     }
 
-    /// Clear sort and restore original order.
-    #[allow(dead_code)] // Designed for future features
-    pub fn clear_sort(&mut self) {
-        self.sort_order = SortOrder::None;
-        self.sort_column_index = None;
-        self.sort_indices = None;
-    }
-
     /// Update sort indices based on current sort column and order.
     /// Uses index-based sorting for memory efficiency (no data cloning).
     pub(super) fn update_sort_indices(&mut self) {

@@ -32,15 +32,15 @@ pub enum LoadState<T> {
     Error(String),
 }
 
-// Methods designed for Phase 5+ implementation
-#[allow(dead_code)]
 impl<T> LoadState<T> {
     /// Check if currently loading
+    #[allow(dead_code)]
     pub fn is_loading(&self) -> bool {
         matches!(self, LoadState::Loading)
     }
 
     /// Check if data is loaded
+    #[allow(dead_code)]
     pub fn is_loaded(&self) -> bool {
         matches!(self, LoadState::Loaded(_))
     }
@@ -59,6 +59,7 @@ impl<T> LoadState<T> {
     }
 
     /// Get error message if in error state
+    #[allow(dead_code)]
     pub fn error(&self) -> Option<&str> {
         match self {
             LoadState::Error(msg) => Some(msg),
@@ -92,33 +93,24 @@ pub struct AppData {
 #[derive(Clone)]
 pub struct ServiceClient {
     client: MetabaseClient,
-    #[allow(dead_code)] // Designed for future features
-    base_url: String,
 }
 
 impl ServiceClient {
     /// Create a new service client from configuration
     pub fn new(base_url: String, session_token: Option<String>) -> Result<Self, String> {
         let client = if let Some(token) = session_token {
-            MetabaseClient::with_session_token(base_url.clone(), token)
+            MetabaseClient::with_session_token(base_url, token)
                 .map_err(|e| format!("Failed to create client: {}", e))?
         } else {
-            MetabaseClient::new(base_url.clone())
-                .map_err(|e| format!("Failed to create client: {}", e))?
+            MetabaseClient::new(base_url).map_err(|e| format!("Failed to create client: {}", e))?
         };
 
-        Ok(Self { client, base_url })
+        Ok(Self { client })
     }
 
     /// Check if the client is authenticated
     pub fn is_authenticated(&self) -> bool {
         self.client.is_authenticated()
-    }
-
-    /// Get the base URL
-    #[allow(dead_code)] // Designed for future features
-    pub fn base_url(&self) -> &str {
-        &self.base_url
     }
 
     /// Validate session by fetching current user
@@ -232,7 +224,7 @@ pub async fn init_service() -> Result<Arc<ServiceClient>, String> {
     let config = Config::load(None).ok();
     let base_url = config
         .as_ref()
-        .and_then(|c| c.get_url())
+        .and_then(|c| c.get_url().map(|cow| cow.into_owned()))
         .unwrap_or_else(|| "http://localhost:3000".to_string());
 
     // Try stored session first

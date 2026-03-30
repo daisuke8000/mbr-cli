@@ -7,6 +7,7 @@ use super::Result;
 use crate::error::StorageError;
 use dirs;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::fs;
 use std::path::PathBuf;
 
@@ -77,11 +78,18 @@ impl Config {
         Ok(config_file)
     }
 
-    /// Get URL with fallback to environment variable
-    pub fn get_url(&self) -> Option<String> {
-        self.url
-            .clone()
-            .or_else(|| std::env::var("MBR_URL").ok().filter(|s| !s.is_empty()))
+    /// Get URL with fallback to environment variable.
+    /// Returns `Cow::Borrowed` when reading from config (no allocation),
+    /// `Cow::Owned` when reading from environment variable.
+    pub fn get_url(&self) -> Option<Cow<'_, str>> {
+        if let Some(ref url) = self.url {
+            Some(Cow::Borrowed(url))
+        } else {
+            std::env::var("MBR_URL")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(Cow::Owned)
+        }
     }
 
     /// Set URL

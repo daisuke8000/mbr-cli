@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// Format ISO datetime string to simple date format
@@ -73,22 +75,22 @@ pub fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
     }
 }
 
-/// Truncate text with unicode support (main truncate function)
-/// Alias for truncate_text_unicode for backward compatibility
-pub fn truncate_text(text: &str, max_width: usize) -> String {
+/// Truncate text with unicode support (main truncate function).
+/// Returns `Cow::Borrowed` when no truncation is needed (avoiding allocation).
+pub fn truncate_text(text: &str, max_width: usize) -> Cow<'_, str> {
     truncate_text_unicode(text, max_width)
 }
 
-pub fn truncate_text_unicode(text: &str, max_width: usize) -> String {
+pub fn truncate_text_unicode(text: &str, max_width: usize) -> Cow<'_, str> {
     if text.width() <= max_width {
-        return text.to_string();
+        return Cow::Borrowed(text);
     }
 
     const ELLIPSIS: &str = "...";
     let ellipsis_width = ELLIPSIS.width();
 
     if max_width <= ellipsis_width {
-        return ELLIPSIS[..max_width].to_string();
+        return Cow::Owned(ELLIPSIS[..max_width].to_string());
     }
 
     let target_width = max_width - ellipsis_width;
@@ -105,7 +107,7 @@ pub fn truncate_text_unicode(text: &str, max_width: usize) -> String {
     }
 
     result.push_str(ELLIPSIS);
-    result
+    Cow::Owned(result)
 }
 
 pub fn truncate_text_simple(text: &str, max_length: usize) -> String {

@@ -191,12 +191,6 @@ impl ContentPanel {
         self.view.clone()
     }
 
-    /// Check if the current view is a specific type (ignoring embedded data).
-    #[allow(dead_code)] // Utility method for future use
-    pub fn is_view(&self, view_type: &ContentView) -> bool {
-        std::mem::discriminant(&self.view) == std::mem::discriminant(view_type)
-    }
-
     /// Check if current view is Questions or CollectionQuestions.
     pub fn is_questions_view(&self) -> bool {
         matches!(

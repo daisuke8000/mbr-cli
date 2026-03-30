@@ -80,47 +80,4 @@ impl ContentPanel {
             )
             .wrap(Wrap { trim: false })
     }
-
-    /// Render placeholder for unimplemented views.
-    #[allow(dead_code)]
-    pub(in crate::components::content) fn render_placeholder(
-        &self,
-        title: &str,
-        focused: bool,
-    ) -> Paragraph<'static> {
-        let border_style = if focused {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
-
-        let lines = vec![
-            Line::from(""),
-            Line::from(Span::styled(
-                format!("  {} view", title),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from(Span::styled(
-                "  ⚠ Not implemented yet",
-                Style::default().fg(Color::Yellow),
-            )),
-            Line::from(""),
-            Line::from(Span::styled(
-                "  This feature is planned for future releases.",
-                Style::default().fg(Color::DarkGray),
-            )),
-        ];
-
-        Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title(format!(" {} ", title))
-                    .borders(Borders::ALL)
-                    .border_style(border_style),
-            )
-            .wrap(Wrap { trim: false })
-    }
 }

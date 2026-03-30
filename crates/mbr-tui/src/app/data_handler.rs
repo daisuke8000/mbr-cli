@@ -10,6 +10,44 @@ use crate::service::LoadState;
 
 use super::App;
 
+/// Transform a QueryResult from the API into a QueryResultData for TUI display.
+fn transform_query_result(
+    result: mbr_core::api::models::QueryResult,
+    question_id: u32,
+    question_name: String,
+) -> QueryResultData {
+    let columns: Vec<String> = result
+        .data
+        .cols
+        .iter()
+        .map(|c| c.display_name.clone())
+        .collect();
+
+    let rows: Vec<Vec<String>> = result
+        .data
+        .rows
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|v| match v {
+                    serde_json::Value::Null => "—".to_string(),
+                    serde_json::Value::Bool(b) => b.to_string(),
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::String(s) => s.clone(),
+                    _ => v.to_string(),
+                })
+                .collect()
+        })
+        .collect();
+
+    QueryResultData {
+        question_id,
+        question_name,
+        columns,
+        rows,
+    }
+}
+
 impl App {
     /// Handle data loading request with background task spawning.
     pub(super) fn handle_data_request(&mut self, request: DataRequest) {
@@ -237,16 +275,14 @@ impl App {
         self.status_bar
             .set_message(format!("Loading tables in '{}'...", schema_name));
 
-        let schema = schema_name.clone();
-
         tokio::spawn(async move {
-            match service.fetch_tables(database_id, &schema).await {
+            match service.fetch_tables(database_id, &schema_name).await {
                 Ok(tables) => {
                     let _ = tx.send(AppAction::TablesLoaded(tables));
                 }
                 Err(e) => {
                     let _ = tx.send(AppAction::LoadFailed(
-                        DataRequest::Tables(database_id, schema),
+                        DataRequest::Tables(database_id, schema_name),
                         e,
                     ));
                 }
@@ -266,37 +302,8 @@ impl App {
         tokio::spawn(async move {
             match service.preview_table(database_id, table_id, 100).await {
                 Ok(result) => {
-                    let columns: Vec<String> = result
-                        .data
-                        .cols
-                        .iter()
-                        .map(|c| c.display_name.clone())
-                        .collect();
-
-                    let rows: Vec<Vec<String>> = result
-                        .data
-                        .rows
-                        .iter()
-                        .map(|row| {
-                            row.iter()
-                                .map(|v| match v {
-                                    serde_json::Value::Null => "—".to_string(),
-                                    serde_json::Value::Bool(b) => b.to_string(),
-                                    serde_json::Value::Number(n) => n.to_string(),
-                                    serde_json::Value::String(s) => s.clone(),
-                                    _ => v.to_string(),
-                                })
-                                .collect()
-                        })
-                        .collect();
-
-                    let result_data = QueryResultData {
-                        question_id: table_id,
-                        question_name: format!("Table #{}", table_id),
-                        columns,
-                        rows,
-                    };
-
+                    let result_data =
+                        transform_query_result(result, table_id, format!("Table #{}", table_id));
                     let _ = tx.send(AppAction::TablePreviewLoaded(result_data));
                 }
                 Err(e) => {
@@ -339,37 +346,7 @@ impl App {
         tokio::spawn(async move {
             match service.execute_question(id).await {
                 Ok(result) => {
-                    let columns: Vec<String> = result
-                        .data
-                        .cols
-                        .iter()
-                        .map(|c| c.display_name.clone())
-                        .collect();
-
-                    let rows: Vec<Vec<String>> = result
-                        .data
-                        .rows
-                        .iter()
-                        .map(|row| {
-                            row.iter()
-                                .map(|v| match v {
-                                    serde_json::Value::Null => "—".to_string(),
-                                    serde_json::Value::Bool(b) => b.to_string(),
-                                    serde_json::Value::Number(n) => n.to_string(),
-                                    serde_json::Value::String(s) => s.clone(),
-                                    _ => v.to_string(),
-                                })
-                                .collect()
-                        })
-                        .collect();
-
-                    let result_data = QueryResultData {
-                        question_id: id,
-                        question_name,
-                        columns,
-                        rows,
-                    };
-
+                    let result_data = transform_query_result(result, id, question_name);
                     let _ = tx.send(AppAction::QueryResultLoaded(request_id, result_data));
                 }
                 Err(e) => {

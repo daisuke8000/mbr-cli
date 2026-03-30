@@ -12,7 +12,7 @@ pub enum Event {
     Key(KeyEvent),
     /// Terminal tick for periodic updates
     Tick,
-    /// Terminal resize event (width, height) - reserved for future use
+    /// Terminal resize event (width, height)
     #[allow(dead_code)]
     Resize(u16, u16),
 }
