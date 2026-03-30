@@ -78,7 +78,9 @@ pub mod prelude {
 
     // Storage
     pub use crate::storage::config::Config;
-    pub use crate::storage::credentials::{get_credentials, load_session, save_session, delete_session, now_iso8601, Session};
+    pub use crate::storage::credentials::{
+        Session, delete_session, get_credentials, load_session, now_iso8601, save_session,
+    };
 
     // Display utilities
     pub use crate::display::TableDisplay;
@@ -148,4 +150,6 @@ pub use core::services::question_service::QuestionService;
 #[doc(hidden)]
 pub use storage::config::Config;
 #[doc(hidden)]
-pub use storage::credentials::{get_credentials, load_session, save_session, delete_session, now_iso8601, Session};
+pub use storage::credentials::{
+    Session, delete_session, get_credentials, load_session, now_iso8601, save_session,
+};

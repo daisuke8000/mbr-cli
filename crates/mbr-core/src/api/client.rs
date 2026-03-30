@@ -495,8 +495,10 @@ mod tests {
 
     #[test]
     fn test_with_session_token() {
-        let client =
-            MetabaseClient::with_session_token("http://example.test".to_string(), "token".to_string());
+        let client = MetabaseClient::with_session_token(
+            "http://example.test".to_string(),
+            "token".to_string(),
+        );
         assert!(client.is_ok());
         if let Ok(client) = client {
             assert!(client.is_authenticated());

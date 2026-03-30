@@ -7,7 +7,7 @@ use mbr_core::core::services::config_service::ConfigService;
 use mbr_core::error::{AppError, AuthError, CliError};
 use mbr_core::storage::config::Config;
 use mbr_core::storage::credentials::{
-    delete_session, get_credentials, load_session, now_iso8601, save_session, Session,
+    Session, delete_session, get_credentials, load_session, now_iso8601, save_session,
 };
 use mbr_core::utils::logging::print_verbose;
 
@@ -39,7 +39,10 @@ impl Dispatcher {
         if let Some(session) = load_session() {
             if session.url == url {
                 self.log_verbose("Creating client with stored session token");
-                return Ok(MetabaseClient::with_session_token(url, session.session_token)?);
+                return Ok(MetabaseClient::with_session_token(
+                    url,
+                    session.session_token,
+                )?);
             }
             self.log_verbose("Stored session URL does not match current URL, ignoring session");
         }
@@ -114,7 +117,9 @@ impl Dispatcher {
         let url = self.get_url().ok()?;
         self.log_verbose("Session expired, attempting auto re-login...");
         eprintln!("ℹ Session expired, re-authenticating...");
-        let token = MetabaseClient::login(&url, &username, &password).await.ok()?;
+        let token = MetabaseClient::login(&url, &username, &password)
+            .await
+            .ok()?;
         let session = Session {
             session_token: token.clone(),
             url: url.clone(),
@@ -127,7 +132,10 @@ impl Dispatcher {
     }
 
     fn is_unauthorized(err: &AppError) -> bool {
-        matches!(err, AppError::Api(mbr_core::error::ApiError::Unauthorized { .. }))
+        matches!(
+            err,
+            AppError::Api(mbr_core::error::ApiError::Unauthorized { .. })
+        )
     }
 
     pub async fn dispatch(&self, command: Commands) -> Result<(), AppError> {

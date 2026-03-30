@@ -25,10 +25,7 @@ pub enum AppError {
 #[derive(Error, Debug)]
 pub enum CliError {
     #[error("Authentication required")]
-    AuthRequired {
-        message: String,
-        hint: String,
-    },
+    AuthRequired { message: String, hint: String },
     #[error("Invalid arguments: {0}")]
     InvalidArguments(String),
     #[error("Command not implemented: {command}")]
@@ -182,9 +179,7 @@ impl AppError {
 
     pub fn display_friendly(&self) -> String {
         match self {
-            AppError::Auth(AuthError::NotLoggedIn) => {
-                "Not logged in".to_string()
-            }
+            AppError::Auth(AuthError::NotLoggedIn) => "Not logged in".to_string(),
             AppError::Auth(AuthError::SessionExpired) => "Session expired".to_string(),
             AppError::Auth(AuthError::LoginFailed { message }) => {
                 format!("Login failed: {}", message)
