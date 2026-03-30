@@ -126,8 +126,9 @@ impl RetryExecutor {
                 status: 400..=499, ..
             } => self.config.retry_client_errors,
 
-            // Don't retry on authentication errors
+            // Don't retry on authentication or authorization errors
             ApiError::Unauthorized { .. } => false,
+            ApiError::Forbidden { .. } => false,
 
             // Don't retry on other HTTP errors (informational, success, other)
             ApiError::Http { .. } => false,

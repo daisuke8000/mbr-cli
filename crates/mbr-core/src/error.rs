@@ -28,7 +28,6 @@ pub enum CliError {
     AuthRequired {
         message: String,
         hint: String,
-        available_profiles: Vec<String>,
     },
     #[error("Invalid arguments: {0}")]
     InvalidArguments(String),
@@ -52,16 +51,22 @@ pub enum ApiError {
         endpoint: String,
         server_message: String,
     },
+    #[error("Permission denied")]
+    Forbidden {
+        status: u16,
+        endpoint: String,
+        server_message: String,
+    },
 }
 
 #[derive(Error, Debug)]
 pub enum AuthError {
-    #[error("MBR_API_KEY environment variable is not set")]
-    MissingApiKey,
-    #[error("API key is invalid or expired")]
-    ApiKeyInvalid,
-    #[error("API key authentication failed: {message}")]
-    AuthFailed { message: String },
+    #[error("Not logged in")]
+    NotLoggedIn,
+    #[error("Session expired")]
+    SessionExpired,
+    #[error("Login failed: {message}")]
+    LoginFailed { message: String },
 }
 
 #[derive(Error, Debug)]
@@ -156,6 +161,7 @@ impl AppError {
             AppError::Cli(_) => ErrorSeverity::Medium,
             AppError::Api(api_error) => match api_error {
                 ApiError::Unauthorized { .. } => ErrorSeverity::High,
+                ApiError::Forbidden { .. } => ErrorSeverity::Medium,
                 ApiError::Timeout { .. } => ErrorSeverity::Medium,
                 ApiError::Http { status, .. } if *status >= 500 => ErrorSeverity::High,
                 _ => ErrorSeverity::Medium,
@@ -176,10 +182,13 @@ impl AppError {
 
     pub fn display_friendly(&self) -> String {
         match self {
-            AppError::Auth(AuthError::MissingApiKey) => {
-                "MBR_API_KEY environment variable is not set".to_string()
+            AppError::Auth(AuthError::NotLoggedIn) => {
+                "Not logged in".to_string()
             }
-            AppError::Auth(AuthError::ApiKeyInvalid) => "API key is invalid or expired".to_string(),
+            AppError::Auth(AuthError::SessionExpired) => "Session expired".to_string(),
+            AppError::Auth(AuthError::LoginFailed { message }) => {
+                format!("Login failed: {}", message)
+            }
             AppError::Config(ConfigError::FileNotFound { .. }) => {
                 "Configuration file not found".to_string()
             }
@@ -192,11 +201,14 @@ impl AppError {
 
     pub fn troubleshooting_hint(&self) -> Option<String> {
         match self {
-            AppError::Auth(AuthError::MissingApiKey) => {
-                Some("Set the MBR_API_KEY environment variable:\n  export MBR_API_KEY=\"your_api_key\"\n\nGenerate an API key in Metabase:\n  Settings → Admin settings → API Keys".to_string())
+            AppError::Auth(AuthError::NotLoggedIn) => {
+                Some("Run 'mbr-cli login' to authenticate with Metabase.\nOr set MBR_USERNAME and MBR_PASSWORD environment variables.".to_string())
             }
-            AppError::Auth(AuthError::ApiKeyInvalid) => {
-                Some("Check that your API key is valid and has not expired.\nRun 'mbr-cli config validate' to test the connection.".to_string())
+            AppError::Auth(AuthError::SessionExpired) => {
+                Some("Your session has expired. Run 'mbr-cli login' to re-authenticate.".to_string())
+            }
+            AppError::Auth(AuthError::LoginFailed { .. }) => {
+                Some("Check your username and password and try again.".to_string())
             }
             AppError::Config(ConfigError::FileNotFound { .. }) => {
                 Some("Run 'mbr-cli config set --url <url>' to create a configuration".to_string())
@@ -205,7 +217,7 @@ impl AppError {
                 Some("Check your network connection and Metabase server availability".to_string())
             }
             AppError::Api(ApiError::Unauthorized { .. }) => {
-                Some("Your API key may be invalid or expired. Run 'mbr-cli config validate' to check.".to_string())
+                Some("Your session may be expired. Run 'mbr-cli login' to re-authenticate.".to_string())
             }
             AppError::Question(QuestionError::NotFound { .. }) => {
                 Some("Run 'mbr-cli query --list' to see available questions".to_string())
@@ -268,7 +280,6 @@ mod tests {
             CliError::AuthRequired {
                 message: "".into(),
                 hint: "".into(),
-                available_profiles: vec![]
             },
             CliError::AuthRequired { .. }
         ));
@@ -371,14 +382,27 @@ mod tests {
     }
 
     #[test]
+    fn test_app_error_severity_forbidden() {
+        assert_eq!(
+            AppError::Api(ApiError::Forbidden {
+                status: 403,
+                endpoint: "".into(),
+                server_message: "".into()
+            })
+            .severity(),
+            ErrorSeverity::Medium
+        );
+    }
+
+    #[test]
     fn test_troubleshooting_hints() {
         assert!(
-            AppError::Auth(AuthError::MissingApiKey)
+            AppError::Auth(AuthError::NotLoggedIn)
                 .troubleshooting_hint()
                 .is_some()
         );
         assert!(
-            AppError::Auth(AuthError::ApiKeyInvalid)
+            AppError::Auth(AuthError::SessionExpired)
                 .troubleshooting_hint()
                 .is_some()
         );

@@ -393,7 +393,12 @@ impl MetabaseClient {
                 .unwrap_or_else(|_| "Unknown error".to_string());
 
             Err(AppError::Api(match status.as_u16() {
-                401 | 403 => ApiError::Unauthorized {
+                401 => ApiError::Unauthorized {
+                    status: status.as_u16(),
+                    endpoint: endpoint.to_string(),
+                    server_message: error_text,
+                },
+                403 => ApiError::Forbidden {
                     status: status.as_u16(),
                     endpoint: endpoint.to_string(),
                     server_message: error_text,
