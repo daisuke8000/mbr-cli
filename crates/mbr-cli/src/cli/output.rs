@@ -109,16 +109,8 @@ pub fn print_json_error(error: &AppError) {
     print_json(&output);
 }
 
-/// Escape a field value for RFC 4180 compliant CSV output.
-/// Wraps in double-quotes if the value contains comma, double-quote, or newline.
-/// Internal double-quotes are escaped by doubling them.
-pub fn escape_csv_field(value: &str) -> String {
-    if value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r') {
-        format!("\"{}\"", value.replace('"', "\"\""))
-    } else {
-        value.to_string()
-    }
-}
+/// Re-export CSV escaping from mbr-core for use in command handlers.
+pub use mbr_core::utils::text::escape_csv_field;
 
 /// Map an `AppError` variant to a process exit code.
 pub fn exit_code_for(error: &AppError) -> i32 {
@@ -132,35 +124,5 @@ pub fn exit_code_for(error: &AppError) -> i32 {
         AppError::Question(_) => 2,
         AppError::Service(_) => 1,
         AppError::Utils(_) => 1,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_escape_csv_field_plain() {
-        assert_eq!(escape_csv_field("hello"), "hello");
-    }
-
-    #[test]
-    fn test_escape_csv_field_with_comma() {
-        assert_eq!(escape_csv_field("Sales, Q4"), "\"Sales, Q4\"");
-    }
-
-    #[test]
-    fn test_escape_csv_field_with_quotes() {
-        assert_eq!(escape_csv_field("say \"hello\""), "\"say \"\"hello\"\"\"");
-    }
-
-    #[test]
-    fn test_escape_csv_field_with_newline() {
-        assert_eq!(escape_csv_field("line1\nline2"), "\"line1\nline2\"");
-    }
-
-    #[test]
-    fn test_escape_csv_field_empty() {
-        assert_eq!(escape_csv_field(""), "");
     }
 }

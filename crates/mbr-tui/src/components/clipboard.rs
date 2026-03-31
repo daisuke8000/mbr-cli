@@ -7,6 +7,7 @@ use std::fmt;
 
 use arboard::Clipboard;
 use indexmap::IndexMap;
+use mbr_core::utils::text::escape_csv_field;
 
 /// Copy format options for record data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -219,17 +220,11 @@ pub fn format_records_tsv(records: &[(Vec<String>, Vec<String>)], include_header
 
 /// Escape and join values as CSV row.
 ///
-/// Handles values containing commas, quotes, or newlines.
+/// Delegates to `mbr_core::utils::text::escape_csv_field` for RFC 4180 compliance.
 fn escape_csv_row(values: &[String]) -> String {
     values
         .iter()
-        .map(|v| {
-            if v.contains(',') || v.contains('"') || v.contains('\n') || v.contains('\r') {
-                format!("\"{}\"", v.replace('"', "\"\""))
-            } else {
-                v.clone()
-            }
-        })
+        .map(|v| escape_csv_field(v))
         .collect::<Vec<_>>()
         .join(",")
 }

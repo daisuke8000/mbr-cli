@@ -129,6 +129,18 @@ pub fn pad_to_width(text: &str, width: usize) -> String {
     }
 }
 
+/// Escape a field value for RFC 4180 compliant CSV output.
+///
+/// Wraps the value in double-quotes if it contains a comma, double-quote,
+/// or line break. Internal double-quotes are escaped by doubling them.
+pub fn escape_csv_field(value: &str) -> String {
+    if value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r') {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
 pub fn center_text(text: &str, width: usize) -> String {
     let text_width = text.width();
     if text_width >= width {
@@ -217,5 +229,35 @@ mod tests {
         assert_eq!(center_text("Hi", 6), "  Hi  ");
         assert_eq!(center_text("Hello", 5), "Hello");
         assert_eq!(center_text("Hi", 12), "     Hi     ");
+    }
+
+    #[test]
+    fn test_escape_csv_field_plain() {
+        assert_eq!(escape_csv_field("hello"), "hello");
+    }
+
+    #[test]
+    fn test_escape_csv_field_with_comma() {
+        assert_eq!(escape_csv_field("Sales, Q4"), "\"Sales, Q4\"");
+    }
+
+    #[test]
+    fn test_escape_csv_field_with_quotes() {
+        assert_eq!(escape_csv_field("say \"hello\""), "\"say \"\"hello\"\"\"");
+    }
+
+    #[test]
+    fn test_escape_csv_field_with_newline() {
+        assert_eq!(escape_csv_field("line1\nline2"), "\"line1\nline2\"");
+    }
+
+    #[test]
+    fn test_escape_csv_field_with_cr() {
+        assert_eq!(escape_csv_field("line1\rline2"), "\"line1\rline2\"");
+    }
+
+    #[test]
+    fn test_escape_csv_field_empty() {
+        assert_eq!(escape_csv_field(""), "");
     }
 }
