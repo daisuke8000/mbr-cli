@@ -26,8 +26,8 @@ graph TB
 
     CLI --> Services
     CLI --> Display
-    TUI --> Services
     TUI --> API
+    TUI --> Storage
 
     Services --> API
     Services --> Storage
@@ -51,17 +51,18 @@ crates/
 ├── mbr-core/         # Shared library
 │   └── src/
 │       ├── api/          # MetabaseClient + API models
-│       ├── core/         # Services (Config, Question)
+│       ├── core/         # Services (Config, Question), Cache
 │       ├── storage/      # Config (TOML) + Credentials (session.json)
-│       ├── display/      # TableDisplay, ProgressSpinner, Pagination
-│       ├── utils/        # text (CSV escape), validation, logging
+│       ├── display/      # TableDisplay, ProgressSpinner, Pagination, DisplayOptions
+│       ├── utils/        # text (CSV escape), validation, logging, data, memory, retry
 │       └── error.rs      # Hierarchical error system
 └── mbr-tui/          # TUI binary
     └── src/
-        ├── app.rs        # State + event loop
-        ├── components/   # UI components
+        ├── app/          # App state, action/data/input handlers
+        ├── components/   # UI components (content, modals, clipboard, styles)
+        ├── service.rs    # ServiceClient, LoadState<T>, AppData
         ├── event.rs      # Event handling
-        └── action.rs     # Action definitions
+        └── layout.rs     # Layout definitions
 ```
 
 ### Crate Dependencies
