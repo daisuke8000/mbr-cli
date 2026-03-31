@@ -90,14 +90,17 @@ pub struct JsonErrorDetail {
 // ── Helpers ────────────────────────────────────────────────────────────
 
 /// Pretty-print any serializable value as JSON to stdout.
+/// Uses `to_writer_pretty` to stream directly without full-buffer allocation.
 pub fn print_json<T: Serialize>(data: &T) {
+    use std::io::Write;
     let stdout = std::io::stdout();
-    let writer = std::io::BufWriter::new(stdout.lock());
-    if let Err(e) = serde_json::to_writer_pretty(writer, data) {
+    let mut writer = std::io::BufWriter::new(stdout.lock());
+    if let Err(e) = serde_json::to_writer_pretty(&mut writer, data) {
         eprintln!("Error serializing JSON: {}", e);
+        return;
     }
-    // Print trailing newline for clean shell output
-    println!();
+    let _ = writeln!(writer);
+    let _ = writer.flush();
 }
 
 /// Print a structured JSON error to stdout (so callers piping JSON get it).
