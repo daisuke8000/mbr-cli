@@ -1156,7 +1156,7 @@ dependencies = [
 
 [[package]]
 name = "mbr-cli"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "atty",
  "clap",
@@ -1169,7 +1169,7 @@ dependencies = [
 
 [[package]]
 name = "mbr-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "async-trait",
  "atty",
@@ -1190,7 +1190,7 @@ dependencies = [
 
 [[package]]
 name = "mbr-tui"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "arboard",
  "crossterm 0.29.0",

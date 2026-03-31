@@ -112,7 +112,7 @@ impl App {
         self.status_bar.set_message("Loading questions...");
 
         tokio::spawn(async move {
-            match service.fetch_questions(None, Some(50)).await {
+            match service.fetch_questions(None, None).await {
                 Ok(questions) => {
                     let _ = tx.send(AppAction::QuestionsLoaded(questions));
                 }
@@ -139,7 +139,7 @@ impl App {
             .set_message(format!("Searching for '{}'...", query));
 
         tokio::spawn(async move {
-            match service.fetch_questions(Some(&query), Some(50)).await {
+            match service.fetch_questions(Some(&query), Some(200)).await {
                 Ok(questions) => {
                     let _ = tx.send(AppAction::QuestionsLoaded(questions));
                 }

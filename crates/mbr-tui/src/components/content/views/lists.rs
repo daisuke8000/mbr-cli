@@ -71,17 +71,34 @@ impl ContentPanel {
             frame.render_widget(search_bar, search_rect);
         }
 
-        // Build title with search indicator
+        // Build title with search indicator and pagination info
+        let pagination_hint = self
+            .questions_pagination_info()
+            .map(|(page, total_pages, total)| {
+                format!(
+                    " [{}/{} pages, {} total, n/p: page]",
+                    page, total_pages, total
+                )
+            })
+            .unwrap_or_default();
+
         let title = if let Some(ref query) = self.active_search {
             match &self.questions {
                 LoadState::Loaded(questions) => {
-                    format!(" Questions ({}) - Search: \"{}\" ", questions.len(), query)
+                    format!(
+                        " Questions ({}) - Search: \"{}\"{} ",
+                        questions.len(),
+                        query,
+                        pagination_hint
+                    )
                 }
                 _ => format!(" Questions - Search: \"{}\" ", query),
             }
         } else {
             match &self.questions {
-                LoadState::Loaded(questions) => format!(" Questions ({}) ", questions.len()),
+                LoadState::Loaded(questions) => {
+                    format!(" Questions ({}){} ", questions.len(), pagination_hint)
+                }
                 _ => " Questions ".to_string(),
             }
         };
@@ -167,8 +184,13 @@ impl ContentPanel {
                     );
                     frame.render_widget(paragraph, table_area);
                 } else {
-                    // Create table rows (use as_str() to avoid cloning)
-                    let rows: Vec<Row> = questions
+                    // Client-side pagination: show only current page slice
+                    let offset = self.questions_offset as usize;
+                    let page_size = self.questions_page_size as usize;
+                    let end = (offset + page_size).min(questions.len());
+                    let page_questions = &questions[offset..end];
+
+                    let rows: Vec<Row> = page_questions
                         .iter()
                         .map(|q| {
                             let collection_name = q

@@ -164,57 +164,46 @@ impl MetabaseClient {
         Ok(())
     }
 
-    /// List questions from Metabase with optional search, limit, and collection filters
+    /// List questions from Metabase with optional search, limit, and collection filters.
+    ///
+    /// - With `search`: uses `/api/search?q=...&models=card`
+    /// - With `collection`: uses `/api/card?f=all` + client-side collection_id filter
+    /// - Otherwise: uses `/api/card?f=all` (全件取得)
     pub async fn list_questions(
         &self,
         search: Option<&str>,
         limit: Option<u32>,
         collection: Option<&str>,
     ) -> Result<Vec<crate::api::models::Question>, AppError> {
-        // If search term is provided, use /api/search endpoint
-        if let Some(search_term) = search
-            && !search_term.is_empty()
-        {
+        if let Some(search_term) = search.filter(|s| !s.is_empty()) {
             return self.search_questions(search_term, limit).await;
         }
 
-        // Otherwise, use /api/card endpoint for listing all questions
-        // TODO: Metabase's /api/card endpoint does not support server-side limit/offset.
-        // Pagination is applied client-side via truncation below.
-        // Consider migrating to /api/search with empty query for server-side pagination.
-        let mut params = vec!["f=all".to_string()];
-
-        if let Some(collection_id) = collection
-            && !collection_id.is_empty()
-        {
-            params.push(format!("collection={}", collection_id));
-        }
-
-        let endpoint = format!("/api/card?{}", params.join("&"));
-
+        // Fetch all cards via /api/card?f=all
+        let endpoint = "/api/card?f=all";
         let response = self
-            .build_request(Method::GET, &endpoint)
+            .build_request(Method::GET, endpoint)
             .send()
             .await
-            .map_err(|e| AppError::Api(convert_request_error(e, &endpoint)))?;
+            .map_err(|e| AppError::Api(convert_request_error(e, endpoint)))?;
 
-        let mut questions: Vec<crate::api::models::Question> =
-            Self::handle_response(response, &endpoint).await?;
+        let all_questions: Vec<crate::api::models::Question> =
+            Self::handle_response(response, endpoint).await?;
 
-        // Apply client-side limit if specified
-        if let Some(limit_value) = limit
-            && limit_value > 0
-        {
-            questions.truncate(limit_value as usize);
+        // Client-side collection filter
+        if let Some(coll_id) = collection.filter(|c| !c.is_empty()) {
+            let target_id: Option<u32> = coll_id.parse().ok();
+            return Ok(all_questions
+                .into_iter()
+                .filter(|q| q.collection_id == target_id)
+                .collect());
         }
 
-        Ok(questions)
+        Ok(all_questions)
     }
 
     /// Search questions using /api/search endpoint.
-    /// Uses reqwest's .query() for proper URL encoding of search terms,
-    /// including multibyte characters (Japanese, etc.).
-    /// Supports server-side pagination via limit and offset parameters.
+    /// Requires a non-empty search term (Metabase requires `q` parameter).
     async fn search_questions(
         &self,
         search_term: &str,
@@ -222,7 +211,6 @@ impl MetabaseClient {
     ) -> Result<Vec<crate::api::models::Question>, AppError> {
         use crate::api::models::{Collection, Question, SearchResponse};
 
-        /// Query parameters for Metabase search API with pagination support
         #[derive(Serialize)]
         struct SearchQuery<'a> {
             q: &'a str,
@@ -238,7 +226,6 @@ impl MetabaseClient {
             limit,
         };
 
-        // Use build_request_with_query for type-safe URL encoding
         let response = self
             .build_request_with_query(Method::GET, endpoint, Some(&query))
             .send()
@@ -247,8 +234,7 @@ impl MetabaseClient {
 
         let search_response: SearchResponse = Self::handle_response(response, endpoint).await?;
 
-        // Convert SearchResultItem to Question
-        let questions: Vec<Question> = search_response
+        Ok(search_response
             .data
             .into_iter()
             .filter(|item| item.model == "card")
@@ -262,9 +248,7 @@ impl MetabaseClient {
                     name: c.name,
                 }),
             })
-            .collect();
-
-        Ok(questions)
+            .collect())
     }
 
     /// Execute a question and return query results

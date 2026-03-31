@@ -127,6 +127,7 @@ impl App {
         let count = questions.len();
         self.data.questions = LoadState::Loaded(questions);
         self.content.update_questions(&self.data.questions);
+        self.content.reset_questions_pagination(count as u32);
         self.status_bar
             .set_message(format!("Loaded {} questions", count));
     }

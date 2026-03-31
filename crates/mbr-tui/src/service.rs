@@ -8,8 +8,6 @@ use mbr_core::api::client::MetabaseClient;
 use mbr_core::api::models::{
     CollectionItem, CurrentUser, Database, QueryResult, Question, TableInfo,
 };
-use mbr_core::core::services::question_service::QuestionService;
-use mbr_core::core::services::types::ListParams;
 use mbr_core::storage::config::Config;
 use mbr_core::storage::credentials::{Session, get_credentials, load_session};
 
@@ -121,22 +119,14 @@ impl ServiceClient {
             .map_err(|e| format!("Authentication failed: {}", e))
     }
 
-    /// Fetch questions list
+    /// Fetch questions list.
     pub async fn fetch_questions(
         &self,
         search: Option<&str>,
         limit: Option<u32>,
     ) -> Result<Vec<Question>, String> {
-        let service = QuestionService::new(self.client.clone());
-        let params = ListParams {
-            search: search.map(String::from),
-            limit,
-            collection: None,
-            offset: None,
-        };
-
-        service
-            .list_questions(params)
+        self.client
+            .list_questions(search, limit, None)
             .await
             .map_err(|e| format!("Failed to fetch questions: {}", e))
     }
@@ -149,22 +139,14 @@ impl ServiceClient {
             .map_err(|e| format!("Query execution failed: {}", e))
     }
 
-    /// Fetch questions filtered by collection
+    /// Fetch questions filtered by collection using server-side filtering.
     pub async fn fetch_questions_by_collection(
         &self,
         collection_id: &str,
         limit: Option<u32>,
     ) -> Result<Vec<Question>, String> {
-        let service = QuestionService::new(self.client.clone());
-        let params = ListParams {
-            search: None,
-            limit,
-            collection: Some(collection_id.to_string()),
-            offset: None,
-        };
-
-        service
-            .list_questions(params)
+        self.client
+            .list_questions(None, limit, Some(collection_id))
             .await
             .map_err(|e| format!("Failed to fetch questions: {}", e))
     }
