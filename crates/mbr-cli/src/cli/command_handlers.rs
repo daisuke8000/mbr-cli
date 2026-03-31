@@ -446,6 +446,7 @@ pub async fn handle_config_validate(
                     user: None,
                     error: Some("Not logged in".to_string()),
                 });
+                return Ok(());
             }
             _ => {
                 println!("Not logged in.");
@@ -472,6 +473,7 @@ pub async fn handle_config_validate(
                     user: None,
                     error: Some("Client is not authenticated".to_string()),
                 });
+                return Ok(());
             }
             _ => {
                 println!("Session token is not configured properly.");
@@ -532,6 +534,7 @@ pub async fn handle_config_validate(
                         user: None,
                         error: Some(format!("{}", e)),
                     });
+                    Ok(())
                 }
                 _ => {
                     println!();
@@ -542,9 +545,9 @@ pub async fn handle_config_validate(
                     println!("  - Metabase server is unreachable");
                     println!();
                     println!("Try running 'mbr-cli login' to re-authenticate.");
+                    Err(e)
                 }
             }
-            Err(e)
         }
     }
 }
