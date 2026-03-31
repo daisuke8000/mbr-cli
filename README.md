@@ -4,18 +4,19 @@ Rust-based async CLI/TUI tool for interacting with Metabase APIs.
 
 ## Features
 
+- **Flat Command Structure**: Intuitive commands like `queries`, `run`, `collections`, `databases`, `tables`, `status`
+- **AI-Agent Friendly**: Global `-j` flag for JSON output, structured error codes, clean stdout/stderr separation
 - **Session Authentication**: Login with username/password, session tokens stored securely on disk
-- **CLI Interface**: Command-line tool for scripting and quick operations
 - **Rich TUI Experience**: Interactive terminal UI with keyboard navigation, search, sort, and filter
-- **Async Operations**: Built on tokio for efficient I/O
-- **Hierarchical Error Handling**: Comprehensive error system with troubleshooting hints
+- **Multiple Output Formats**: Table (default), JSON (`-j`), and CSV (`--format csv`)
+- **Structured Error Handling**: Machine-readable error codes and granular exit codes
 
 ## Quick Start
 
-### 1. Configure your Metabase URL
+### 1. Configure Metabase URL
 
 ```bash
-mbr-cli config set --url "https://your-metabase.com"
+mbr-cli config set-url "https://your-metabase.com"
 ```
 
 ### 2. Login
@@ -24,7 +25,7 @@ mbr-cli config set --url "https://your-metabase.com"
 mbr-cli login
 ```
 
-You will be prompted for your username and password interactively. Alternatively, set environment variables for non-interactive login:
+Or use environment variables for non-interactive login:
 
 ```bash
 export MBR_USERNAME="user@example.com"
@@ -35,11 +36,14 @@ mbr-cli login
 ### 3. Start using
 
 ```bash
-# List available questions
-mbr-cli query --list
+# List saved questions
+mbr-cli queries
 
 # Execute a question
-mbr-cli query 123
+mbr-cli run 123
+
+# Get JSON output (pipe to jq, scripts, AI agents)
+mbr-cli run 123 -j
 
 # Launch interactive TUI
 cargo run -p mbr-tui
@@ -47,58 +51,98 @@ cargo run -p mbr-tui
 
 ## CLI Commands
 
-### Login / Logout
+### Queries
 
 ```bash
-mbr-cli login                         # Login to Metabase (interactive prompt)
-mbr-cli logout                        # Logout and clear session
+mbr-cli queries                         # List all saved questions
+mbr-cli queries -s "sales"              # Search by name
+mbr-cli queries -s "sales" -l 10        # Search with limit
+mbr-cli queries --collection 5          # Filter by collection ID
+mbr-cli queries -j                      # Output as JSON
 ```
 
-### Configuration
+### Run (Execute Questions)
 
 ```bash
-mbr-cli config show                              # Display current configuration
-mbr-cli config set --url "https://metabase.com"  # Set Metabase URL
-mbr-cli config validate                          # Validate session and connection
+mbr-cli run 123                         # Execute question by ID
+mbr-cli run 123 -j                      # Output as JSON
+mbr-cli run 123 --format csv            # Output as CSV
+mbr-cli run 123 --param date=2024-01-01 # Execute with parameters
+mbr-cli run 123 --full                  # Show all results
+mbr-cli run 123 --offset 10 --limit 50  # Pagination: skip 10, show 50
+mbr-cli run 123 --no-fullscreen         # Disable interactive mode
 ```
 
-### Query
+### Collections
 
 ```bash
-mbr-cli query --list                        # List all questions
-mbr-cli query --list --search "sales"       # Search questions by name
-mbr-cli query --list --collection 5         # Filter by collection ID
-mbr-cli query --list --limit 10             # Limit results
-mbr-cli query 123                           # Execute question by ID
-mbr-cli query 123 --format json             # Output as JSON
-mbr-cli query 123 --format csv              # Output as CSV
-mbr-cli query 123 --param date=2024-01-01   # Execute with parameters
-mbr-cli query 123 --columns "name,email"    # Show specific columns
-mbr-cli query 123 --offset 10              # Skip first 10 rows
-mbr-cli query 123 --full                    # Show all results without pagination
-mbr-cli query 123 --no-fullscreen           # Disable interactive fullscreen mode
+mbr-cli collections                     # List all collections
+mbr-cli collections -j                  # Output as JSON
+mbr-cli collections --format csv        # Output as CSV
 ```
 
-### Collection
+### Databases
 
 ```bash
-mbr-cli collection list                   # List all collections
-mbr-cli collection list --format json     # Output as JSON
-mbr-cli collection list --format csv      # Output as CSV
+mbr-cli databases                       # List all databases
+mbr-cli databases -j                    # Output as JSON
+mbr-cli databases --format csv          # Output as CSV
 ```
 
-### Database
+### Tables
 
 ```bash
-mbr-cli database list                     # List all databases
-mbr-cli database list --format json       # Output as JSON
-mbr-cli database list --format csv        # Output as CSV
+mbr-cli tables 1 public                 # List tables in database 1, schema "public"
+mbr-cli tables 1 public -j              # Output as JSON
 ```
 
-### Global Options
+### Status & Configuration
 
-- `--verbose, -v` -- Enable verbose output for debugging
-- `--config-dir <DIR>` -- Override default configuration directory
+```bash
+mbr-cli status                          # Show connection status and config
+mbr-cli status -j                       # Output as JSON
+mbr-cli config set-url "https://..."    # Set Metabase server URL
+mbr-cli config validate                 # Validate session and connection
+mbr-cli config validate -j              # Validate with JSON output
+```
+
+### Authentication
+
+```bash
+mbr-cli login                           # Interactive login
+mbr-cli login -j                        # Login with JSON output
+mbr-cli logout                          # Logout and clear session
+```
+
+### Global Flags
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--json` | `-j` | Output as JSON (all commands) |
+| `--verbose` | `-v` | Enable debug output |
+| `--format` | `-f` | Output format: `table`, `json`, `csv` |
+| `--color` | | Color control: `auto`, `always`, `never` |
+| `--config-dir` | | Custom configuration directory |
+
+## AI Agent Integration
+
+mbr-cli is designed for seamless use by AI agents (Claude Code, etc.) via subprocess:
+
+```bash
+# All commands support -j for machine-readable JSON
+mbr-cli queries -j 2>/dev/null | jq '.[] | .name'
+
+# Structured error output
+mbr-cli run 999 -j
+# -> {"error":{"code":"QUESTION_NOT_FOUND","message":"...","hint":"..."}}
+
+# Granular exit codes for programmatic error handling
+mbr-cli run 123 -j; echo $?
+# 0 = success, 1 = CLI error, 2 = API error, 3 = auth error, 4 = config error
+
+# Status messages go to stderr, data to stdout -- safe for piping
+mbr-cli run 123 -j 2>/dev/null | jq .
+```
 
 ## TUI Controls
 
@@ -122,28 +166,26 @@ mbr-cli database list --format csv        # Output as CSV
 | `Down` / `j` | Move down |
 | `Left` / `h` | Scroll left (columns) |
 | `Right` / `l` | Scroll right (columns) |
-| `PgUp` / `PgDn` | Scroll page up/down |
+| `PgUp` / `PgDn` | Page up / down |
 | `n` / `p` | Next / Previous page |
 | `Home` / `g` | First page / First item |
 | `End` / `G` | Last page / Last item |
 | `Enter` | Execute query / Record detail |
 | `/` | Search |
 | `s` | Sort (result view) |
-| `f` / `F` | Filter / Clear filter (result view) |
-| `c` | Copy record(s) (result view) |
+| `f` / `F` | Filter / Clear filter |
+| `c` | Copy record(s) |
 | `Space` | Toggle row selection |
 | `Shift+Up/Down` | Range selection |
-| `Shift+Home/End` | Range select to first/last |
-| `Shift+PgUp/PgDn` | Range select by page |
 | `Ctrl+A` | Select all rows |
 
 ## Environment Variables
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `MBR_USERNAME` | Metabase username (for non-interactive login) | No |
-| `MBR_PASSWORD` | Metabase password (for non-interactive login) | No |
-| `MBR_URL` | Metabase server URL (alternative to config file) | No |
+| Variable | Description |
+|----------|-------------|
+| `MBR_USERNAME` | Metabase username (for non-interactive login) |
+| `MBR_PASSWORD` | Metabase password (for non-interactive login) |
+| `MBR_URL` | Metabase server URL (alternative to config file) |
 
 ## Development
 
@@ -160,15 +202,13 @@ cargo run -p mbr-cli -- --help
 # Run TUI
 cargo run -p mbr-tui
 
-# Format and lint
-cargo fmt
-cargo clippy --all-targets --all-features
-
 # Full local check (format + lint + test)
 make check
+
+# CI-style check (non-modifying)
+make check-ci
 ```
 
 ## License
 
-Licensed under the MIT License.
-See [LICENSE](LICENSE) file for details.
+Licensed under the MIT License. See [LICENSE](LICENSE) file for details.
