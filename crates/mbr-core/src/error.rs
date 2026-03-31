@@ -177,6 +177,58 @@ impl AppError {
         }
     }
 
+    /// Return a machine-readable error code string for programmatic error handling.
+    pub fn error_code(&self) -> &'static str {
+        match self {
+            AppError::Cli(e) => match e {
+                CliError::AuthRequired { .. } => "CLI_AUTH_REQUIRED",
+                CliError::InvalidArguments(_) => "CLI_INVALID_ARGUMENTS",
+                CliError::NotImplemented { .. } => "CLI_NOT_IMPLEMENTED",
+            },
+            AppError::Api(e) => match e {
+                ApiError::Timeout { .. } => "API_TIMEOUT",
+                ApiError::Http { .. } => "API_HTTP_ERROR",
+                ApiError::Unauthorized { .. } => "API_UNAUTHORIZED",
+                ApiError::Forbidden { .. } => "API_FORBIDDEN",
+            },
+            AppError::Config(e) => match e {
+                ConfigError::FileNotFound { .. } => "CONFIG_FILE_NOT_FOUND",
+                ConfigError::MissingField { .. } => "CONFIG_MISSING_FIELD",
+                ConfigError::InvalidValue { .. } => "CONFIG_INVALID_VALUE",
+            },
+            AppError::Auth(e) => match e {
+                AuthError::NotLoggedIn => "AUTH_NOT_LOGGED_IN",
+                AuthError::SessionExpired => "AUTH_SESSION_EXPIRED",
+                AuthError::LoginFailed { .. } => "AUTH_LOGIN_FAILED",
+            },
+            AppError::Storage(e) => match e {
+                StorageError::FileIo { .. } => "STORAGE_FILE_IO",
+                StorageError::ConfigParseError { .. } => "STORAGE_CONFIG_PARSE",
+                StorageError::ConfigDirNotFound => "STORAGE_CONFIG_DIR_NOT_FOUND",
+            },
+            AppError::Display(e) => match e {
+                DisplayError::TableFormat(_) => "DISPLAY_TABLE_FORMAT",
+                DisplayError::TerminalOutput(_) => "DISPLAY_TERMINAL_OUTPUT",
+                DisplayError::Pagination(_) => "DISPLAY_PAGINATION",
+            },
+            AppError::Question(e) => match e {
+                QuestionError::NotFound { .. } => "QUESTION_NOT_FOUND",
+                QuestionError::ExecutionFailed { .. } => "QUESTION_EXECUTION_FAILED",
+                QuestionError::InvalidParameter { .. } => "QUESTION_INVALID_PARAMETER",
+                QuestionError::ListFailed { .. } => "QUESTION_LIST_FAILED",
+            },
+            AppError::Service(e) => match e {
+                ServiceError::AuthService { .. } => "SERVICE_AUTH",
+                ServiceError::ConfigService { .. } => "SERVICE_CONFIG",
+                ServiceError::QuestionService { .. } => "SERVICE_QUESTION",
+            },
+            AppError::Utils(e) => match e {
+                UtilsError::Validation { .. } => "UTILS_VALIDATION",
+                UtilsError::DataProcessing { .. } => "UTILS_DATA_PROCESSING",
+            },
+        }
+    }
+
     pub fn display_friendly(&self) -> String {
         match self {
             AppError::Auth(AuthError::NotLoggedIn) => "Not logged in".to_string(),
@@ -386,6 +438,193 @@ mod tests {
             })
             .severity(),
             ErrorSeverity::Medium
+        );
+    }
+
+    #[test]
+    fn test_error_code_cli() {
+        assert_eq!(
+            AppError::Cli(CliError::AuthRequired {
+                message: "".into(),
+                hint: "".into()
+            })
+            .error_code(),
+            "CLI_AUTH_REQUIRED"
+        );
+        assert_eq!(
+            AppError::Cli(CliError::InvalidArguments("".into())).error_code(),
+            "CLI_INVALID_ARGUMENTS"
+        );
+        assert_eq!(
+            AppError::Cli(CliError::NotImplemented { command: "".into() }).error_code(),
+            "CLI_NOT_IMPLEMENTED"
+        );
+    }
+
+    #[test]
+    fn test_error_code_api() {
+        assert_eq!(
+            AppError::Api(ApiError::Timeout {
+                timeout_secs: 10,
+                endpoint: "".into()
+            })
+            .error_code(),
+            "API_TIMEOUT"
+        );
+        assert_eq!(
+            AppError::Api(ApiError::Http {
+                status: 500,
+                endpoint: "".into(),
+                message: "".into()
+            })
+            .error_code(),
+            "API_HTTP_ERROR"
+        );
+        assert_eq!(
+            AppError::Api(ApiError::Unauthorized {
+                status: 401,
+                endpoint: "".into(),
+                server_message: "".into()
+            })
+            .error_code(),
+            "API_UNAUTHORIZED"
+        );
+        assert_eq!(
+            AppError::Api(ApiError::Forbidden {
+                status: 403,
+                endpoint: "".into(),
+                server_message: "".into()
+            })
+            .error_code(),
+            "API_FORBIDDEN"
+        );
+    }
+
+    #[test]
+    fn test_error_code_auth() {
+        assert_eq!(
+            AppError::Auth(AuthError::NotLoggedIn).error_code(),
+            "AUTH_NOT_LOGGED_IN"
+        );
+        assert_eq!(
+            AppError::Auth(AuthError::SessionExpired).error_code(),
+            "AUTH_SESSION_EXPIRED"
+        );
+        assert_eq!(
+            AppError::Auth(AuthError::LoginFailed { message: "".into() }).error_code(),
+            "AUTH_LOGIN_FAILED"
+        );
+    }
+
+    #[test]
+    fn test_error_code_config() {
+        assert_eq!(
+            AppError::Config(ConfigError::FileNotFound {
+                path: "".into(),
+                hint: "".into()
+            })
+            .error_code(),
+            "CONFIG_FILE_NOT_FOUND"
+        );
+        assert_eq!(
+            AppError::Config(ConfigError::MissingField {
+                field: "".into(),
+                field_type: "".into()
+            })
+            .error_code(),
+            "CONFIG_MISSING_FIELD"
+        );
+        assert_eq!(
+            AppError::Config(ConfigError::InvalidValue {
+                field: "".into(),
+                value: "".into(),
+                reason: "".into()
+            })
+            .error_code(),
+            "CONFIG_INVALID_VALUE"
+        );
+    }
+
+    #[test]
+    fn test_error_code_storage() {
+        assert_eq!(
+            AppError::Storage(StorageError::ConfigDirNotFound).error_code(),
+            "STORAGE_CONFIG_DIR_NOT_FOUND"
+        );
+        assert_eq!(
+            AppError::Storage(StorageError::ConfigParseError { message: "".into() }).error_code(),
+            "STORAGE_CONFIG_PARSE"
+        );
+    }
+
+    #[test]
+    fn test_error_code_display() {
+        assert_eq!(
+            AppError::Display(DisplayError::TableFormat("".into())).error_code(),
+            "DISPLAY_TABLE_FORMAT"
+        );
+        assert_eq!(
+            AppError::Display(DisplayError::TerminalOutput("".into())).error_code(),
+            "DISPLAY_TERMINAL_OUTPUT"
+        );
+        assert_eq!(
+            AppError::Display(DisplayError::Pagination("".into())).error_code(),
+            "DISPLAY_PAGINATION"
+        );
+    }
+
+    #[test]
+    fn test_error_code_question() {
+        assert_eq!(
+            AppError::Question(QuestionError::NotFound { id: 1 }).error_code(),
+            "QUESTION_NOT_FOUND"
+        );
+        assert_eq!(
+            AppError::Question(QuestionError::ExecutionFailed {
+                id: 1,
+                reason: "".into()
+            })
+            .error_code(),
+            "QUESTION_EXECUTION_FAILED"
+        );
+        assert_eq!(
+            AppError::Question(QuestionError::InvalidParameter {
+                parameter: "".into()
+            })
+            .error_code(),
+            "QUESTION_INVALID_PARAMETER"
+        );
+        assert_eq!(
+            AppError::Question(QuestionError::ListFailed { status_code: 500 }).error_code(),
+            "QUESTION_LIST_FAILED"
+        );
+    }
+
+    #[test]
+    fn test_error_code_service() {
+        assert_eq!(
+            AppError::Service(ServiceError::AuthService { message: "".into() }).error_code(),
+            "SERVICE_AUTH"
+        );
+        assert_eq!(
+            AppError::Service(ServiceError::ConfigService { message: "".into() }).error_code(),
+            "SERVICE_CONFIG"
+        );
+        assert_eq!(
+            AppError::Service(ServiceError::QuestionService { message: "".into() }).error_code(),
+            "SERVICE_QUESTION"
+        );
+    }
+
+    #[test]
+    fn test_error_code_utils() {
+        assert_eq!(
+            AppError::Utils(UtilsError::Validation { message: "".into() }).error_code(),
+            "UTILS_VALIDATION"
+        );
+        assert_eq!(
+            AppError::Utils(UtilsError::DataProcessing { message: "".into() }).error_code(),
+            "UTILS_DATA_PROCESSING"
         );
     }
 

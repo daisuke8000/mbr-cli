@@ -39,16 +39,16 @@ impl ProgressSpinner {
             let mut index = 0;
 
             while running.load(Ordering::Relaxed) {
-                print!("\r{} {}", spinner_chars[index], message);
-                let _ = io::stdout().flush(); // Ignore flush errors to continue operation
+                eprint!("\r{} {}", spinner_chars[index], message);
+                let _ = io::stderr().flush(); // Ignore flush errors to continue operation
 
                 index = (index + 1) % spinner_chars.len();
                 thread::sleep(Duration::from_millis(SPINNER_UPDATE_INTERVAL_MS));
             }
 
             // Clear line properly for emoji support
-            print!("\r{:<width$}\r", "", width = CLEAR_LINE_WIDTH);
-            let _ = io::stdout().flush(); // Ignore flush errors to continue operation
+            eprint!("\r{:<width$}\r", "", width = CLEAR_LINE_WIDTH);
+            let _ = io::stderr().flush(); // Ignore flush errors to continue operation
         });
 
         self.handle = Some(handle);
@@ -64,8 +64,8 @@ impl ProgressSpinner {
 
         if let Some(msg) = completion_message {
             // Add space before emoji to prevent terminal clipping
-            println!(" {}", msg);
-            let _ = io::stdout().flush(); // Ignore flush errors
+            eprintln!(" {}", msg);
+            let _ = io::stderr().flush(); // Ignore flush errors
         }
     }
 
@@ -113,7 +113,7 @@ impl ProgressTracker {
             step_name
         );
 
-        println!("{}", progress);
+        eprintln!("{}", progress);
         self.current_step += 1;
 
         Some(step_name.clone())
@@ -144,15 +144,15 @@ pub fn show_progress_bar(current: usize, total: usize, width: usize) {
     let filled = (progress * width as f32) as usize;
     let empty = width.saturating_sub(filled);
 
-    print!("\r[");
-    print!("{}", "█".repeat(filled));
-    print!("{}", "░".repeat(empty));
-    print!("] {:.1}% ({}/{})", progress * 100.0, current, total);
+    eprint!("\r[");
+    eprint!("{}", "█".repeat(filled));
+    eprint!("{}", "░".repeat(empty));
+    eprint!("] {:.1}% ({}/{})", progress * 100.0, current, total);
 
-    let _ = io::stdout().flush(); // Ignore flush errors
+    let _ = io::stderr().flush(); // Ignore flush errors
 
     if current == total {
-        println!(); // New line on completion
+        eprintln!(); // New line on completion
     }
 }
 
@@ -166,14 +166,14 @@ pub fn display_status(operation: &str, status: OperationStatus) {
     };
 
     // Add space before emoji to prevent terminal clipping
-    println!(" {} {}", symbol, message);
+    eprintln!(" {} {}", symbol, message);
 }
 
 /// Display authentication result with consistent formatting
 pub fn display_auth_result<T, E: std::fmt::Display>(result: Result<T, E>, success_message: &str) {
     match result {
-        Ok(_) => println!("✅ {}", success_message),
-        Err(e) => println!("❌ Authentication failed: {}", e),
+        Ok(_) => eprintln!("✅ {}", success_message),
+        Err(e) => eprintln!("❌ Authentication failed: {}", e),
     }
 }
 
@@ -184,8 +184,8 @@ pub fn display_operation_result<T, E: std::fmt::Display>(
     error_prefix: &str,
 ) {
     match result {
-        Ok(_) => println!("✅ {}", success_message),
-        Err(e) => println!("❌ {}: {}", error_prefix, e),
+        Ok(_) => eprintln!("✅ {}", success_message),
+        Err(e) => eprintln!("❌ {}: {}", error_prefix, e),
     }
 }
 
