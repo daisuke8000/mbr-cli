@@ -1,9 +1,10 @@
-use crate::cli::command_handlers::{
-    CollectionHandler, ConfigHandler, DatabaseHandler, QueryHandler,
+use crate::cli::command_handlers;
+use crate::cli::main_types::{Commands, ConfigCommands};
+use crate::cli::output::{
+    ConfigSetOutput, LoginOutput, LogoutOutput, OutputFormat, SessionInfo, StatusOutput,
+    print_json, resolve_format,
 };
-use crate::cli::main_types::Commands;
 use mbr_core::api::client::MetabaseClient;
-use mbr_core::core::services::config_service::ConfigService;
 use mbr_core::error::{AppError, AuthError, CliError};
 use mbr_core::storage::config::Config;
 use mbr_core::storage::credentials::{
@@ -15,6 +16,7 @@ pub struct Dispatcher {
     config: Config,
     verbose: bool,
     use_colors: bool,
+    json_mode: bool,
 }
 
 impl Dispatcher {
@@ -22,20 +24,24 @@ impl Dispatcher {
         print_verbose(self.verbose, msg);
     }
 
-    pub fn new(config: Config, verbose: bool, use_colors: bool) -> Self {
+    pub fn new(config: Config, verbose: bool, use_colors: bool, json_mode: bool) -> Self {
         Self {
             config,
             verbose,
             use_colors,
+            json_mode,
         }
     }
 
     fn get_url(&self) -> Result<String, AppError> {
-        self.config.get_url().map(|cow| cow.into_owned()).ok_or_else(|| {
-            AppError::Cli(CliError::InvalidArguments(
-                "Metabase URL is not configured. Use 'mbr-cli config set --url <url>' or set MBR_URL environment variable".to_string(),
-            ))
-        })
+        self.config
+            .get_url()
+            .map(|cow| cow.into_owned())
+            .ok_or_else(|| {
+                AppError::Cli(CliError::InvalidArguments(
+                    "Metabase URL is not configured. Use 'mbr-cli config set-url <url>' or set MBR_URL environment variable".to_string(),
+                ))
+            })
     }
 
     /// Create an authenticated MetabaseClient from stored session.
@@ -55,10 +61,6 @@ impl Dispatcher {
         Ok(MetabaseClient::new(url)?)
     }
 
-    fn create_config_service(&self) -> ConfigService {
-        ConfigService::new(self.config.clone())
-    }
-
     /// Handle the `mbr login` command.
     async fn handle_login(&self) -> Result<(), AppError> {
         let url = self.get_url()?;
@@ -73,7 +75,7 @@ impl Dispatcher {
             (username, password)
         };
 
-        println!("Logging in to {}...", url);
+        eprintln!("Logging in to {}...", url);
 
         let token = MetabaseClient::login(&url, &username, &password).await?;
 
@@ -90,7 +92,15 @@ impl Dispatcher {
             })
         })?;
 
-        println!("✓ Login successful ({})", username);
+        if self.json_mode {
+            print_json(&LoginOutput {
+                success: true,
+                username,
+                url,
+            });
+        } else {
+            eprintln!("Login successful ({})", username);
+        }
         Ok(())
     }
 
@@ -105,15 +115,62 @@ impl Dispatcher {
 
         match delete_session() {
             Ok(()) => {
-                println!("✓ Logged out successfully");
+                if self.json_mode {
+                    print_json(&LogoutOutput { success: true });
+                } else {
+                    eprintln!("Logged out successfully");
+                }
                 Ok(())
             }
             Err(e) => {
                 eprintln!("Warning: {}", e);
-                println!("✓ Logged out successfully");
+                if self.json_mode {
+                    print_json(&LogoutOutput { success: true });
+                } else {
+                    eprintln!("Logged out successfully");
+                }
                 Ok(())
             }
         }
+    }
+
+    /// Handle the `mbr status` command.
+    fn handle_status(&self, format: OutputFormat) -> Result<(), AppError> {
+        let format = resolve_format(self.json_mode, format);
+
+        let url = self.config.get_url().map(|cow| cow.into_owned());
+        let session = load_session();
+
+        match format {
+            OutputFormat::Json => {
+                let output = StatusOutput {
+                    url,
+                    session: session.map(|s| SessionInfo {
+                        username: s.username,
+                        created_at: s.created_at,
+                    }),
+                };
+                print_json(&output);
+            }
+            _ => {
+                println!("Current Configuration:");
+                println!("=====================");
+
+                if let Some(ref url_val) = url {
+                    println!("URL: {}", url_val);
+                } else {
+                    println!("URL: Not configured");
+                }
+
+                if let Some(session) = session {
+                    println!("Session: Logged in ({})", session.username);
+                } else {
+                    println!("Session: Not logged in");
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Attempt auto re-login using environment variables.
@@ -121,7 +178,7 @@ impl Dispatcher {
         let (username, password) = get_credentials()?;
         let url = self.get_url().ok()?;
         self.log_verbose("Session expired, attempting auto re-login...");
-        eprintln!("ℹ Session expired, re-authenticating...");
+        eprintln!("Session expired, re-authenticating...");
         let token = MetabaseClient::login(&url, &username, &password)
             .await
             .ok()?;
@@ -132,7 +189,7 @@ impl Dispatcher {
             created_at: now_iso8601(),
         };
         save_session(&session).ok()?;
-        eprintln!("✓ Re-authenticated successfully");
+        eprintln!("Re-authenticated successfully");
         MetabaseClient::with_session_token(url, token).ok()
     }
 
@@ -143,70 +200,173 @@ impl Dispatcher {
         )
     }
 
-    pub async fn dispatch(&self, command: Commands) -> Result<(), AppError> {
+    /// Run a handler with auto-relogin on 401.
+    async fn with_auto_relogin<F, Fut>(&self, handler: F) -> Result<(), AppError>
+    where
+        F: Fn(MetabaseClient) -> Fut,
+        Fut: std::future::Future<Output = Result<(), AppError>>,
+    {
+        let client = self.create_client()?;
+        match handler(client).await {
+            Err(ref e) if Self::is_unauthorized(e) => {
+                if let Some(new_client) = self.try_auto_relogin().await {
+                    handler(new_client).await
+                } else {
+                    Err(AppError::Auth(AuthError::SessionExpired))
+                }
+            }
+            other => other,
+        }
+    }
+
+    pub async fn dispatch(
+        &self,
+        command: Commands,
+        config_dir: Option<&str>,
+    ) -> Result<(), AppError> {
         match command {
             Commands::Login => self.handle_login().await,
             Commands::Logout => self.handle_logout().await,
-            Commands::Config { command } => {
-                let handler = ConfigHandler::new();
-                let mut config_service = self.create_config_service();
-                let client = match self.create_client() {
-                    Ok(c) => c,
-                    Err(_) => MetabaseClient::new("http://localhost:3000".to_string())?,
-                };
-                handler
-                    .handle(command, &mut config_service, client, self.verbose)
+            Commands::Status { format } => self.handle_status(format),
+
+            Commands::Config { command } => match command {
+                ConfigCommands::SetUrl { url, format } => {
+                    self.handle_config_set_url_with_dir(url, format, config_dir)
+                }
+                ConfigCommands::Validate { format } => {
+                    let fmt = resolve_format(self.json_mode, format);
+                    let use_colors = self.use_colors;
+                    self.with_auto_relogin(|client| async move {
+                        command_handlers::handle_config_validate(&client, fmt, use_colors).await
+                    })
                     .await
-            }
-            Commands::Query(args) => {
-                let handler = QueryHandler::new();
-                let client = self.create_client()?;
+                }
+            },
+
+            Commands::Queries {
+                search,
+                limit,
+                collection,
+                format,
+            } => {
+                let fmt = resolve_format(self.json_mode, format);
                 let use_colors = self.use_colors;
-                match handler
-                    .handle(*args.clone(), client, self.verbose, use_colors)
-                    .await
-                {
-                    Err(ref e) if Self::is_unauthorized(e) => {
-                        if let Some(new_client) = self.try_auto_relogin().await {
-                            handler
-                                .handle(*args, new_client, self.verbose, use_colors)
-                                .await
-                        } else {
-                            Err(AppError::Auth(AuthError::SessionExpired))
-                        }
+                self.with_auto_relogin(|client| {
+                    let search = search.clone();
+                    let collection = collection.clone();
+                    async move {
+                        command_handlers::handle_queries(
+                            &client, search, limit, collection, fmt, use_colors,
+                        )
+                        .await
                     }
-                    other => other,
-                }
+                })
+                .await
             }
-            Commands::Collection { command } => {
-                let handler = CollectionHandler::new();
-                let client = self.create_client()?;
-                match handler.handle(command.clone(), client, self.verbose).await {
-                    Err(ref e) if Self::is_unauthorized(e) => {
-                        if let Some(new_client) = self.try_auto_relogin().await {
-                            handler.handle(command, new_client, self.verbose).await
-                        } else {
-                            Err(AppError::Auth(AuthError::SessionExpired))
-                        }
+
+            Commands::Run {
+                id,
+                param,
+                format,
+                limit,
+                full,
+                no_fullscreen,
+                offset,
+                page_size,
+            } => {
+                let fmt = resolve_format(self.json_mode, format);
+                let use_colors = self.use_colors;
+                self.with_auto_relogin(|client| {
+                    let param = param.clone();
+                    async move {
+                        command_handlers::handle_run(
+                            &client,
+                            id,
+                            param,
+                            fmt,
+                            limit,
+                            full,
+                            no_fullscreen,
+                            offset,
+                            page_size,
+                            use_colors,
+                        )
+                        .await
                     }
-                    other => other,
-                }
+                })
+                .await
             }
-            Commands::Database { command } => {
-                let handler = DatabaseHandler::new();
-                let client = self.create_client()?;
-                match handler.handle(command.clone(), client, self.verbose).await {
-                    Err(ref e) if Self::is_unauthorized(e) => {
-                        if let Some(new_client) = self.try_auto_relogin().await {
-                            handler.handle(command, new_client, self.verbose).await
-                        } else {
-                            Err(AppError::Auth(AuthError::SessionExpired))
-                        }
+
+            Commands::Collections { format } => {
+                let fmt = resolve_format(self.json_mode, format);
+                let use_colors = self.use_colors;
+                self.with_auto_relogin(|client| async move {
+                    command_handlers::handle_collections(&client, fmt, use_colors).await
+                })
+                .await
+            }
+
+            Commands::Databases { format } => {
+                let fmt = resolve_format(self.json_mode, format);
+                let use_colors = self.use_colors;
+                self.with_auto_relogin(|client| async move {
+                    command_handlers::handle_databases(&client, fmt, use_colors).await
+                })
+                .await
+            }
+
+            Commands::Tables {
+                database_id,
+                schema,
+                format,
+            } => {
+                let fmt = resolve_format(self.json_mode, format);
+                let use_colors = self.use_colors;
+                self.with_auto_relogin(|client| {
+                    let schema = schema.clone();
+                    async move {
+                        command_handlers::handle_tables(
+                            &client,
+                            database_id,
+                            schema,
+                            fmt,
+                            use_colors,
+                        )
+                        .await
                     }
-                    other => other,
-                }
+                })
+                .await
             }
         }
+    }
+
+    fn handle_config_set_url_with_dir(
+        &self,
+        url: String,
+        format: OutputFormat,
+        config_dir: Option<&str>,
+    ) -> Result<(), AppError> {
+        let format = resolve_format(self.json_mode, format);
+
+        mbr_core::utils::validation::validate_url(&url)?;
+
+        let mut config = self.config.clone();
+        config.set_url(url.clone());
+
+        let config_path = config_dir.map(|dir| std::path::PathBuf::from(dir).join("config.toml"));
+        config.save(config_path)?;
+
+        match format {
+            OutputFormat::Json => {
+                print_json(&ConfigSetOutput { success: true, url });
+            }
+            _ => {
+                println!("URL set to: {}", url);
+                eprintln!("Configuration saved successfully.");
+            }
+        }
+
+        Ok(())
     }
 }
 
