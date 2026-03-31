@@ -47,6 +47,9 @@ pub struct Question {
     pub id: u32,
     pub name: String,
     pub description: Option<String>,
+    /// Serialization asymmetry: the custom deserializer converts "root" string to None,
+    /// but when serialized, None becomes null (not "root"). This is intentional — the
+    /// normalized form is cleaner for JSON output.
     #[serde(deserialize_with = "deserialize_collection_id", default)]
     pub collection_id: Option<u32>,
     pub collection: Option<Collection>,
@@ -55,6 +58,7 @@ pub struct Question {
 /// Minimal collection info (embedded in Question)
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct Collection {
+    /// See [`Question::collection_id`] for serialization asymmetry notes.
     #[serde(deserialize_with = "deserialize_collection_id", default)]
     pub id: Option<u32>,
     pub name: String,
@@ -63,6 +67,7 @@ pub struct Collection {
 /// Full collection details from /api/collection
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct CollectionItem {
+    /// See [`Question::collection_id`] for serialization asymmetry notes.
     #[serde(deserialize_with = "deserialize_collection_id", default)]
     pub id: Option<u32>,
     pub name: String,
@@ -111,6 +116,9 @@ pub struct SearchResultItem {
     pub id: u32,
     pub name: String,
     pub description: Option<String>,
+    /// Serialization asymmetry: the custom deserializer converts "root" string to None,
+    /// but when serialized, None becomes null (not "root"). This is intentional — the
+    /// normalized form is cleaner for JSON output.
     #[serde(deserialize_with = "deserialize_collection_id", default)]
     pub collection_id: Option<u32>,
     pub collection: Option<Collection>,
