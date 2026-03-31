@@ -1163,6 +1163,7 @@ dependencies = [
  "crossterm 0.29.0",
  "mbr-core",
  "rpassword",
+ "serde",
  "serde_json",
  "tokio",
 ]
