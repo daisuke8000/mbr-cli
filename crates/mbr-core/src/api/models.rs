@@ -58,6 +58,7 @@ pub struct Question {
 /// Minimal collection info (embedded in Question)
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct Collection {
+    /// See [`Question::collection_id`] for serialization asymmetry notes.
     #[serde(deserialize_with = "deserialize_collection_id", default)]
     pub id: Option<u32>,
     pub name: String,
@@ -66,6 +67,7 @@ pub struct Collection {
 /// Full collection details from /api/collection
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct CollectionItem {
+    /// See [`Question::collection_id`] for serialization asymmetry notes.
     #[serde(deserialize_with = "deserialize_collection_id", default)]
     pub id: Option<u32>,
     pub name: String,
