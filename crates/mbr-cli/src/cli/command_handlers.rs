@@ -1,5 +1,7 @@
 use crate::cli::interactive_display::InteractiveDisplay;
-use crate::cli::output::{ConfigValidateOutput, OutputFormat, ValidateUserInfo, print_json};
+use crate::cli::output::{
+    ConfigValidateOutput, OutputFormat, ValidateUserInfo, escape_csv_field, print_json,
+};
 use mbr_core::api::client::MetabaseClient;
 use mbr_core::display::{
     OperationStatus, ProgressSpinner, TableDisplay, TableHeaderInfoBuilder, display_status,
@@ -54,9 +56,9 @@ pub async fn handle_queries(
                 println!(
                     "{},{},{},{}",
                     q.id,
-                    q.name,
+                    escape_csv_field(&q.name),
                     q.collection_id.map(|id| id.to_string()).unwrap_or_default(),
-                    q.description.as_deref().unwrap_or("")
+                    escape_csv_field(q.description.as_deref().unwrap_or(""))
                 );
             }
         }
@@ -159,14 +161,14 @@ pub async fn handle_run(
                 .data
                 .cols
                 .iter()
-                .map(|col| col.display_name.clone())
+                .map(|col| escape_csv_field(&col.display_name))
                 .collect();
             println!("{}", headers.join(","));
 
             for row in &final_result.data.rows {
                 let csv_row: Vec<String> = row
                     .iter()
-                    .map(|cell| table_display.format_cell_value(cell))
+                    .map(|cell| escape_csv_field(&table_display.format_cell_value(cell)))
                     .collect();
                 println!("{}", csv_row.join(","));
             }
@@ -251,8 +253,8 @@ pub async fn handle_collections(
                 println!(
                     "{},{},{},{}",
                     collection.id.map(|id| id.to_string()).unwrap_or_default(),
-                    collection.name,
-                    collection.description.as_deref().unwrap_or(""),
+                    escape_csv_field(&collection.name),
+                    escape_csv_field(collection.description.as_deref().unwrap_or("")),
                     collection
                         .personal_owner_id
                         .map(|id| id.to_string())
@@ -327,8 +329,8 @@ pub async fn handle_databases(
                 println!(
                     "{},{},{},{}",
                     db.id,
-                    db.name,
-                    db.engine.as_deref().unwrap_or(""),
+                    escape_csv_field(&db.name),
+                    escape_csv_field(db.engine.as_deref().unwrap_or("")),
                     db.is_sample
                 );
             }
@@ -401,10 +403,10 @@ pub async fn handle_tables(
                 println!(
                     "{},{},{},{},{}",
                     t.id,
-                    t.name,
-                    t.schema.as_deref().unwrap_or(""),
-                    t.display_name.as_deref().unwrap_or(""),
-                    t.description.as_deref().unwrap_or("")
+                    escape_csv_field(&t.name),
+                    escape_csv_field(t.schema.as_deref().unwrap_or("")),
+                    escape_csv_field(t.display_name.as_deref().unwrap_or("")),
+                    escape_csv_field(t.description.as_deref().unwrap_or(""))
                 );
             }
         }
