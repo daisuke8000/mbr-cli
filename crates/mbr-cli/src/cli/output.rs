@@ -91,10 +91,13 @@ pub struct JsonErrorDetail {
 
 /// Pretty-print any serializable value as JSON to stdout.
 pub fn print_json<T: Serialize>(data: &T) {
-    match serde_json::to_string_pretty(data) {
-        Ok(json) => println!("{}", json),
-        Err(e) => eprintln!("Error serializing JSON: {}", e),
+    let stdout = std::io::stdout();
+    let writer = std::io::BufWriter::new(stdout.lock());
+    if let Err(e) = serde_json::to_writer_pretty(writer, data) {
+        eprintln!("Error serializing JSON: {}", e);
     }
+    // Print trailing newline for clean shell output
+    println!();
 }
 
 /// Print a structured JSON error to stdout (so callers piping JSON get it).
