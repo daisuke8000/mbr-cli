@@ -31,7 +31,7 @@ where
 }
 
 // User models
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct CurrentUser {
     pub id: u32,
     pub email: String,
@@ -42,7 +42,7 @@ pub struct CurrentUser {
 }
 
 // Question/Card models
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Question {
     pub id: u32,
     pub name: String,
@@ -100,13 +100,13 @@ pub struct TableInfo {
 }
 
 /// Search API response wrapper from /api/search
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SearchResponse {
     pub data: Vec<SearchResultItem>,
 }
 
 /// Individual search result item (used for cards/questions)
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SearchResultItem {
     pub id: u32,
     pub name: String,

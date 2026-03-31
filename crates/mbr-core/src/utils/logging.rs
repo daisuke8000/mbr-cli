@@ -1,12 +1,12 @@
 pub fn print_verbose(verbose: bool, msg: &str) {
     if verbose {
-        println!("Verbose: {}", msg);
+        eprintln!("Verbose: {}", msg);
     }
 }
 
 pub fn print_verbose_with_prefix(verbose: bool, prefix: &str, msg: &str) {
     if verbose {
-        println!("{}: {}", prefix, msg);
+        eprintln!("{}: {}", prefix, msg);
     }
 }
 
@@ -19,7 +19,7 @@ pub fn log_warning(msg: &str) {
 }
 
 pub fn log_info(msg: &str) {
-    println!("Info: {}", msg);
+    eprintln!("Info: {}", msg);
 }
 
 pub struct VerboseLogger {
