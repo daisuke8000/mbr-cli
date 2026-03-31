@@ -51,6 +51,8 @@ cargo run -p mbr-tui
 
 ## CLI Commands
 
+Most commands have short aliases: `queries` → `q`, `collections` → `c`, `databases` → `db`, `config` → `cfg`.
+
 ### Queries
 
 ```bash
@@ -92,6 +94,7 @@ mbr-cli databases --format csv          # Output as CSV
 ### Tables
 
 ```bash
+mbr-cli tables 1                        # List tables (schema defaults to "public")
 mbr-cli tables 1 public                 # List tables in database 1, schema "public"
 mbr-cli tables 1 public -j              # Output as JSON
 ```
@@ -120,9 +123,20 @@ mbr-cli logout                          # Logout and clear session
 |------|-------|-------------|
 | `--json` | `-j` | Output as JSON (all commands) |
 | `--verbose` | `-v` | Enable debug output |
-| `--format` | `-f` | Output format: `table`, `json`, `csv` |
 | `--color` | | Color control: `auto`, `always`, `never` |
 | `--config-dir` | | Custom configuration directory |
+
+### Per-Command Flags
+
+| Flag | Short | Description | Available on |
+|------|-------|-------------|--------------|
+| `--format` | `-f` | Output format: `table`, `json`, `csv` | Most commands |
+| `--limit` | `-l` | Max results to return | `queries`, `run` |
+| `--page-size` | | Rows per page in interactive mode (default: 20) | `run` |
+| `--full` | | Show all results without limit | `run` |
+| `--no-fullscreen` | | Disable interactive fullscreen mode | `run` |
+| `--offset` | | Skip first N rows | `run` |
+| `--param` | `-p` | Query parameter (key=value, repeatable) | `run` |
 
 ## AI Agent Integration
 
