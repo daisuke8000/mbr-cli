@@ -1,247 +1,230 @@
-# MBR-CLI Architecture Design
+# MBR-CLI Architecture
 
-## System Architecture Overview
+## System Overview
 
 ```mermaid
 graph TB
     subgraph Presentation["Presentation Layer"]
-        CLI[mbr-cli]
-        TUI[mbr-tui]
+        CLI[mbr-cli<br/>Flat commands + JSON/CSV/Table output]
+        TUI[mbr-tui<br/>Interactive terminal UI]
     end
 
-    subgraph Core["Core Layer - mbr-core"]
+    subgraph Core["Core Layer — mbr-core"]
         Services[Service Layer]
-        API[API Client]
-        Storage[Storage]
-        Display[Display]
-        Utils[Utils]
+        API[API Client<br/>MetabaseClient]
+        Storage[Storage<br/>Config + Session]
+        Display[Display<br/>Table + Progress]
+        Utils[Utils<br/>Text + CSV + Validation]
+        Error[Error System<br/>AppError + error_code]
     end
 
-    subgraph External["External Systems"]
+    subgraph External["External"]
         Metabase[Metabase API]
-        FileSystem[Config Files / Session]
-        EnvVar[MBR_USERNAME / MBR_PASSWORD / MBR_URL]
+        FS[~/.config/mbr-cli/]
+        Env[Environment Variables]
     end
 
     CLI --> Services
+    CLI --> Display
     TUI --> Services
+    TUI --> API
 
     Services --> API
     Services --> Storage
-    Services --> Display
 
     API --> Metabase
-    Storage --> FileSystem
-    Storage --> EnvVar
+    Storage --> FS
+    Storage --> Env
 ```
 
 ## Workspace Structure
 
-The project is organized as a Cargo Workspace with three crates:
-
-### 1. mbr-core (Foundation Library)
-
-The shared library containing all business logic, API communication, and data management.
-
-**Modules:**
-- `api/` - Metabase HTTP client and data models
-- `core/services/` - Business logic services (ConfigService, QuestionService)
-- `storage/` - Configuration (TOML) and session credential management (session.json)
-- `utils/` - Validation, text formatting, data helpers
-- `display/` - Table rendering, pagination, progress indicators
-- `error.rs` - Hierarchical error system
-
-### 2. mbr-cli (Command Line Interface)
-
-Thin CLI wrapper using clap for argument parsing.
-
-**Modules:**
-- `cli/main_types.rs` - Command definitions with clap derive
-- `cli/dispatcher.rs` - Facade delegating to services
-- `cli/command_handlers.rs` - Config, Query, Collection, Database handlers
-- `cli/interactive_display.rs` - Paginated output
-
-### 3. mbr-tui (Terminal User Interface)
-
-Interactive TUI using ratatui framework.
-
-**Modules:**
-- `app.rs` - Application state and event loop
-- `components/` - UI components (content views, modals, status bar)
-- `event.rs` - Keyboard/mouse event handling
-- `action.rs` - User action definitions
-- `service.rs` - API service integration
-
-## Authentication Flow
-
-### Login Flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant App
-    participant Storage
-    participant Client
-    participant API
-
-    User->>App: mbr-cli login
-    App->>User: Prompt username/password
-    Note over App: Or read MBR_USERNAME/MBR_PASSWORD env vars
-    App->>Client: login(url, username, password)
-    Client->>API: POST /api/session
-    API-->>Client: { id: "session-token" }
-    Client-->>App: Session token
-    App->>Storage: save_session(session.json)
-    Storage-->>App: Saved
-    App-->>User: Login successful
+```
+crates/
+├── mbr-cli/          # CLI binary
+│   └── src/cli/
+│       ├── main_types.rs        # Flat command definitions (clap derive)
+│       ├── dispatcher.rs        # Command routing + auth
+│       ├── command_handlers.rs  # Handler functions per command
+│       ├── output.rs            # OutputFormat, JSON helpers, error output
+│       └── interactive_display.rs  # Fullscreen pagination
+├── mbr-core/         # Shared library
+│   └── src/
+│       ├── api/          # MetabaseClient + API models
+│       ├── core/         # Services (Config, Question)
+│       ├── storage/      # Config (TOML) + Credentials (session.json)
+│       ├── display/      # TableDisplay, ProgressSpinner, Pagination
+│       ├── utils/        # text (CSV escape), validation, logging
+│       └── error.rs      # Hierarchical error system
+└── mbr-tui/          # TUI binary
+    └── src/
+        ├── app.rs        # State + event loop
+        ├── components/   # UI components
+        ├── event.rs      # Event handling
+        └── action.rs     # Action definitions
 ```
 
-### Authenticated Request Flow
+### Crate Dependencies
 
-```mermaid
-sequenceDiagram
-    participant App
-    participant Storage
-    participant Client
-    participant API
-
-    App->>Storage: load_session()
-    Storage-->>App: Session { token, url, username }
-    App->>Client: with_session_token(url, token)
-    Client->>API: Request with X-Metabase-Session header
-    API-->>Client: Response
-    Note over App,API: On 401 Unauthorized, auto re-login if MBR_USERNAME/MBR_PASSWORD set
+```
+mbr-cli  ──┐
+           ├──► mbr-core
+mbr-tui  ──┘
 ```
 
-### Logout Flow
+## CLI Command Architecture
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant App
-    participant Storage
-    participant Client
-    participant API
+### Flat Command Structure
 
-    User->>App: mbr-cli logout
-    App->>Storage: load_session()
-    App->>Client: DELETE /api/session
-    App->>Storage: delete_session()
-    App-->>User: Logged out
+Commands are defined as a flat enum in `main_types.rs`:
+
+```
+mbr-cli
+├── queries       # List saved questions
+├── run <ID>      # Execute a question
+├── collections   # List collections
+├── databases     # List databases
+├── tables <DB> <SCHEMA>  # List tables
+├── status        # Connection status
+├── login         # Authenticate
+├── logout        # Clear session
+└── config
+    ├── set-url <URL>   # Set server URL
+    └── validate        # Validate session
 ```
 
-**Key Points:**
-- Session-based authentication via `mbr-cli login` command
-- Session token stored at `~/.config/mbr-cli/session.json`
-- Each API request includes `X-Metabase-Session` header with the session token
-- Auto re-login on 401 if `MBR_USERNAME` and `MBR_PASSWORD` environment variables are set
-- Credentials can be provided interactively (prompt) or via environment variables
-
-## Error Handling Hierarchy
-
-```mermaid
-graph TD
-    AppError[AppError] --> CliError
-    AppError --> ApiError
-    AppError --> ConfigError
-    AppError --> AuthError
-    AppError --> StorageError
-    AppError --> DisplayError
-    AppError --> QuestionError
-    AppError --> ServiceError
-    AppError --> UtilsError
-
-    CliError --> C1[AuthRequired]
-    CliError --> C2[InvalidArguments]
-    CliError --> C3[NotImplemented]
-
-    ApiError --> A1[Timeout]
-    ApiError --> A2[Http]
-    ApiError --> A3[Unauthorized]
-
-    AuthError --> AU1[NotLoggedIn]
-    AuthError --> AU2[SessionExpired]
-    AuthError --> AU3[LoginFailed]
-
-    ConfigError --> CF1[FileNotFound]
-    ConfigError --> CF2[MissingField]
-    ConfigError --> CF3[InvalidValue]
-```
-
-**Features:**
-- Domain-specific error variants with context fields
-- Severity levels (Critical, High, Medium, Low)
-- Troubleshooting hints for common errors
-- Automatic conversion via `thiserror` derive
-
-## TUI Architecture
-
-The TUI follows a unidirectional data flow pattern:
-
-```mermaid
-flowchart TD
-    Init[App::new] --> Events
-
-    Events[Events] --> Update[Update State]
-    Update --> Render[Render Frame]
-    Render --> Draw[Draw to Terminal]
-    Draw --> Events
-
-    Update --> Action[Trigger Action]
-    Action --> Service[Service Call]
-    Service --> Core[mbr-core API]
-    Core --> Result[Result]
-    Result --> Events
-```
-
-**Components:**
-- `App` - Centralized state with `should_quit`, `active_tab`, `data`
-- `ContentPanel` - Main content area with tabs
-- `StatusBar` - Connection status and keybindings
-- `HelpOverlay` - Modal help display
-- `RecordDetailOverlay` - Record inspection view
-
-## Configuration Management
+### Output Pipeline
 
 ```mermaid
 flowchart LR
-    subgraph Input["Input Sources"]
-        CLI_Args[CLI Arguments]
-        Env[Environment]
-        TOML[config.toml]
-    end
+    Command --> Resolve["resolve_format()<br/>-j flag overrides --format"]
+    Resolve --> Handler
+    Handler --> Format{OutputFormat}
+    Format -->|Json| JSON["print_json()<br/>→ stdout"]
+    Format -->|Csv| CSV["escape_csv_field()<br/>→ stdout"]
+    Format -->|Table| Table["TableDisplay<br/>→ stdout"]
 
-    subgraph Resolution["Resolution"]
-        Parser[Arg Parser]
-        Resolver[Config Resolver]
-    end
-
-    subgraph Priority["Priority Order (URL)"]
-        P1[1. MBR_URL env]
-        P2[2. config.toml]
-    end
-
-    subgraph Auth["Authentication"]
-        S1[Session token from session.json]
-        S2[Auto re-login via MBR_USERNAME/MBR_PASSWORD]
-    end
-
-    CLI_Args --> Parser
-    Env --> Resolver
-    TOML --> Resolver
-
-    Resolver --> P1
-    Resolver --> P2
+    Handler --> Status["Status messages<br/>→ stderr"]
+    Handler --> Spinner["ProgressSpinner<br/>→ stderr"]
 ```
 
-**Configuration File:** `~/.config/mbr-cli/config.toml`
+**Key design decisions:**
+- Data output goes to stdout, status/progress goes to stderr (pipeline safe)
+- Global `-j` flag overrides per-command `--format` via `resolve_format()`
+- `print_json()` uses `serde_json::to_string_pretty` for readable output
+- CSV fields escaped per RFC 4180 via shared `escape_csv_field()` in mbr-core
 
+### Error Handling
+
+```mermaid
+flowchart LR
+    Error[AppError] --> Code["error_code()<br/>e.g. AUTH_NOT_LOGGED_IN"]
+    Error --> Friendly["display_friendly()<br/>Human-readable message"]
+    Error --> Hint["troubleshooting_hint()<br/>Actionable suggestion"]
+    Error --> Exit["exit_code_for()<br/>0/1/2/3/4"]
+
+    Code --> JSON_Err["JSON mode:<br/>{error:{code,message,hint}}<br/>→ stdout"]
+    Friendly --> Text_Err["Text mode:<br/>Error: message<br/>→ stderr"]
+```
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | CLI error (invalid args), Display, Service, or Utils error |
+| 2 | API error (HTTP, query failure) or Question error |
+| 3 | Auth error (not logged in, expired) |
+| 4 | Config error (file, validation) or Storage error |
+
+**Error code examples:** `AUTH_NOT_LOGGED_IN`, `API_UNAUTHORIZED`, `API_TIMEOUT`, `QUESTION_NOT_FOUND`, `CONFIG_MISSING_FIELD`
+
+## Authentication Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CLI
+    participant Storage
+    participant Client
+    participant API
+
+    User->>CLI: mbr-cli login
+    CLI->>User: Prompt username/password
+    Note over CLI: Or read MBR_USERNAME/MBR_PASSWORD
+    CLI->>Client: login(url, username, password)
+    Client->>API: POST /api/session
+    API-->>Client: { id: "session-token" }
+    Client-->>CLI: Session token
+    CLI->>Storage: save_session(session.json)
+    CLI-->>User: Login successful
+```
+
+**Auto re-login:** On 401 Unauthorized, the dispatcher automatically attempts re-login if `MBR_USERNAME`/`MBR_PASSWORD` are set.
+
+**Session storage:** `~/.config/mbr-cli/session.json` (mode 0600 on Unix)
+
+## Query Execution Flow
+
+```mermaid
+flowchart TD
+    Start([mbr-cli run 123 -j]) --> Auth{Session valid?}
+    Auth -->|No| AuthErr["JSON: {error:{code:AUTH_NOT_LOGGED_IN}}"]
+    Auth -->|Yes| Params{Has --param?}
+
+    Params -->|Yes| Parse[Parse key=value pairs]
+    Params -->|No| Exec[POST /api/card/123/query]
+    Parse --> Exec
+
+    Exec --> Spinner["stderr: ⠋ Executing..."]
+    Spinner --> Result{Success?}
+
+    Result -->|Yes| Format{OutputFormat?}
+    Result -->|No| Err["JSON: {error:{code:QUESTION_EXECUTION_FAILED}}"]
+
+    Format -->|Json| Stream["to_string_pretty → stdout"]
+    Format -->|Csv| CSV["escape_csv_field per cell → stdout"]
+    Format -->|Table| Interactive["TableDisplay / InteractiveDisplay"]
+```
+
+## TUI Architecture
+
+Event-driven unidirectional data flow:
+
+```mermaid
+flowchart TD
+    Init[App::new] --> Loop
+    Loop[Event Loop] --> Input[Keyboard Input]
+    Input --> Action[Map to AppAction]
+    Action --> Update[Update State]
+    Update --> Render[Render Frame]
+    Render --> Loop
+
+    Action --> Async[Async API Call]
+    Async --> Channel[MPSC Channel]
+    Channel --> Loop
+```
+
+**Components:**
+- `App` — Centralized state, event loop, action dispatch
+- `ContentPanel` — Tabbed content (Questions / Collections / Databases)
+- `StatusBar` — Connection info and key hints
+- `HelpOverlay` — Modal help display
+- `RecordDetailOverlay` — Record inspection
+- `CopyMenu` — Clipboard format selection (JSON/CSV/TSV)
+
+**State pattern:** `LoadState<T>` enum (Idle / Loading / Loaded / Error)
+
+## Configuration
+
+**Config file:** `~/.config/mbr-cli/config.toml`
 ```toml
 url = "https://metabase.example.com"
 ```
 
-**Session File:** `~/.config/mbr-cli/session.json`
+**URL priority:** `MBR_URL` env var > `config.toml`
 
+**Session file:** `~/.config/mbr-cli/session.json`
 ```json
 {
   "session_token": "...",
@@ -251,73 +234,24 @@ url = "https://metabase.example.com"
 }
 ```
 
-**URL Priority Order:**
-1. `MBR_URL` environment variable
-2. `config.toml` file
-
-**Authentication:**
-- Session token loaded from `~/.config/mbr-cli/session.json`
-- Created by `mbr-cli login` command
-- Auto re-login on 401 if `MBR_USERNAME` and `MBR_PASSWORD` are set
-
-## Query Execution Flow
-
-```mermaid
-flowchart TD
-    Start([query 123]) --> CheckAuth{Session Valid?}
-    CheckAuth -->|No| AuthError[Show Auth Error]
-    CheckAuth -->|Yes| GetQuestion[Get Question Details]
-
-    GetQuestion --> HasParams{Parameters?}
-    HasParams -->|No| Execute[Execute Question]
-    HasParams -->|Yes| ParseParams[Parse --param args]
-
-    ParseParams --> ValidParams{Valid?}
-    ValidParams -->|No| ParamError[Parameter Error]
-    ValidParams -->|Yes| Execute
-
-    Execute --> Progress[Show Progress]
-    Progress --> APICall[POST /api/card/:id/query]
-    APICall --> Result{Success?}
-
-    Result -->|Yes| Format[Format Output]
-    Result -->|No| APIError[Handle Error]
-
-    Format --> Display[Display Table/JSON/CSV]
-    Display --> End([Complete])
-
-    AuthError --> End
-    ParamError --> End
-    APIError --> End
-```
-
-## Architecture Principles
-
-### Layer Dependencies
-
-Each layer only depends on layers below it:
-
-```
-CLI/TUI --> Core --> Storage --> Utils
-                       |
-                       v
-                      API
-```
-
-### Design Patterns
-
-- **Facade Pattern**: CLI dispatcher delegates to services
-- **Service Layer**: Business logic separated from presentation
-- **Component-Based UI**: TUI uses reusable components
-- **Error-First Design**: Comprehensive error handling with hints
-
-### Key Dependencies
+## Key Dependencies
 
 | Crate | Purpose |
 |-------|---------|
-| clap 4.5 | CLI argument parsing |
+| clap 4.5 | CLI argument parsing (derive macros) |
 | tokio 1.40 | Async runtime |
 | reqwest 0.11 | HTTP client |
 | ratatui 0.29 | Terminal UI framework |
 | thiserror 1.0 | Error type derivation |
-| serde 1.0 | Serialization |
+| serde 1.0 | Serialization/deserialization |
+| serde_json 1.0 | JSON output |
+| comfy-table 7.1 | Table rendering |
+| crossterm 0.29 | Terminal control |
+
+## Design Principles
+
+- **Layer isolation**: CLI/TUI depend on Core; Core depends on Storage/API. No upward dependencies.
+- **Shared core**: All business logic lives in mbr-core; presentation stays in CLI/TUI.
+- **Pipeline safety**: Data output goes to stdout, status/progress goes to stderr.
+- **Error-first**: Every operation returns `Result<T, AppError>` with structured error codes.
+- **Flat commands**: Top-level subcommands with aliases (`q`, `c`, `db`, `cfg`) for quick access.
