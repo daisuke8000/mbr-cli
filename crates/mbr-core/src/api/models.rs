@@ -47,6 +47,9 @@ pub struct Question {
     pub id: u32,
     pub name: String,
     pub description: Option<String>,
+    /// Serialization asymmetry: the custom deserializer converts "root" string to None,
+    /// but when serialized, None becomes null (not "root"). This is intentional — the
+    /// normalized form is cleaner for JSON output.
     #[serde(deserialize_with = "deserialize_collection_id", default)]
     pub collection_id: Option<u32>,
     pub collection: Option<Collection>,
@@ -111,6 +114,9 @@ pub struct SearchResultItem {
     pub id: u32,
     pub name: String,
     pub description: Option<String>,
+    /// Serialization asymmetry: the custom deserializer converts "root" string to None,
+    /// but when serialized, None becomes null (not "root"). This is intentional — the
+    /// normalized form is cleaner for JSON output.
     #[serde(deserialize_with = "deserialize_collection_id", default)]
     pub collection_id: Option<u32>,
     pub collection: Option<Collection>,
